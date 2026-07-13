@@ -11,6 +11,7 @@ function App() {
     const [dbName, setDbName] = useState('')
     const [showModal, setShowModal] = useState(false)
     const [searchFilter, setSearchFilter] = useState('')
+    const [selectedZone, setSelectedZone] = useState('')
 
     function connectSource() {
         const config = {
@@ -43,40 +44,61 @@ function App() {
                         <button onClick={() => setShowModal(false)}>✕</button>
                     </div>
                     <label>Host</label>
-                    <input className="border border-gray-600 bg-gray-700 rounded px-2 py-1" value={host} onChange={e => setHost(e.target.value)}/>
+                    <input className="border border-gray-600 bg-gray-700 rounded px-2 py-1" value={host}
+                           onChange={e => setHost(e.target.value)}/>
                     <label>Port</label>
-                    <input className="border border-gray-600 bg-gray-700 rounded px-2 py-1" value={port} onChange={e => setPort(e.target.value)}/>
+                    <input className="border border-gray-600 bg-gray-700 rounded px-2 py-1" value={port}
+                           onChange={e => setPort(e.target.value)}/>
                     <label>Username</label>
-                    <input className="border border-gray-600 bg-gray-700 rounded px-2 py-1" value={username} onChange={e => setUsername(e.target.value)}/>
+                    <input className="border border-gray-600 bg-gray-700 rounded px-2 py-1" value={username}
+                           onChange={e => setUsername(e.target.value)}/>
                     <label>Password</label>
-                    <input className="border border-gray-600 bg-gray-700 rounded px-2 py-1" value={password} onChange={e => setPassword(e.target.value)} type="password"/>
+                    <input className="border border-gray-600 bg-gray-700 rounded px-2 py-1" value={password}
+                           onChange={e => setPassword(e.target.value)} type="password"/>
                     <label>Database</label>
-                    <input className="border border-gray-600 bg-gray-700 rounded px-2 py-1" value={dbName} onChange={e => setDbName(e.target.value)}/>
+                    <input className="border border-gray-600 bg-gray-700 rounded px-2 py-1" value={dbName}
+                           onChange={e => setDbName(e.target.value)}/>
                     <button onClick={connectSource}>Connect Source</button>
                 </div>
             </div>}
             <div className="flex flex-1 min-h-0">
                 <div className="w-64 bg-gray-800 flex flex-col h-full min-h-0">
-                    <div className="px-3 py-2 text-xs font-medium text-gray-400 uppercase tracking-wider border-b border-gray-700">
+                    <div
+                        className="px-3 py-2 text-xs font-medium text-gray-400 uppercase tracking-wider border-b border-gray-700">
                         Connections
                     </div>
                     <div className="px-3 py-2 flex justify-between items-center">
-                        <button onClick={() => setShowModal(true)} className="text-xs text-gray-400 border border-gray-600 rounded px-2 py-1 hover:text-white hover:border-gray-400">
+                        <button onClick={() => setShowModal(true)}
+                                className="text-xs text-gray-400 border border-gray-600 rounded px-2 py-1 hover:text-white hover:border-gray-400">
                             + Add
                         </button>
                     </div>
-                    <div className="px-3 py-2 text-xs font-medium text-gray-400 uppercase tracking-wider border-t border-b border-gray-700">
+                    <div
+                        className="px-3 py-2 text-xs font-medium text-gray-400 uppercase tracking-wider border-t border-b border-gray-700">
                         Zones
                     </div>
+                    <div className="px-3 py-2">
+                        <input className="w-full border border-gray-600 bg-gray-700 rounded px-2 py-1 text-sm"
+                               placeholder="Filter zones..."
+                               value={searchFilter}
+                               onChange={e => setSearchFilter(e.target.value)}/>
+                    </div>
                     <div className="overflow-y-auto flex-1 pl-4 pt-2">
-                        <input className="border border-gray-600 bg-gray-700 rounded px-2 py-1" value={searchFilter} onChange={e => setSearchFilter(e.target.value)}/>
-                        <ul>
-                        {zones
-                            .filter(zone => zone.ShortName.toLowerCase().includes(searchFilter.toLowerCase()))
-                            .map(zone => (
-                            <li key={zone.Id}>{zone.ShortName}</li>
-                        ))}
-                    </ul>
+                        <div className="overflow-y-auto">
+                            <ul>
+                                {zones
+                                    .filter(zone => zone.ShortName.toLowerCase().includes(searchFilter.toLowerCase()))
+                                    .map(zone => (
+                                        <li
+                                            onClick={() => setSelectedZone(zone.ShortName)}
+                                            key={zone.Id}
+                                            className={selectedZone === zone.ShortName ? 'text-yellow-400 cursor-pointer' : 'cursor-pointer'}
+                                        >
+                                            {zone.ShortName}
+                                        </li>
+                                    ))}
+                            </ul>
+                        </div>
                     </div>
                 </div>
                 <div id="input" className="w-1/2 flex flex-col">
