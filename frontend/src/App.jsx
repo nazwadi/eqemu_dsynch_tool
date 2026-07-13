@@ -9,11 +9,11 @@ function App() {
     const [username, setUsername] = useState('')
     const [password, setPassword] = useState('')
     const [dbName, setDbName] = useState('')
-    const [showModal, setShowModal] = useState(false)
+    const [activeModal, setActiveModal] = useState(null)
     const [searchFilter, setSearchFilter] = useState('')
     const [selectedZone, setSelectedZone] = useState('')
 
-    function connectSource() {
+    function connect() {
         const config = {
             Host: host,
             Port: port,
@@ -21,27 +21,23 @@ function App() {
             Password: password,
             DbName: dbName
         }
-
-        Connect(config, true)
-            .then(() => {
-                console.log("connected")
-                return GetZones()
-            })
+        const isSource = activeModal === 'source'
+        Connect(config, isSource)
+            .then(() => isSource ? GetZones() : Promise.resolve())
             .then(zones => {
-                console.log("zones:", zones)
-                setZones(zones)
-                setShowModal(false)
+                if (isSource) setZones(zones)
+                setActiveModal(null)
             })
             .catch(err => console.error("connection failed:", err))
     }
 
     return (
         <div id="App" className="h-screen bg-gray-900 text-white overflow-hidden flex flex-col">
-            {showModal && <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center">
+            {activeModal && <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center">
                 <div className="bg-gray-800 p-6 rounded-lg w-96 flex flex-col gap-3">
                     <div className="flex justify-between items-center mb-4">
                         <h2 className="text-lg font-medium">Connect Source</h2>
-                        <button onClick={() => setShowModal(false)}>✕</button>
+                        <button onClick={() => setActiveModal(null)}>✕</button>
                     </div>
                     <label>Host</label>
                     <input className="border border-gray-600 bg-gray-700 rounded px-2 py-1" value={host}
@@ -58,7 +54,9 @@ function App() {
                     <label>Database</label>
                     <input className="border border-gray-600 bg-gray-700 rounded px-2 py-1" value={dbName}
                            onChange={e => setDbName(e.target.value)}/>
-                    <button onClick={connectSource}>Connect Source</button>
+                    <button onClick={connect}>
+                        {activeModal === 'source' ? 'Connect Source' : 'Connect Sink'}
+                    </button>
                 </div>
             </div>}
             <div className="flex flex-1 min-h-0">
@@ -68,9 +66,13 @@ function App() {
                         Connections
                     </div>
                     <div className="px-3 py-2 flex justify-between items-center">
-                        <button onClick={() => setShowModal(true)}
+                        <button onClick={() => setActiveModal('source')}
                                 className="text-xs text-gray-400 border border-gray-600 rounded px-2 py-1 hover:text-white hover:border-gray-400">
-                            + Add
+                            + Source DB
+                        </button>
+                        <button onClick={() => setActiveModal('sink')}
+                                className="text-xs text-gray-400 border border-gray-600 rounded px-2 py-1 hover:text-white hover:border-gray-400">
+                            + Sink DB
                         </button>
                     </div>
                     <div
