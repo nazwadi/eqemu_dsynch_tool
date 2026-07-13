@@ -4,6 +4,6 @@ import {main} from '../models';
 
 export function Connect(arg1:main.ConnectionConfig,arg2:boolean):Promise<void>;
 
-export function GetZones():Promise<Array<main.Zone>>;
+export function GetNPCsForZone(arg1:string):Promise<Array<main.NPC>>;
 
-export function Greet(arg1:string):Promise<string>;
+export function GetZones():Promise<Array<main.Zone>>;

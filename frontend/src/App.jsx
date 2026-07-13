@@ -1,6 +1,6 @@
 import {useState} from 'react';
 import './App.css';
-import {Connect, GetZones} from "../wailsjs/go/main/App";
+import {Connect, GetNPCsForZone, GetZones} from "../wailsjs/go/main/App";
 
 function App() {
     const [zones, setZones] = useState([])
@@ -12,6 +12,8 @@ function App() {
     const [activeModal, setActiveModal] = useState(null)
     const [searchFilter, setSearchFilter] = useState('')
     const [selectedZone, setSelectedZone] = useState('')
+    const [selectedNpc, setSelectedNpc] = useState('')
+    const [npcs, setNpcs] = useState([])
     const [sourceConnected, setSourceConnected] = useState(false)
     const [sinkConnected, setSinkConnected] = useState(false)
 
@@ -119,7 +121,11 @@ function App() {
                                     .filter(zone => zone.ShortName.toLowerCase().includes(searchFilter.toLowerCase()))
                                     .map(zone => (
                                         <li
-                                            onClick={() => setSelectedZone(zone.ShortName)}
+                                            onClick={() => {
+                                                setSelectedZone(zone.ShortName)
+                                                GetNPCsForZone(zone.ShortName)
+                                                    .then(npcs => setNpcs(npcs))
+                                            }}
                                             key={zone.Id}
                                             className={selectedZone === zone.ShortName ? 'text-yellow-400 cursor-pointer' : 'cursor-pointer'}
                                         >
@@ -131,11 +137,28 @@ function App() {
                     </div>
                 </div>
                 <div id="input" className="w-1/2 flex flex-col">
-                    <div>
-                        <h3>Source</h3>
+                    <div className="justify-center">
+                        <div
+                            className="px-3 py-2 text-xs font-medium text-gray-400 uppercase tracking-wider border-b border-gray-700">
+                            NPC's that Spawn in {selectedZone}
+                        </div>
                     </div>
-                    <div>
-                        <h3>Sink</h3>
+                    <div className="overflow-y-auto flex-1 pl-4 pt-2">
+                        <div className="overflow-y-auto">
+                            <ul>
+                                {npcs
+                                    .filter(npc => npc.Name.toLowerCase().includes(searchFilter.toLowerCase()))
+                                    .map(npc => (
+                                        <li
+                                            onClick={() => setSelectedNpc(npc.Name)}
+                                            key={npc.Id}
+                                            className={selectedNpc === npc.Name ? 'text-yellow-400 cursor-pointer' : 'cursor-pointer'}
+                                        >
+                                            {npc.Name}
+                                        </li>
+                                    ))}
+                            </ul>
+                        </div>
                     </div>
                 </div>
                 <div className="w-1/2 bg-gray-800">

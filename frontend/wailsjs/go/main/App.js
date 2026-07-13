@@ -6,10 +6,10 @@ export function Connect(arg1, arg2) {
   return window['go']['main']['App']['Connect'](arg1, arg2);
 }
 
-export function GetZones() {
-  return window['go']['main']['App']['GetZones']();
+export function GetNPCsForZone(arg1) {
+  return window['go']['main']['App']['GetNPCsForZone'](arg1);
 }
 
-export function Greet(arg1) {
-  return window['go']['main']['App']['Greet'](arg1);
+export function GetZones() {
+  return window['go']['main']['App']['GetZones']();
 }

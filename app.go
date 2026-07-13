@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"database/sql"
-	"fmt"
 	"time"
 
 	_ "github.com/go-sql-driver/mysql"
@@ -40,6 +39,15 @@ type Zone struct {
 	LongName     string
 }
 
+type NPC struct {
+	Id    int64
+	Name  string
+	Level int8
+	HP    int64
+	Race  int64
+	Class int64
+}
+
 // NewApp creates a new App application struct
 func NewApp() *App {
 	return &App{}
@@ -49,11 +57,6 @@ func NewApp() *App {
 // so we can call the runtime methods
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
-}
-
-// Greet returns a greeting for the given name
-func (a *App) Greet(name string) string {
-	return fmt.Sprintf("Hello %s, It's show time!", name)
 }
 
 func (a *App) Connect(c *ConnectionConfig, isSource bool) error {
@@ -106,6 +109,38 @@ func (a *App) GetZones() ([]Zone, error) {
 		return nil, err
 	}
 	return zones, nil
+}
+
+func (a *App) GetNPCsForZone(shortName string) ([]NPC, error) {
+	rows, err := a.sourceDB.QueryContext(a.ctx, `
+		SELECT DISTINCT nt.id, nt.name, nt.level, nt.hp, nt.race, nt.class
+		FROM npc_types nt
+		    JOIN spawnentry se ON se.npcID = nt.id
+		    JOIN spawngroup sg ON sg.id = se.spawngroupID
+		    JOIN spawn2 s2 ON s2.spawngroupID = sg.id
+		WHERE s2.zone = ?
+		ORDER BY nt.Name
+		`, shortName)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var npcs []NPC
+	for rows.Next() {
+		var npc NPC
+		if err := rows.Scan(
+			&npc.Id,
+			&npc.Name,
+			&npc.Level,
+			&npc.HP,
+			&npc.Race,
+			&npc.Class,
+		); err != nil {
+			return nil, err
+		}
+		npcs = append(npcs, npc)
+	}
+	return npcs, nil
 }
 
 func (a *App) shutdown(ctx context.Context) {

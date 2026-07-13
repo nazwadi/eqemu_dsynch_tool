@@ -60,6 +60,28 @@ export namespace main {
 		    return a;
 		}
 	}
+	export class NPC {
+	    Id: number;
+	    Name: string;
+	    Level: number;
+	    HP: number;
+	    Race: number;
+	    Class: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new NPC(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.Id = source["Id"];
+	        this.Name = source["Name"];
+	        this.Level = source["Level"];
+	        this.HP = source["HP"];
+	        this.Race = source["Race"];
+	        this.Class = source["Class"];
+	    }
+	}
 	
 	export class Zone {
 	    Id: number;
