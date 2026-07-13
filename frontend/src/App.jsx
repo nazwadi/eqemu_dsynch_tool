@@ -10,6 +10,7 @@ function App() {
     const [password, setPassword] = useState('')
     const [dbName, setDbName] = useState('')
     const [showModal, setShowModal] = useState(false)
+    const [searchFilter, setSearchFilter] = useState('')
 
     function connectSource() {
         const config = {
@@ -68,8 +69,11 @@ function App() {
                         Zones
                     </div>
                     <div className="overflow-y-auto flex-1 pl-4 pt-2">
-                    <ul>
-                        {zones.map(zone => (
+                        <input className="border border-gray-600 bg-gray-700 rounded px-2 py-1" value={searchFilter} onChange={e => setSearchFilter(e.target.value)}/>
+                        <ul>
+                        {zones
+                            .filter(zone => zone.ShortName.toLowerCase().includes(searchFilter.toLowerCase()))
+                            .map(zone => (
                             <li key={zone.Id}>{zone.ShortName}</li>
                         ))}
                     </ul>
