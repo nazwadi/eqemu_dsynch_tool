@@ -12,6 +12,8 @@ function App() {
     const [activeModal, setActiveModal] = useState(null)
     const [searchFilter, setSearchFilter] = useState('')
     const [selectedZone, setSelectedZone] = useState('')
+    const [sourceConnected, setSourceConnected] = useState(false)
+    const [sinkConnected, setSinkConnected] = useState(false)
 
     function connect() {
         const config = {
@@ -25,7 +27,12 @@ function App() {
         Connect(config, isSource)
             .then(() => isSource ? GetZones() : Promise.resolve())
             .then(zones => {
-                if (isSource) setZones(zones)
+                if (isSource) {
+                    setZones(zones)
+                    setSourceConnected(true)
+                } else {
+                    setSinkConnected(true)
+                }
                 setActiveModal(null)
             })
             .catch(err => console.error("connection failed:", err))
@@ -65,15 +72,35 @@ function App() {
                         className="px-3 py-2 text-xs font-medium text-gray-400 uppercase tracking-wider border-b border-gray-700">
                         Connections
                     </div>
-                    <div className="px-3 py-2 flex justify-between items-center">
-                        <button onClick={() => setActiveModal('source')}
-                                className="text-xs text-gray-400 border border-gray-600 rounded px-2 py-1 hover:text-white hover:border-gray-400">
-                            + Source DB
-                        </button>
-                        <button onClick={() => setActiveModal('sink')}
-                                className="text-xs text-gray-400 border border-gray-600 rounded px-2 py-1 hover:text-white hover:border-gray-400">
-                            + Sink DB
-                        </button>
+                    <div className="px-3 py-2 flex flex-col gap-2">
+                        <div className="border border-gray-600 rounded p-2 flex justify-between items-center">
+                            <div>
+                                <div className="text-xs text-gray-400">Source</div>
+                                <div className="text-xs text-white">{sourceConnected ? host : 'Not connected'}</div>
+                            </div>
+                            <div className="flex flex-items gap-2">
+                                <div
+                                    className={`w-2 h-2 rounded-full ${sourceConnected ? 'bg-green-500' : 'bg-red-500'}`}></div>
+                                <button onClick={() => setActiveModal('source')}
+                                        className="text-xs text-gray-400 border border-gray-600 rounded px-2 py-1 hover:text-white hover:border-gray-400">
+                                    {sourceConnected ? 'Edit' : 'Connect'}
+                                </button>
+                            </div>
+                        </div>
+                        <div className="border border-gray-600 rounded p-2 flex justify-between items-center">
+                            <div>
+                                <div className="text-xs text-gray-400">Sink</div>
+                                <div className="text-xs text-white">{sinkConnected ? host : 'Not connected'}</div>
+                            </div>
+                            <div className="flex flex-items gap-2">
+                                <div
+                                    className={`w-2 h-2 rounded-full ${sinkConnected ? 'bg-green-500' : 'bg-red-500'}`}></div>
+                                <button onClick={() => setActiveModal('sink')}
+                                        className="text-xs text-gray-400 border border-gray-600 rounded px-2 py-1 hover:text-white hover:border-gray-400">
+                                    {sinkConnected ? 'Edit' : 'Connect'}
+                                </button>
+                            </div>
+                        </div>
                     </div>
                     <div
                         className="px-3 py-2 text-xs font-medium text-gray-400 uppercase tracking-wider border-t border-b border-gray-700">
