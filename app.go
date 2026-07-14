@@ -113,12 +113,13 @@ func (a *App) GetZones() ([]Zone, error) {
 
 func (a *App) GetNPCsForZone(shortName string) ([]NPC, error) {
 	rows, err := a.sourceDB.QueryContext(a.ctx, `
-		SELECT DISTINCT nt.id, nt.name, nt.level, nt.hp, nt.race, nt.class
+		SELECT nt.id, nt.name, nt.level, nt.hp, nt.race, nt.class
 		FROM npc_types nt
 		    JOIN spawnentry se ON se.npcID = nt.id
 		    JOIN spawngroup sg ON sg.id = se.spawngroupID
 		    JOIN spawn2 s2 ON s2.spawngroupID = sg.id
 		WHERE s2.zone = ?
+		GROUP BY nt.id
 		ORDER BY nt.Name
 		`, shortName)
 	if err != nil {
