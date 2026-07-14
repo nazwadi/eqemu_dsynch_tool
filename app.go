@@ -111,8 +111,12 @@ func (a *App) GetZones() ([]Zone, error) {
 	return zones, nil
 }
 
-func (a *App) GetNPCsForZone(shortName string) ([]NPC, error) {
-	rows, err := a.sourceDB.QueryContext(a.ctx, `
+func (a *App) GetNPCsForZone(shortName string, isSource bool) ([]NPC, error) {
+	db := a.sourceDB
+	if !isSource {
+		db = a.sinkDB
+	}
+	rows, err := db.QueryContext(a.ctx, `
 		SELECT nt.id, nt.name, nt.level, nt.hp, nt.race, nt.class
 		FROM npc_types nt
 		    JOIN spawnentry se ON se.npcID = nt.id
