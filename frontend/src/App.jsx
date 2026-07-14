@@ -8,11 +8,13 @@ function App() {
     const [port, setPort] = useState('')
     const [username, setUsername] = useState('')
     const [password, setPassword] = useState('')
-    const [dbName, setDbName] = useState('')
+    const [dbSourceName, setDbSourceName] = useState('')
+    const [dbSinkName, setDbSinkName] = useState('')
     const [activeModal, setActiveModal] = useState(null)
     const [searchFilter, setSearchFilter] = useState('')
-    const [selectedZone, setSelectedZone] = useState('')
-    const [selectedNpc, setSelectedNpc] = useState('')
+    const [selectedZoneShortName, setSelectedZoneShortName] = useState('')
+    const [selectedZoneLongName, setSelectedZoneLongName] = useState('')
+    const [selectedNpc, setSelectedNpc] = useState(null)
     const [sourceNpcs, setSourceNpcs] = useState([])
     const [sinkNpcs, setSinkNpcs] = useState([])
     const [sourceConnected, setSourceConnected] = useState(false)
@@ -24,7 +26,7 @@ function App() {
             Port: port,
             Username: username,
             Password: password,
-            DbName: dbName
+            DbName: activeModal === 'source' ? dbSourceName : dbSinkName
         }
         const isSource = activeModal === 'source'
         Connect(config, isSource)
@@ -62,15 +64,16 @@ function App() {
                     <input className="border border-gray-600 bg-gray-700 rounded px-2 py-1" value={password}
                            onChange={e => setPassword(e.target.value)} type="password"/>
                     <label>Database</label>
-                    <input className="border border-gray-600 bg-gray-700 rounded px-2 py-1" value={dbName}
-                           onChange={e => setDbName(e.target.value)}/>
+                    <input className="border border-gray-600 bg-gray-700 rounded px-2 py-1"
+                           value={activeModal === 'source' ? dbSourceName: dbSinkName}
+                           onChange={e => activeModal === 'source' ? setDbSourceName(e.target.value) : setDbSinkName(e.target.value)}/>
                     <button onClick={connect}>
                         {activeModal === 'source' ? 'Connect Source' : 'Connect Sink'}
                     </button>
                 </div>
             </div>}
             <div className="flex flex-1 min-h-0">
-                <div className="w-64 bg-gray-800 flex flex-col h-full min-h-0">
+                <div className="w-64 bg-gray-900 border-b border-gray-700 flex flex-col h-full min-h-0">
                     <div
                         className="px-3 py-2 text-xs font-medium text-gray-400 uppercase tracking-wider border-b border-gray-700">
                         Connections
@@ -123,12 +126,13 @@ function App() {
                                     .map(zone => (
                                         <li
                                             onClick={() => {
-                                                setSelectedZone(zone.ShortName)
+                                                setSelectedZoneShortName(zone.ShortName)
+                                                setSelectedZoneLongName(zone.LongName)
                                                 GetNPCsForZone(zone.ShortName, true).then(npcs => setSourceNpcs(npcs))
                                                 GetNPCsForZone(zone.ShortName, false).then(npcs => setSinkNpcs(npcs))
                                             }}
                                             key={zone.Id}
-                                            className={selectedZone === zone.ShortName ? 'text-yellow-400 cursor-pointer' : 'cursor-pointer'}
+                                            className={selectedZoneShortName === zone.ShortName ? 'text-yellow-400 cursor-pointer' : 'cursor-pointer'}
                                         >
                                             {zone.ShortName}
                                         </li>
@@ -141,39 +145,51 @@ function App() {
                     <div className="justify-center">
                         <div
                             className="px-3 py-2 text-xs font-medium text-gray-400 uppercase tracking-wider border-b border-gray-700">
-                            NPC's that Spawn in {selectedZone}
+                            {selectedZoneLongName} - {selectedZoneShortName}
                         </div>
                     </div>
                     <div className="flex flex-1 min-h-0 overflow-hidden">
-                        <div className="overflow-y-auto flex-1 pl-4 pt-2">
-                            <div className="overflow-y-auto">
+                        <div className="flex-1 overflow-y-auto min-h-0 pl-4 pt-2 border-r border-gray-700">
+                            <div className="justify-center">
+                                <div
+                                    className="px-3 py-2 text-xs font-medium text-gray-400 uppercase tracking-wider border-b border-gray-700">
+                                    Source: {dbSourceName} ({sourceNpcs.length} NPCs)
+                                </div>
+                            </div>
+                            <div className="border-l border-gray-700 pl-4">
                                 <ul>
                                     {sourceNpcs
                                         .filter(npc => npc.Name.toLowerCase().includes(searchFilter.toLowerCase()))
                                         .map(npc => (
                                             <li
-                                                onClick={() => setSelectedNpc(npc.Name)}
+                                                onClick={() => setSelectedNpc(npc)}
                                                 key={npc.Id}
-                                                className={selectedNpc === npc.Name ? 'text-yellow-400 cursor-pointer' : 'cursor-pointer'}
+                                                className={`text-xs py-1 px-2 border-b border-gray-800 cursor-pointer ${selectedNpc?.Id === npc.Id ? 'text-yellow-400' : 'text-gray-300'}`}
                                             >
-                                                {npc.Name}
+                                                {npc.Name} ({npc.Id})
                                             </li>
                                         ))}
                                 </ul>
                             </div>
                         </div>
-                        <div className="overflow-y-auto flex-1 pl-4 pt-2">
-                            <div className="overflow-y-auto">
+                        <div className="flex-1 overflow-y-auto min-h-0 pl-4 pt-2">
+                            <div className="justify-center">
+                                <div
+                                    className="px-3 py-2 text-xs font-medium text-gray-400 uppercase tracking-wider border-b border-gray-700">
+                                    Sink: {dbSinkName} ({sinkNpcs.length} NPCs)
+                                </div>
+                            </div>
+                            <div className="border-l border-gray-700 pl-4">
                                 <ul>
                                     {sinkNpcs
                                         .filter(npc => npc.Name.toLowerCase().includes(searchFilter.toLowerCase()))
                                         .map(npc => (
                                             <li
-                                                onClick={() => setSelectedNpc(npc.Name)}
+                                                onClick={() => setSelectedNpc(npc)}
                                                 key={npc.Id}
-                                                className={selectedNpc === npc.Name ? 'text-yellow-400 cursor-pointer' : 'cursor-pointer'}
+                                                className={`text-xs py-1 px-2 border-b border-gray-800 cursor-pointer ${selectedNpc?.Id === npc.Id ? 'text-yellow-400' : 'text-gray-300'}`}
                                             >
-                                                {npc.Name}
+                                                {npc.Name} ({npc.Id})
                                             </li>
                                         ))}
                                 </ul>
@@ -181,13 +197,13 @@ function App() {
                         </div>
                     </div>
                 </div>
-                <div className="w-1/2 bg-gray-800">
+                <div className="w-64 bg-gray-800">
                     <div className="justify-center">
                         <div
                             className="px-3 py-2 text-xs font-medium text-gray-400 uppercase tracking-wider border-b border-gray-700">
                             NPC Detail
                         </div>
-                        Name: {selectedNpc}
+                        Name: {selectedNpc?.Name}
                     </div>
                 </div>
             </div>
