@@ -48,6 +48,12 @@ type NPC struct {
 	Class int64
 }
 
+type NPCDiffRow struct {
+	Status string
+	Source *NPC
+	Sink   *NPC
+}
+
 // NewApp creates a new App application struct
 func NewApp() *App {
 	return &App{}
