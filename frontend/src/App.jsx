@@ -1,6 +1,6 @@
-import {useState, useEffect} from 'react';
+import {useEffect, useState} from 'react';
 import './App.css';
-import {Connect, CompareZones, LoadConfig, SaveConfig, GetZones} from "../wailsjs/go/main/App";
+import {CompareZones, Connect, GetZones, LoadConfig, SaveConfig} from "../wailsjs/go/main/App";
 
 function App() {
     const [zones, setZones] = useState([])
@@ -22,6 +22,11 @@ function App() {
     const [diffRows, setDiffRows] = useState([])
     const [sourceConnected, setSourceConnected] = useState(false)
     const [sinkConnected, setSinkConnected] = useState(false)
+    const [diffFilter, setDiffFilter] = useState('all')
+    const [selectedRowKey, setSelectedRowKey] = useState(null)
+    const [sortBy, setSortBy] = useState('status')
+    const [sortDir, setSortDir] = useState('asc')
+    const statusOrder = {'new': 0, 'modified': 1, 'removed': 2, 'match': 3}
 
     function connect() {
         const config = {
@@ -61,6 +66,7 @@ function App() {
             })
             .catch(err => console.error("connection failed:", err))
     }
+
     useEffect(() => {
         LoadConfig()
             .then(config => {
@@ -82,15 +88,22 @@ function App() {
                         setZones(zones)
                         setSourceConnected(true)
                     })
-                    .catch(() => {})
+                    .catch(() => {
+                    })
 
                 // auto-connect sink
                 Connect(config.Sink, false)
                     .then(() => setSinkConnected(true))
-                    .catch(() => {})
+                    .catch(() => {
+                    })
             })
-            .catch(() => {}) // ignore if no config file yet
+            .catch(() => {
+            }) // ignore if no config file yet
     }, [])
+
+    const newCount = diffRows.filter(r => r.Status === 'new').length
+    const removedCount = diffRows.filter(r => r.Status === 'removed').length
+    const modifiedCount = diffRows.filter(r => r.Status === 'modified').length
 
     return (
         <div id="App" className="h-screen bg-gray-900 text-white overflow-hidden flex flex-col">
@@ -101,20 +114,25 @@ function App() {
                         <button onClick={() => setActiveModal(null)}>✕</button>
                     </div>
                     <label>Host</label>
-                    <input className="border border-gray-600 bg-gray-700 rounded px-2 py-1" value={activeModal === 'source' ? sourceHost : sinkHost}
+                    <input className="border border-gray-600 bg-gray-700 rounded px-2 py-1"
+                           value={activeModal === 'source' ? sourceHost : sinkHost}
                            onChange={e => activeModal === 'source' ? setSourceHost(e.target.value) : setSinkHost(e.target.value)}/>
                     <label>Port</label>
-                    <input className="border border-gray-600 bg-gray-700 rounded px-2 py-1" value={activeModal === 'source' ? sourcePort : sinkPort}
+                    <input className="border border-gray-600 bg-gray-700 rounded px-2 py-1"
+                           value={activeModal === 'source' ? sourcePort : sinkPort}
                            onChange={e => activeModal === 'source' ? setSourcePort(e.target.value) : setSinkPort(e.target.value)}/>
                     <label>Username</label>
-                    <input className="border border-gray-600 bg-gray-700 rounded px-2 py-1" value={activeModal === 'source' ? sourceUsername : sinkUsername}
+                    <input className="border border-gray-600 bg-gray-700 rounded px-2 py-1"
+                           value={activeModal === 'source' ? sourceUsername : sinkUsername}
                            onChange={e => activeModal === 'source' ? setSourceUsername(e.target.value) : setSinkUsername(e.target.value)}/>
                     <label>Password</label>
-                    <input className="border border-gray-600 bg-gray-700 rounded px-2 py-1" value={activeModal === 'source' ? sourcePassword : sinkPassword}
-                           onChange={e => activeModal === 'source' ? setSourcePassword(e.target.value) : setSinkPassword(e.target.value)} type="password"/>
+                    <input className="border border-gray-600 bg-gray-700 rounded px-2 py-1"
+                           value={activeModal === 'source' ? sourcePassword : sinkPassword}
+                           onChange={e => activeModal === 'source' ? setSourcePassword(e.target.value) : setSinkPassword(e.target.value)}
+                           type="password"/>
                     <label>Database</label>
                     <input className="border border-gray-600 bg-gray-700 rounded px-2 py-1"
-                           value={activeModal === 'source' ? dbSourceName: dbSinkName}
+                           value={activeModal === 'source' ? dbSourceName : dbSinkName}
                            onChange={e => activeModal === 'source' ? setDbSourceName(e.target.value) : setDbSinkName(e.target.value)}/>
                     <button onClick={connect}>
                         {activeModal === 'source' ? 'Connect Source' : 'Connect Sink'}
@@ -131,7 +149,8 @@ function App() {
                         <div className="border border-gray-600 rounded p-2 flex justify-between items-center">
                             <div>
                                 <div className="text-xs text-gray-400">Source</div>
-                                <div className="text-xs text-white">{sourceConnected ? sourceHost : 'Not connected'}</div>
+                                <div
+                                    className="text-xs text-white">{sourceConnected ? sourceHost : 'Not connected'}</div>
                             </div>
                             <div className="flex flex-items gap-2">
                                 <div
@@ -189,27 +208,102 @@ function App() {
                         </div>
                     </div>
                 </div>
+                {/* Zone View*/}
                 <div id="input" className="w-1/2 flex flex-1 flex-col">
                     <div className="justify-center">
                         <div
-                            className="px-3 py-2 text-xs font-medium text-gray-400 uppercase tracking-wider border-b border-gray-700">
+                            className="px-3 py-2 text-xs font-medium text-gray-400 uppercase tracking-wider border-b border-gray-700 flex items-center gap-3">
                             {selectedZoneLongName} - {selectedZoneShortName}
+                            {diffRows.length > 0 && <>
+                                <span className="px-2 py-0.5 rounded bg-green-950 text-green-400">+{newCount}</span>
+                                <span
+                                    className="px-2 py-0.5 rounded bg-yellow-950 text-yellow-400">~{modifiedCount}</span>
+                                <span className="px-2 py-0.5 rounded bg-red-950 text-red-400">-{removedCount}</span>
+                            </>}
+                        </div>
+                    </div>
+                    <div className="flex gap-2 px-3 py-2 border-b border-gray-700">
+                        <button
+                            onClick={() => setDiffFilter('all')}
+                            className={`text-xs px-3 py-1 rounded border ${diffFilter === 'all' ? 'border-yellow-400 text-yellow-400' : 'border-gray-600 text-gray-400 hover:border-gray-400'}`}>
+                            Show All
+                        </button>
+                        <button
+                            onClick={() => setDiffFilter('diff')}
+                            className={`text-xs px-3 py-1 rounded border ${diffFilter === 'diff' ? 'border-yellow-400 text-yellow-400' : 'border-gray-600 text-gray-400 hover:border-gray-400'}`}>
+                            Differences Only
+                        </button>
+                    </div>
+                    <div className="flex gap-2 px-3 py-1 border-b border-gray-700 bg-gray-850">
+                        {[
+                            {label: 'Status', value: 'status'},
+                            {label: 'Name', value: 'name'},
+                            {label: 'ID', value: 'id'},
+                        ].map(sort => (
+                            <button
+                                key={sort.value}
+                                onClick={() => {
+                                    if (sortBy === sort.value) {
+                                        setSortDir(sortDir === 'asc' ? 'desc' : 'asc')
+                                    } else {
+                                        setSortBy(sort.value)
+                                        setSortDir('asc')
+                                    }
+                                }}
+                                className={`text-xs px-3 py-1 rounded border ${sortBy === sort.value ? 'border-yellow-400 text-yellow-400' : 'border-gray-600 text-gray-400 hover:border-gray-400'}`}>
+                                {sort.label} {sortBy === sort.value ? (sortDir === 'asc' ? '↑' : '↓') : ''}
+                            </button>
+                        ))}
+                    </div>
+                    <div className="flex border-b border-gray-700 bg-gray-800">
+                        <div className="flex-1 text-xs px-2 py-1 text-gray-400 uppercase tracking-wider">
+                            Source: {dbSourceName}
+                        </div>
+                        <div
+                            className="flex-1 text-xs px-2 py-1 text-gray-400 uppercase tracking-wider border-l border-gray-700">
+                            Sink: {dbSinkName}
                         </div>
                     </div>
                     <div className="flex flex-1 min-h-0 overflow-hidden flex-col overflow-y-auto">
-                        {diffRows.map((row, index) => (
-                            <div key={index} className={`flex border-b border-gray-800 ${
-                                row.Status === 'new' ? 'bg-green-950' :
-                                row.Status === 'removed' ? 'bg-red-950' :
-                                row.Status === 'modified' ? 'bg-yellow-950' :
-                                'bg-transparent'
-                            }`} onClick={() => setSelectedNpc(row)}>
-                                <div className="flex-1 test-xs px-2 py-1">{row.Source?.Name} ({row.Source?.Id})</div>
-                                <div className="flex-1 test-xs px-2 py-1 border border-gray-700">{row.Sink?.Name} ({row.Sink?.Id})</div>
-                            </div>
-                        ))}
+                        {diffRows
+                            .filter(row => diffFilter === 'all' || row.Status !== 'match')
+                            .sort((a, b) => {
+                                let result
+                                if (sortBy === 'status') {
+                                    result = statusOrder[a.Status] - statusOrder[b.Status]
+                                } else if (sortBy === 'name') {
+                                    result = a.Source?.Name.localeCompare(b.Source?.Name)
+                                } else if (sortBy === 'id') {
+                                    result = (a.Source?.Id ?? a.Sink?.Id) - (b.Source?.Id ?? b.Sink?.Id)
+                                }
+                                return sortDir === 'asc' ? result : result * -1
+                            })
+                            .map((row) => {
+                                const rowKey = `${row.Source?.Id ?? ''}-${row.Sink?.Id ?? ''}`
+                                return (
+                                    <div key={rowKey}
+                                         className={`flex border-b border-gray-800 cursor-pointer ${
+                                             selectedRowKey === rowKey ? 'bg-blue-900/40 border-l-2 border-l-yellow-400' :
+                                                 row.Status === 'new' ? 'bg-green-950 border-l-2 border-l-transparent' :
+                                                     row.Status === 'removed' ? 'bg-red-950 border-l-2 border-l-transparent' :
+                                                         row.Status === 'modified' ? 'bg-yellow-950 border-l-2 border-l-transparent' :
+                                                             'bg-transparent border-l-2 border-l-transparent'
+                                         }`}
+                                         onClick={() => {
+                                             setSelectedNpc(row)
+                                             setSelectedRowKey(rowKey)
+                                         }}
+                                    >
+                                        <div
+                                            className="flex-1 text-xs px-2 py-1">{row.Source?.Name ? `${row.Source.Name} (${row.Source?.Id})` : '-'}</div>
+                                        <div className={`flex-1 text-xs px-2 py-1 border-l border-gray-700`}>
+                                            {row.Sink?.Name ? `${row.Sink.Name} (${row.Sink?.Id})` : '-'}</div>
+                                    </div>
+                                )
+                            })}
                     </div>
                 </div>
+                {/* NPC View*/}
                 <div className="w-64 bg-gray-800">
                     <div className="justify-center">
                         <div
@@ -234,11 +328,14 @@ function App() {
                                     const differs = srcVal !== sinkVal
                                     return (
                                         <div key={field.key}>
-                                            <div className="text-gray-400 uppercase tracking-wider mb-1">{field.label}</div>
+                                            <div
+                                                className="text-gray-400 uppercase tracking-wider mb-1">{field.label}</div>
                                             <div className="flex gap-2">
-                                                <span className={differs ? 'text-yellow-400' : 'text-gray-300'}>{srcVal ?? '—'}</span>
+                                                <span
+                                                    className={differs ? 'text-yellow-400' : 'text-gray-300'}>{srcVal ?? '—'}</span>
                                                 <span className="text-gray-600">→</span>
-                                                <span className={differs ? 'text-yellow-400' : 'text-gray-300'}>{sinkVal ?? '—'}</span>
+                                                <span
+                                                    className={differs ? 'text-yellow-400' : 'text-gray-300'}>{sinkVal ?? '—'}</span>
                                             </div>
                                         </div>
                                     )
