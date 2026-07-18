@@ -27,6 +27,7 @@ function App() {
     const [sortBy, setSortBy] = useState('status')
     const [sortDir, setSortDir] = useState('asc')
     const statusOrder = {'new': 0, 'modified': 1, 'removed': 2, 'match': 3}
+    const [detailWidth, setDetailWidth] = useState(240)
 
     function connect() {
         const config = {
@@ -293,49 +294,68 @@ function App() {
                             No NPCs found in this zone
                         </div>
                     ) : (
-                    <div className="flex flex-1 min-h-0 overflow-hidden flex-col overflow-y-auto">
-                        {diffRows
-                            .filter(row => diffFilter === 'all' || row.Status !== 'match')
-                            .sort((a, b) => {
-                                let result
-                                if (sortBy === 'status') {
-                                    result = statusOrder[a.Status] - statusOrder[b.Status]
-                                } else if (sortBy === 'name') {
-                                    result = a.Source?.Fields?.name.localeCompare(b.Source?.Fields?.name)
-                                } else if (sortBy === 'id') {
-                                    result = (a.Source?.Id ?? a.Sink?.Id) - (b.Source?.Id ?? b.Sink?.Id)
-                                }
-                                return sortDir === 'asc' ? result : result * -1
-                            })
-                            .map((row) => {
-                                const rowKey = `${row.Source?.Id ?? ''}-${row.Sink?.Id ?? ''}`
-                                return (
-                                    <div key={rowKey}
-                                         className={`flex border-b border-gray-800 cursor-pointer ${
-                                             selectedRowKey === rowKey ? 'bg-blue-900/40 border-l-2 border-l-yellow-400' :
-                                                 row.Status === 'new' ? 'bg-green-950 border-l-2 border-l-transparent' :
-                                                 row.Status === 'removed' ? 'bg-red-950 border-l-2 border-l-transparent' :
-                                                 row.Status === 'modified' ? 'bg-yellow-950 border-l-2 border-l-transparent' :
-                                                 'bg-transparent border-l-2 border-l-transparent'
-                                         }`}
-                                         onClick={() => {
-                                             setSelectedNpc(row)
-                                             setSelectedRowKey(rowKey)
-                                         }}
-                                    >
-                                        <div
-                                            className="flex-1 text-xs px-2 py-1">{row.Source?.Fields?.name ? `${row.Source.Fields.name} (${row.Source?.Id})` : '-'}</div>
-                                        <div className={`flex-1 text-xs px-2 py-1 border-l border-gray-700`}>
-                                            {row.Sink?.Fields?.name ? `${row.Sink.Fields.name} (${row.Sink?.Id})` : '-'}</div>
-                                    </div>
-                                )
-                            })}
-                    </div>
+                        <div className="flex flex-1 min-h-0 overflow-hidden flex-col overflow-y-auto">
+                            {diffRows
+                                .filter(row => diffFilter === 'all' || row.Status !== 'match')
+                                .sort((a, b) => {
+                                    let result
+                                    if (sortBy === 'status') {
+                                        result = statusOrder[a.Status] - statusOrder[b.Status]
+                                    } else if (sortBy === 'name') {
+                                        result = a.Source?.Fields?.name.localeCompare(b.Source?.Fields?.name)
+                                    } else if (sortBy === 'id') {
+                                        result = (a.Source?.Id ?? a.Sink?.Id) - (b.Source?.Id ?? b.Sink?.Id)
+                                    }
+                                    return sortDir === 'asc' ? result : result * -1
+                                })
+                                .map((row) => {
+                                    const rowKey = `${row.Source?.Id ?? ''}-${row.Sink?.Id ?? ''}`
+                                    return (
+                                        <div key={rowKey}
+                                             className={`flex border-b border-gray-800 cursor-pointer ${
+                                                 selectedRowKey === rowKey ? 'bg-blue-900/40 border-l-2 border-l-yellow-400' :
+                                                     row.Status === 'new' ? 'bg-green-950 border-l-2 border-l-transparent' :
+                                                         row.Status === 'removed' ? 'bg-red-950 border-l-2 border-l-transparent' :
+                                                             row.Status === 'modified' ? 'bg-yellow-950 border-l-2 border-l-transparent' :
+                                                                 'bg-transparent border-l-2 border-l-transparent'
+                                             }`}
+                                             onClick={() => {
+                                                 setSelectedNpc(row)
+                                                 setSelectedRowKey(rowKey)
+                                             }}
+                                        >
+                                            <div
+                                                className="flex-1 text-xs px-2 py-1">{row.Source?.Fields?.name ? `${row.Source.Fields.name} (${row.Source?.Id})` : '-'}</div>
+                                            <div className={`flex-1 text-xs px-2 py-1 border-l border-gray-700`}>
+                                                {row.Sink?.Fields?.name ? `${row.Sink.Fields.name} (${row.Sink?.Id})` : '-'}</div>
+                                        </div>
+                                    )
+                                })}
+                        </div>
                     )}
                 </div>
+                {/* Drag handle */}
+                <div
+                    className="w-1 bg-gray-700 hover:bg-yellow-400 cursor-col-resize"
+                    onMouseDown={(e) => {
+                        e.preventDefault()
+                        const startX = e.clientX
+                        const startWidth = detailWidth
+                        const onMouseMove = (e) => {
+                            const delta = startX - e.clientX
+                            setDetailWidth(Math.max(180, Math.min(600, startWidth + delta)))
+                        }
+                        const onMouseUp = () => {
+                            window.removeEventListener('mousemove', onMouseMove)
+                            window.removeEventListener('mouseup', onMouseUp)
+                        }
+                        window.addEventListener('mousemove', onMouseMove)
+                        window.addEventListener('mouseup', onMouseUp)
+                    }}
+                />
                 {/* NPC View*/}
-                <div className="w-64 bg-gray-800">
-                    <div className="justify-center">
+                <div style={{width: detailWidth, minWidth: detailWidth}} className="bg-gray-800 flex flex-col">
+                    <div className="flex flex-col overflow-hidden h-full">
                         <div
                             className="px-3 py-2 text-xs font-medium text-gray-400 uppercase tracking-wider border-b border-gray-700">
                             NPC Detail
@@ -345,9 +365,13 @@ function App() {
                                 <div key={section}>
                                     <div
                                         className="flex justify-between items-center py-1 px-2 bg-gray-800 rounded cursor-pointer hover:bg-gray-700"
-                                        onClick={() => setExpandedSections(prev => ({...prev, [section]: !prev[section]}))}
+                                        onClick={() => setExpandedSections(prev => ({
+                                            ...prev,
+                                            [section]: !prev[section]
+                                        }))}
                                     >
-                                        <span className="text-gray-400 uppercase tracking-wider text-xs">{section.replace('_', ' ')}</span>
+                                        <span
+                                            className="text-gray-400 uppercase tracking-wider text-xs">{section.replace('_', ' ')}</span>
                                         <span className="text-gray-600">{expandedSections[section] ? '▾' : '▸'}</span>
                                     </div>
                                     {expandedSections[section] && fields.map(field => {
@@ -357,9 +381,11 @@ function App() {
                                         return (
                                             <div key={field} className="flex justify-between px-2 py-0.5">
                                                 <span className="text-gray-500 w-24 shrink-0">{field}</span>
-                                                <span className={differs ? 'text-yellow-400' : 'text-gray-400'}>{srcVal ?? '—'}</span>
+                                                <span
+                                                    className={differs ? 'text-yellow-400' : 'text-gray-400'}>{srcVal ?? '—'}</span>
                                                 <span className="text-gray-600 px-1">→</span>
-                                                <span className={differs ? 'text-yellow-400' : 'text-gray-400'}>{sinkVal ?? '—'}</span>
+                                                <span
+                                                    className={differs ? 'text-yellow-400' : 'text-gray-400'}>{sinkVal ?? '—'}</span>
                                             </div>
                                         )
                                     })}
