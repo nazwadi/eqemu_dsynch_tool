@@ -108,7 +108,10 @@ func (a *App) SaveConfig(c *Config) error {
 	if err != nil {
 		return err
 	}
-	os.MkdirAll(filepath.Dir(path), 0755)
+	err = os.MkdirAll(filepath.Dir(path), 0755)
+	if err != nil {
+		return err
+	}
 
 	data, err := json.Marshal(c)
 	if err != nil {
