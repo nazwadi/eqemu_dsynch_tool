@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"database/sql"
+	"reflect"
 	"time"
 
 	_ "github.com/go-sql-driver/mysql"
@@ -152,6 +153,65 @@ func (a *App) GetNPCsForZone(shortName string, isSource bool) ([]NPC, error) {
 		npcs = append(npcs, npc)
 	}
 	return npcs, nil
+}
+
+func (a *App) CompareZones(shortName string) ([]NPCDiffRow, error) {
+	// Call GetNPCsForZone for source and sink
+	sourceNpcs, err := a.GetNPCsForZone(shortName, true)
+	if err != nil {
+		return nil, err
+	}
+	sinkNpcs, err := a.GetNPCsForZone(shortName, false)
+	if err != nil {
+		return nil, err
+	}
+	// Build a map of sink NPCs by ID
+	m := make(map[int64]NPC)
+	for _, sinkNpc := range sinkNpcs {
+		m[sinkNpc.Id] = sinkNpc
+	}
+	// Walk source - categorize each as match,modified, or new
+	var diff []NPCDiffRow
+	seen := make(map[int64]bool)
+	for _, sourceNpc := range sourceNpcs {
+		sinkNpc, exists := m[sourceNpc.Id]
+		if exists {
+			seen[sinkNpc.Id] = true
+			if reflect.DeepEqual(sourceNpc, sinkNpc) {
+				// match
+				diff = append(diff, NPCDiffRow{
+					Status: "match",
+					Source: &sourceNpc,
+					Sink:   &sinkNpc,
+				})
+			} else {
+				// modified
+				diff = append(diff, NPCDiffRow{
+					Status: "modified",
+					Source: &sourceNpc,
+					Sink:   &sinkNpc,
+				})
+			}
+		} else {
+			diff = append(diff, NPCDiffRow{
+				Status: "new",
+				Source: &sourceNpc,
+				Sink:   nil,
+			})
+		}
+	}
+	// Walk sink map — find any IDs not seen in source → removed
+	for _, sinkNpc := range sinkNpcs {
+		if !seen[sinkNpc.Id] {
+			diff = append(diff, NPCDiffRow{
+				Status: "removed",
+				Source: nil,
+				Sink:   &sinkNpc,
+			})
+		}
+	}
+
+	return diff, nil
 }
 
 func (a *App) shutdown(ctx context.Context) {
