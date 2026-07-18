@@ -104,6 +104,23 @@ function App() {
     const newCount = diffRows.filter(r => r.Status === 'new').length
     const removedCount = diffRows.filter(r => r.Status === 'removed').length
     const modifiedCount = diffRows.filter(r => r.Status === 'modified').length
+    // Variables for npc_types detail view
+    const [expandedSections, setExpandedSections] = useState({
+        identity: true,
+        combat: true,
+        resistances: false,
+        ability_scores: false,
+        behavior: false,
+        references: true
+    })
+    const fieldGroups = {
+        identity: ['name', 'lastname', 'race', 'class', 'gender', 'bodytype', 'size', 'texture', 'helmtexture', 'model'],
+        combat: ['level', 'maxlevel', 'scalerate', 'hp', 'mana', 'AC', 'ATK', 'mindmg', 'maxdmg', 'attack_count', 'attack_speed', 'attack_delay', 'hp_regen_rate', 'mana_regen_rate'],
+        resistances: ['MR', 'CR', 'DR', 'FR', 'PR', 'Corrup', 'PhR'],
+        ability_scores: ['STR', 'STA', 'DEX', 'AGI', 'INT', 'WIS', 'CHA'],
+        behavior: ['aggroradius', 'assistradius', 'npc_aggro', 'always_aggro', 'see_invis', 'see_invis_undead', 'see_hide', 'trackable', 'flymode'],
+        references: ['loottable_id', 'npc_spells_id', 'npc_faction_id', 'merchantid', 'alt_currency_id']
+    }
 
     return (
         <div id="App" className="h-screen bg-gray-900 text-white overflow-hidden flex flex-col">
@@ -323,37 +340,31 @@ function App() {
                             className="px-3 py-2 text-xs font-medium text-gray-400 uppercase tracking-wider border-b border-gray-700">
                             NPC Detail
                         </div>
-                        <div className="px-3 py-2 flex flex-col gap-3 text-xs">
-                            {selectedNpc && <>
-                                <div>
-                                    <div className="text-gray-400 uppercase tracking-wider mb-1">Status</div>
-                                    <div className="text-yellow-400">{selectedNpc.Status}</div>
-                                </div>
-                                {[
-                                    {label: 'Name', key: 'name'},
-                                    {label: 'Level', key: 'level'},
-                                    {label: 'HP', key: 'hp'},
-                                    {label: 'Race', key: 'race'},
-                                    {label: 'Class', key: 'class'},
-                                ].map(field => {
-                                    const srcVal = selectedNpc.Source?.Fields?.[field.key]
-                                    const sinkVal = selectedNpc.Sink?.Fields?.[field.key]
-                                    const differs = srcVal !== sinkVal
-                                    return (
-                                        <div key={field.key}>
-                                            <div
-                                                className="text-gray-400 uppercase tracking-wider mb-1">{field.label}</div>
-                                            <div className="flex gap-2">
-                                                <span
-                                                    className={differs ? 'text-yellow-400' : 'text-gray-300'}>{srcVal ?? '—'}</span>
-                                                <span className="text-gray-600">→</span>
-                                                <span
-                                                    className={differs ? 'text-yellow-400' : 'text-gray-300'}>{sinkVal ?? '—'}</span>
+                        <div className="px-2 py-2 flex flex-col gap-1 text-xs overflow-y-auto flex-1">
+                            {selectedNpc && Object.entries(fieldGroups).map(([section, fields]) => (
+                                <div key={section}>
+                                    <div
+                                        className="flex justify-between items-center py-1 px-2 bg-gray-800 rounded cursor-pointer hover:bg-gray-700"
+                                        onClick={() => setExpandedSections(prev => ({...prev, [section]: !prev[section]}))}
+                                    >
+                                        <span className="text-gray-400 uppercase tracking-wider text-xs">{section.replace('_', ' ')}</span>
+                                        <span className="text-gray-600">{expandedSections[section] ? '▾' : '▸'}</span>
+                                    </div>
+                                    {expandedSections[section] && fields.map(field => {
+                                        const srcVal = selectedNpc.Source?.Fields?.[field]
+                                        const sinkVal = selectedNpc.Sink?.Fields?.[field]
+                                        const differs = srcVal !== sinkVal
+                                        return (
+                                            <div key={field} className="flex justify-between px-2 py-0.5">
+                                                <span className="text-gray-500 w-24 shrink-0">{field}</span>
+                                                <span className={differs ? 'text-yellow-400' : 'text-gray-400'}>{srcVal ?? '—'}</span>
+                                                <span className="text-gray-600 px-1">→</span>
+                                                <span className={differs ? 'text-yellow-400' : 'text-gray-400'}>{sinkVal ?? '—'}</span>
                                             </div>
-                                        </div>
-                                    )
-                                })}
-                            </>}
+                                        )
+                                    })}
+                                </div>
+                            ))}
                         </div>
                     </div>
                 </div>
