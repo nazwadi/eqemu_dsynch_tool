@@ -203,7 +203,7 @@ function App() {
                                 row.Status === 'removed' ? 'bg-red-950' :
                                 row.Status === 'modified' ? 'bg-yellow-950' :
                                 'bg-transparent'
-                            }`}>
+                            }`} onClick={() => setSelectedNpc(row)}>
                                 <div className="flex-1 test-xs px-2 py-1">{row.Source?.Name} ({row.Source?.Id})</div>
                                 <div className="flex-1 test-xs px-2 py-1 border border-gray-700">{row.Sink?.Name} ({row.Sink?.Id})</div>
                             </div>
@@ -216,7 +216,35 @@ function App() {
                             className="px-3 py-2 text-xs font-medium text-gray-400 uppercase tracking-wider border-b border-gray-700">
                             NPC Detail
                         </div>
-                        Name: {selectedNpc?.Name}
+                        <div className="px-3 py-2 flex flex-col gap-3 text-xs">
+                            {selectedNpc && <>
+                                <div>
+                                    <div className="text-gray-400 uppercase tracking-wider mb-1">Status</div>
+                                    <div className="text-yellow-400">{selectedNpc.Status}</div>
+                                </div>
+                                {[
+                                    {label: 'Name', key: 'Name'},
+                                    {label: 'Level', key: 'Level'},
+                                    {label: 'HP', key: 'HP'},
+                                    {label: 'Race', key: 'Race'},
+                                    {label: 'Class', key: 'Class'},
+                                ].map(field => {
+                                    const srcVal = selectedNpc.Source?.[field.key]
+                                    const sinkVal = selectedNpc.Sink?.[field.key]
+                                    const differs = srcVal !== sinkVal
+                                    return (
+                                        <div key={field.key}>
+                                            <div className="text-gray-400 uppercase tracking-wider mb-1">{field.label}</div>
+                                            <div className="flex gap-2">
+                                                <span className={differs ? 'text-yellow-400' : 'text-gray-300'}>{srcVal ?? '—'}</span>
+                                                <span className="text-gray-600">→</span>
+                                                <span className={differs ? 'text-yellow-400' : 'text-gray-300'}>{sinkVal ?? '—'}</span>
+                                            </div>
+                                        </div>
+                                    )
+                                })}
+                            </>}
+                        </div>
                     </div>
                 </div>
             </div>
