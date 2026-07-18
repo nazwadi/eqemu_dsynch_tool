@@ -17,3 +17,11 @@ export function GetNPCsForZone(arg1, arg2) {
 export function GetZones() {
   return window['go']['main']['App']['GetZones']();
 }
+
+export function LoadConfig() {
+  return window['go']['main']['App']['LoadConfig']();
+}
+
+export function SaveConfig(arg1) {
+  return window['go']['main']['App']['SaveConfig'](arg1);
+}

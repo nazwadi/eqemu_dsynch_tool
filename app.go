@@ -3,6 +3,9 @@ package main
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
+	"os"
+	"path/filepath"
 	"reflect"
 	"time"
 
@@ -21,6 +24,11 @@ type SshConfig struct {
 	Port       string
 	Username   string
 	PrivateKey string
+}
+
+type Config struct {
+	Source ConnectionConfig
+	Sink   ConnectionConfig
 }
 type ConnectionConfig struct {
 	DbName    string
@@ -85,6 +93,42 @@ func (a *App) Connect(c *ConnectionConfig, isSource bool) error {
 	}
 
 	return nil
+}
+
+func configPath() (string, error) {
+	dir, err := os.UserConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "eqemu-sync", "config.json"), nil
+}
+
+func (a *App) SaveConfig(c *Config) error {
+	path, err := configPath()
+	if err != nil {
+		return err
+	}
+	os.MkdirAll(filepath.Dir(path), 0755)
+
+	data, err := json.Marshal(c)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, data, 0644)
+}
+
+func (a *App) LoadConfig() (Config, error) {
+	path, err := configPath()
+	if err != nil {
+		return Config{}, err
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return Config{}, err
+	}
+	var c Config
+	err = json.Unmarshal(data, &c)
+	return c, err
 }
 
 func (a *App) GetZones() ([]Zone, error) {
@@ -171,7 +215,7 @@ func (a *App) CompareZones(shortName string) ([]NPCDiffRow, error) {
 		m[sinkNpc.Id] = sinkNpc
 	}
 	// Walk source - categorize each as match,modified, or new
-	var diff []NPCDiffRow
+	diff := make([]NPCDiffRow, 0)
 	seen := make(map[int64]bool)
 	for _, sourceNpc := range sourceNpcs {
 		sinkNpc, exists := m[sourceNpc.Id]

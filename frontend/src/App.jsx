@@ -1,32 +1,34 @@
-import {useState} from 'react';
+import {useState, useEffect} from 'react';
 import './App.css';
-import {Connect, CompareZones, GetNPCsForZone, GetZones} from "../wailsjs/go/main/App";
+import {Connect, CompareZones, LoadConfig, SaveConfig, GetZones} from "../wailsjs/go/main/App";
 
 function App() {
     const [zones, setZones] = useState([])
-    const [host, setHost] = useState('')
-    const [port, setPort] = useState('')
-    const [username, setUsername] = useState('')
-    const [password, setPassword] = useState('')
+    const [sourceHost, setSourceHost] = useState('')
+    const [sourcePort, setSourcePort] = useState('')
+    const [sourceUsername, setSourceUsername] = useState('')
+    const [sourcePassword, setSourcePassword] = useState('')
     const [dbSourceName, setDbSourceName] = useState('')
+    const [sinkHost, setSinkHost] = useState('')
+    const [sinkPort, setSinkPort] = useState('')
+    const [sinkUsername, setSinkUsername] = useState('')
+    const [sinkPassword, setSinkPassword] = useState('')
     const [dbSinkName, setDbSinkName] = useState('')
     const [activeModal, setActiveModal] = useState(null)
     const [searchFilter, setSearchFilter] = useState('')
     const [selectedZoneShortName, setSelectedZoneShortName] = useState('')
     const [selectedZoneLongName, setSelectedZoneLongName] = useState('')
     const [selectedNpc, setSelectedNpc] = useState(null)
-    const [sourceNpcs, setSourceNpcs] = useState([])
-    const [sinkNpcs, setSinkNpcs] = useState([])
     const [diffRows, setDiffRows] = useState([])
     const [sourceConnected, setSourceConnected] = useState(false)
     const [sinkConnected, setSinkConnected] = useState(false)
 
     function connect() {
         const config = {
-            Host: host,
-            Port: port,
-            Username: username,
-            Password: password,
+            Host: activeModal === 'source' ? sourceHost : sinkHost,
+            Port: activeModal === 'source' ? sourcePort : sinkPort,
+            Username: activeModal === 'source' ? sourceUsername : sinkUsername,
+            Password: activeModal === 'source' ? sourcePassword : sinkPassword,
             DbName: activeModal === 'source' ? dbSourceName : dbSinkName
         }
         const isSource = activeModal === 'source'
@@ -40,9 +42,55 @@ function App() {
                     setSinkConnected(true)
                 }
                 setActiveModal(null)
+                SaveConfig({
+                    Source: {
+                        Host: sourceHost,
+                        Port: sourcePort,
+                        Username: sourceUsername,
+                        Password: sourcePassword,
+                        DbName: dbSourceName
+                    },
+                    Sink: {
+                        Host: sinkHost,
+                        Port: sinkPort,
+                        Username: sinkUsername,
+                        Password: sinkPassword,
+                        DbName: dbSinkName
+                    }
+                }).catch(err => console.error("save config failed:", err))
             })
             .catch(err => console.error("connection failed:", err))
     }
+    useEffect(() => {
+        LoadConfig()
+            .then(config => {
+                setSourceHost(config.Source.Host)
+                setSourcePort(config.Source.Port)
+                setSourceUsername(config.Source.Username)
+                setSourcePassword(config.Source.Password)
+                setDbSourceName(config.Source.DbName)
+                setSinkHost(config.Sink.Host)
+                setSinkPort(config.Sink.Port)
+                setSinkUsername(config.Sink.Username)
+                setSinkPassword(config.Sink.Password)
+                setDbSinkName(config.Sink.DbName)
+
+                // auto-connect source
+                Connect(config.Source, true)
+                    .then(() => GetZones())
+                    .then(zones => {
+                        setZones(zones)
+                        setSourceConnected(true)
+                    })
+                    .catch(() => {})
+
+                // auto-connect sink
+                Connect(config.Sink, false)
+                    .then(() => setSinkConnected(true))
+                    .catch(() => {})
+            })
+            .catch(() => {}) // ignore if no config file yet
+    }, [])
 
     return (
         <div id="App" className="h-screen bg-gray-900 text-white overflow-hidden flex flex-col">
@@ -53,17 +101,17 @@ function App() {
                         <button onClick={() => setActiveModal(null)}>✕</button>
                     </div>
                     <label>Host</label>
-                    <input className="border border-gray-600 bg-gray-700 rounded px-2 py-1" value={host}
-                           onChange={e => setHost(e.target.value)}/>
+                    <input className="border border-gray-600 bg-gray-700 rounded px-2 py-1" value={activeModal === 'source' ? sourceHost : sinkHost}
+                           onChange={e => activeModal === 'source' ? setSourceHost(e.target.value) : setSinkHost(e.target.value)}/>
                     <label>Port</label>
-                    <input className="border border-gray-600 bg-gray-700 rounded px-2 py-1" value={port}
-                           onChange={e => setPort(e.target.value)}/>
+                    <input className="border border-gray-600 bg-gray-700 rounded px-2 py-1" value={activeModal === 'source' ? sourcePort : sinkPort}
+                           onChange={e => activeModal === 'source' ? setSourcePort(e.target.value) : setSinkPort(e.target.value)}/>
                     <label>Username</label>
-                    <input className="border border-gray-600 bg-gray-700 rounded px-2 py-1" value={username}
-                           onChange={e => setUsername(e.target.value)}/>
+                    <input className="border border-gray-600 bg-gray-700 rounded px-2 py-1" value={activeModal === 'source' ? sourceUsername : sinkUsername}
+                           onChange={e => activeModal === 'source' ? setSourceUsername(e.target.value) : setSinkUsername(e.target.value)}/>
                     <label>Password</label>
-                    <input className="border border-gray-600 bg-gray-700 rounded px-2 py-1" value={password}
-                           onChange={e => setPassword(e.target.value)} type="password"/>
+                    <input className="border border-gray-600 bg-gray-700 rounded px-2 py-1" value={activeModal === 'source' ? sourcePassword : sinkPassword}
+                           onChange={e => activeModal === 'source' ? setSourcePassword(e.target.value) : setSinkPassword(e.target.value)} type="password"/>
                     <label>Database</label>
                     <input className="border border-gray-600 bg-gray-700 rounded px-2 py-1"
                            value={activeModal === 'source' ? dbSourceName: dbSinkName}
@@ -83,7 +131,7 @@ function App() {
                         <div className="border border-gray-600 rounded p-2 flex justify-between items-center">
                             <div>
                                 <div className="text-xs text-gray-400">Source</div>
-                                <div className="text-xs text-white">{sourceConnected ? host : 'Not connected'}</div>
+                                <div className="text-xs text-white">{sourceConnected ? sourceHost : 'Not connected'}</div>
                             </div>
                             <div className="flex flex-items gap-2">
                                 <div
@@ -97,7 +145,7 @@ function App() {
                         <div className="border border-gray-600 rounded p-2 flex justify-between items-center">
                             <div>
                                 <div className="text-xs text-gray-400">Sink</div>
-                                <div className="text-xs text-white">{sinkConnected ? host : 'Not connected'}</div>
+                                <div className="text-xs text-white">{sinkConnected ? sinkHost : 'Not connected'}</div>
                             </div>
                             <div className="flex flex-items gap-2">
                                 <div

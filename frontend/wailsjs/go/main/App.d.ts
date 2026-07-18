@@ -9,3 +9,7 @@ export function Connect(arg1:main.ConnectionConfig,arg2:boolean):Promise<void>;
 export function GetNPCsForZone(arg1:string,arg2:boolean):Promise<Array<main.NPC>>;
 
 export function GetZones():Promise<Array<main.Zone>>;
+
+export function LoadConfig():Promise<main.Config>;
+
+export function SaveConfig(arg1:main.Config):Promise<void>;
