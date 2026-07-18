@@ -95,11 +95,7 @@ export namespace main {
 	
 	export class NPC {
 	    Id: number;
-	    Name: string;
-	    Level: number;
-	    HP: number;
-	    Race: number;
-	    Class: number;
+	    Fields: Record<string, any>;
 	
 	    static createFrom(source: any = {}) {
 	        return new NPC(source);
@@ -108,11 +104,7 @@ export namespace main {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.Id = source["Id"];
-	        this.Name = source["Name"];
-	        this.Level = source["Level"];
-	        this.HP = source["HP"];
-	        this.Race = source["Race"];
-	        this.Class = source["Class"];
+	        this.Fields = source["Fields"];
 	    }
 	}
 	export class NPCDiffRow {

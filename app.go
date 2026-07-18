@@ -4,9 +4,10 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
-	"reflect"
+	"strconv"
 	"time"
 
 	_ "github.com/go-sql-driver/mysql"
@@ -49,12 +50,8 @@ type Zone struct {
 }
 
 type NPC struct {
-	Id    int64
-	Name  string
-	Level int8
-	HP    int64
-	Race  int64
-	Class int64
+	Id     int64
+	Fields map[string]interface{}
 }
 
 type NPCDiffRow struct {
@@ -103,6 +100,36 @@ func configPath() (string, error) {
 	return filepath.Join(dir, "eqemu-sync", "config.json"), nil
 }
 
+func toInt64(v interface{}) int64 {
+	switch val := v.(type) {
+	case int64:
+		return val
+	case []byte:
+		n, _ := strconv.ParseInt(string(val), 10, 64)
+		return n
+	case string:
+		n, _ := strconv.ParseInt(val, 10, 64)
+		return n
+	}
+	return 0
+}
+
+func mapsEqual(a, b map[string]interface{}) bool {
+	for k, av := range a {
+		if k == "id" {
+			continue
+		}
+		bv, ok := b[k]
+		if !ok {
+			continue // skip columns that don't exist in the sink
+		}
+		if fmt.Sprintf("%v", av) != fmt.Sprintf("%v", bv) {
+			return false
+		}
+	}
+	return true
+}
+
 func (a *App) SaveConfig(c *Config) error {
 	path, err := configPath()
 	if err != nil {
@@ -135,6 +162,9 @@ func (a *App) LoadConfig() (Config, error) {
 }
 
 func (a *App) GetZones() ([]Zone, error) {
+	if a.sourceDB == nil {
+		return nil, fmt.Errorf("source database not connected")
+	}
 	rows, err := a.sourceDB.QueryContext(
 		a.ctx,
 		"SELECT id, zoneidnumber, version, short_name, long_name from zone")
@@ -171,7 +201,7 @@ func (a *App) GetNPCsForZone(shortName string, isSource bool) ([]NPC, error) {
 		db = a.sinkDB
 	}
 	rows, err := db.QueryContext(a.ctx, `
-		SELECT nt.id, nt.name, nt.level, nt.hp, nt.race, nt.class
+		SELECT nt.*
 		FROM npc_types nt
 		    JOIN spawnentry se ON se.npcID = nt.id
 		    JOIN spawngroup sg ON sg.id = se.spawngroupID
@@ -183,19 +213,36 @@ func (a *App) GetNPCsForZone(shortName string, isSource bool) ([]NPC, error) {
 	if err != nil {
 		return nil, err
 	}
+	cols, err := rows.Columns()
+	if err != nil {
+		return nil, err
+	}
 	defer rows.Close()
 	var npcs []NPC
+
 	for rows.Next() {
-		var npc NPC
-		if err := rows.Scan(
-			&npc.Id,
-			&npc.Name,
-			&npc.Level,
-			&npc.HP,
-			&npc.Race,
-			&npc.Class,
-		); err != nil {
+		values := make([]interface{}, len(cols))
+		valuePtrs := make([]interface{}, len(cols))
+		for i := range values {
+			valuePtrs[i] = &values[i]
+		}
+
+		if err := rows.Scan(valuePtrs...); err != nil {
 			return nil, err
+		}
+
+		fields := make(map[string]interface{})
+		for i, col := range cols {
+			if b, ok := values[i].([]byte); ok {
+				fields[col] = string(b)
+			} else {
+				fields[col] = values[i]
+			}
+		}
+
+		npc := NPC{
+			Id:     toInt64(fields["id"]),
+			Fields: fields,
 		}
 		npcs = append(npcs, npc)
 	}
@@ -220,11 +267,18 @@ func (a *App) CompareZones(shortName string) ([]NPCDiffRow, error) {
 	// Walk source - categorize each as match,modified, or new
 	diff := make([]NPCDiffRow, 0)
 	seen := make(map[int64]bool)
+	if len(sourceNpcs) > 0 && len(sinkNpcs) > 0 {
+		if len(sourceNpcs[0].Fields) != len(sinkNpcs[0].Fields) {
+			fmt.Printf("Schema mismatch: source=%d cols, sink=%d cols\n",
+				len(sourceNpcs[0].Fields), len(sinkNpcs[0].Fields))
+		}
+	}
 	for _, sourceNpc := range sourceNpcs {
 		sinkNpc, exists := m[sourceNpc.Id]
 		if exists {
 			seen[sinkNpc.Id] = true
-			if reflect.DeepEqual(sourceNpc, sinkNpc) {
+			result := mapsEqual(sourceNpc.Fields, sinkNpc.Fields)
+			if result {
 				// match
 				diff = append(diff, NPCDiffRow{
 					Status: "match",

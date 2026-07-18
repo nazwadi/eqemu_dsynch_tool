@@ -196,7 +196,13 @@ function App() {
                                             onClick={() => {
                                                 setSelectedZoneShortName(zone.ShortName)
                                                 setSelectedZoneLongName(zone.LongName)
-                                                CompareZones(zone.ShortName).then(diffRows => setDiffRows(diffRows))
+                                                // CompareZones(zone.ShortName).then(diffRows => setDiffRows(diffRows))
+                                                CompareZones(zone.ShortName).then(diffRows => {
+                                                    console.log('match count:', diffRows.filter(r => r.Status === 'match').length)
+                                                    console.log('modified count:', diffRows.filter(r => r.Status === 'modified').length)
+                                                    setDiffRows(diffRows)
+                                                })
+
                                             }}
                                             key={zone.Id}
                                             className={selectedZoneShortName === zone.ShortName ? 'text-yellow-400 cursor-pointer' : 'cursor-pointer'}
@@ -264,6 +270,12 @@ function App() {
                             Sink: {dbSinkName}
                         </div>
                     </div>
+                    {/*Diff List of NPCs*/}
+                    {diffRows.length === 0 && selectedZoneShortName ? (
+                        <div className="flex-1 flex items-center justify-center text-gray-600 text-sm">
+                            No NPCs found in this zone
+                        </div>
+                    ) : (
                     <div className="flex flex-1 min-h-0 overflow-hidden flex-col overflow-y-auto">
                         {diffRows
                             .filter(row => diffFilter === 'all' || row.Status !== 'match')
@@ -272,7 +284,7 @@ function App() {
                                 if (sortBy === 'status') {
                                     result = statusOrder[a.Status] - statusOrder[b.Status]
                                 } else if (sortBy === 'name') {
-                                    result = a.Source?.Name.localeCompare(b.Source?.Name)
+                                    result = a.Source?.Fields?.name.localeCompare(b.Source?.Fields?.name)
                                 } else if (sortBy === 'id') {
                                     result = (a.Source?.Id ?? a.Sink?.Id) - (b.Source?.Id ?? b.Sink?.Id)
                                 }
@@ -285,9 +297,9 @@ function App() {
                                          className={`flex border-b border-gray-800 cursor-pointer ${
                                              selectedRowKey === rowKey ? 'bg-blue-900/40 border-l-2 border-l-yellow-400' :
                                                  row.Status === 'new' ? 'bg-green-950 border-l-2 border-l-transparent' :
-                                                     row.Status === 'removed' ? 'bg-red-950 border-l-2 border-l-transparent' :
-                                                         row.Status === 'modified' ? 'bg-yellow-950 border-l-2 border-l-transparent' :
-                                                             'bg-transparent border-l-2 border-l-transparent'
+                                                 row.Status === 'removed' ? 'bg-red-950 border-l-2 border-l-transparent' :
+                                                 row.Status === 'modified' ? 'bg-yellow-950 border-l-2 border-l-transparent' :
+                                                 'bg-transparent border-l-2 border-l-transparent'
                                          }`}
                                          onClick={() => {
                                              setSelectedNpc(row)
@@ -295,13 +307,14 @@ function App() {
                                          }}
                                     >
                                         <div
-                                            className="flex-1 text-xs px-2 py-1">{row.Source?.Name ? `${row.Source.Name} (${row.Source?.Id})` : '-'}</div>
+                                            className="flex-1 text-xs px-2 py-1">{row.Source?.Fields?.name ? `${row.Source.Fields.name} (${row.Source?.Id})` : '-'}</div>
                                         <div className={`flex-1 text-xs px-2 py-1 border-l border-gray-700`}>
-                                            {row.Sink?.Name ? `${row.Sink.Name} (${row.Sink?.Id})` : '-'}</div>
+                                            {row.Sink?.Fields?.name ? `${row.Sink.Fields.name} (${row.Sink?.Id})` : '-'}</div>
                                     </div>
                                 )
                             })}
                     </div>
+                    )}
                 </div>
                 {/* NPC View*/}
                 <div className="w-64 bg-gray-800">
@@ -317,14 +330,14 @@ function App() {
                                     <div className="text-yellow-400">{selectedNpc.Status}</div>
                                 </div>
                                 {[
-                                    {label: 'Name', key: 'Name'},
-                                    {label: 'Level', key: 'Level'},
-                                    {label: 'HP', key: 'HP'},
-                                    {label: 'Race', key: 'Race'},
-                                    {label: 'Class', key: 'Class'},
+                                    {label: 'Name', key: 'name'},
+                                    {label: 'Level', key: 'level'},
+                                    {label: 'HP', key: 'hp'},
+                                    {label: 'Race', key: 'race'},
+                                    {label: 'Class', key: 'class'},
                                 ].map(field => {
-                                    const srcVal = selectedNpc.Source?.[field.key]
-                                    const sinkVal = selectedNpc.Sink?.[field.key]
+                                    const srcVal = selectedNpc.Source?.Fields?.[field.key]
+                                    const sinkVal = selectedNpc.Sink?.Fields?.[field.key]
                                     const differs = srcVal !== sinkVal
                                     return (
                                         <div key={field.key}>
