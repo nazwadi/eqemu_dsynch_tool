@@ -1,6 +1,6 @@
 import {useState} from 'react';
 import './App.css';
-import {Connect, GetNPCsForZone, GetZones} from "../wailsjs/go/main/App";
+import {Connect, CompareZones, GetNPCsForZone, GetZones} from "../wailsjs/go/main/App";
 
 function App() {
     const [zones, setZones] = useState([])
@@ -17,6 +17,7 @@ function App() {
     const [selectedNpc, setSelectedNpc] = useState(null)
     const [sourceNpcs, setSourceNpcs] = useState([])
     const [sinkNpcs, setSinkNpcs] = useState([])
+    const [diffRows, setDiffRows] = useState([])
     const [sourceConnected, setSourceConnected] = useState(false)
     const [sinkConnected, setSinkConnected] = useState(false)
 
@@ -128,8 +129,7 @@ function App() {
                                             onClick={() => {
                                                 setSelectedZoneShortName(zone.ShortName)
                                                 setSelectedZoneLongName(zone.LongName)
-                                                GetNPCsForZone(zone.ShortName, true).then(npcs => setSourceNpcs(npcs))
-                                                GetNPCsForZone(zone.ShortName, false).then(npcs => setSinkNpcs(npcs))
+                                                CompareZones(zone.ShortName).then(diffRows => setDiffRows(diffRows))
                                             }}
                                             key={zone.Id}
                                             className={selectedZoneShortName === zone.ShortName ? 'text-yellow-400 cursor-pointer' : 'cursor-pointer'}
@@ -148,53 +148,18 @@ function App() {
                             {selectedZoneLongName} - {selectedZoneShortName}
                         </div>
                     </div>
-                    <div className="flex flex-1 min-h-0 overflow-hidden">
-                        <div className="flex-1 overflow-y-auto min-h-0 pl-4 pt-2 border-r border-gray-700">
-                            <div className="justify-center">
-                                <div
-                                    className="px-3 py-2 text-xs font-medium text-gray-400 uppercase tracking-wider border-b border-gray-700">
-                                    Source: {dbSourceName} ({sourceNpcs.length} NPCs)
-                                </div>
+                    <div className="flex flex-1 min-h-0 overflow-hidden flex-col overflow-y-auto">
+                        {diffRows.map((row, index) => (
+                            <div key={index} className={`flex border-b border-gray-800 ${
+                                row.Status === 'new' ? 'bg-green-950' :
+                                row.Status === 'removed' ? 'bg-red-950' :
+                                row.Status === 'modified' ? 'bg-yellow-950' :
+                                'bg-transparent'
+                            }`}>
+                                <div className="flex-1 test-xs px-2 py-1">{row.Source?.Name} ({row.Source?.Id})</div>
+                                <div className="flex-1 test-xs px-2 py-1 border border-gray-700">{row.Sink?.Name} ({row.Sink?.Id})</div>
                             </div>
-                            <div className="border-l border-gray-700 pl-4">
-                                <ul>
-                                    {sourceNpcs
-                                        .filter(npc => npc.Name.toLowerCase().includes(searchFilter.toLowerCase()))
-                                        .map(npc => (
-                                            <li
-                                                onClick={() => setSelectedNpc(npc)}
-                                                key={npc.Id}
-                                                className={`text-xs py-1 px-2 border-b border-gray-800 cursor-pointer ${selectedNpc?.Id === npc.Id ? 'text-yellow-400' : 'text-gray-300'}`}
-                                            >
-                                                {npc.Name} ({npc.Id})
-                                            </li>
-                                        ))}
-                                </ul>
-                            </div>
-                        </div>
-                        <div className="flex-1 overflow-y-auto min-h-0 pl-4 pt-2">
-                            <div className="justify-center">
-                                <div
-                                    className="px-3 py-2 text-xs font-medium text-gray-400 uppercase tracking-wider border-b border-gray-700">
-                                    Sink: {dbSinkName} ({sinkNpcs.length} NPCs)
-                                </div>
-                            </div>
-                            <div className="border-l border-gray-700 pl-4">
-                                <ul>
-                                    {sinkNpcs
-                                        .filter(npc => npc.Name.toLowerCase().includes(searchFilter.toLowerCase()))
-                                        .map(npc => (
-                                            <li
-                                                onClick={() => setSelectedNpc(npc)}
-                                                key={npc.Id}
-                                                className={`text-xs py-1 px-2 border-b border-gray-800 cursor-pointer ${selectedNpc?.Id === npc.Id ? 'text-yellow-400' : 'text-gray-300'}`}
-                                            >
-                                                {npc.Name} ({npc.Id})
-                                            </li>
-                                        ))}
-                                </ul>
-                            </div>
-                        </div>
+                        ))}
                     </div>
                 </div>
                 <div className="w-64 bg-gray-800">
