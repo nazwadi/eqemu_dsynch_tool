@@ -28,6 +28,7 @@ function App() {
     const [sortDir, setSortDir] = useState('asc')
     const statusOrder = {'new': 0, 'modified': 1, 'removed': 2, 'match': 3}
     const [detailWidth, setDetailWidth] = useState(240)
+    const [selectedNPCs, setSelectedNPCs] = useState(new Set())
 
     function connect() {
         const config = {
@@ -214,6 +215,7 @@ function App() {
                                             onClick={() => {
                                                 setSelectedZoneShortName(zone.ShortName)
                                                 setSelectedZoneLongName(zone.LongName)
+                                                setSelectedNPCs(new Set())
                                                 // CompareZones(zone.ShortName).then(diffRows => setDiffRows(diffRows))
                                                 CompareZones(zone.ShortName).then(diffRows => {
                                                     console.log('match count:', diffRows.filter(r => r.Status === 'match').length)
@@ -232,7 +234,7 @@ function App() {
                         </div>
                     </div>
                 </div>
-                {/* Zone View*/}
+                {/* Zone NPC List View*/}
                 <div id="input" className="w-1/2 flex flex-1 flex-col">
                     <div className="justify-center">
                         <div
@@ -240,10 +242,19 @@ function App() {
                             {selectedZoneLongName} - {selectedZoneShortName}
                             {diffRows.length > 0 && <>
                                 <span className="px-2 py-0.5 rounded bg-green-950 text-green-400">+{newCount}</span>
-                                <span
-                                    className="px-2 py-0.5 rounded bg-yellow-950 text-yellow-400">~{modifiedCount}</span>
+                                <span className="px-2 py-0.5 rounded bg-yellow-950 text-yellow-400">~{modifiedCount}</span>
                                 <span className="px-2 py-0.5 rounded bg-red-950 text-red-400">-{removedCount}</span>
                             </>}
+                            <button
+                                disabled={selectedNPCs.size === 0}
+                                className={`ml-auto px-3 py-1 rounded text-xs font-medium ${
+                                    selectedNPCs.size > 0
+                                        ? 'bg-yellow-400 text-gray-900 cursor-pointer hover:bg-yellow-300'
+                                        : 'bg-gray-700 text-gray-500 cursor-not-allowed'
+                                }`}
+                            >
+                                {selectedNPCs.size > 0 ? `Sync ${selectedNPCs.size} NPCs` : 'Sync NPCs'}
+                            </button>
                         </div>
                     </div>
                     <div className="flex gap-2 px-3 py-2 border-b border-gray-700">
@@ -279,7 +290,19 @@ function App() {
                             </button>
                         ))}
                     </div>
-                    <div className="flex border-b border-gray-700 bg-gray-800">
+                    <div className="flex items-center border-b border-gray-700 bg-gray-800">
+                        <input type="checkbox"
+                               className="accent-yellow-400 cursor-pointer w-3 h-3 mx-2"
+                               checked={diffRows.filter(row => diffFilter === 'all' || row.Status !== 'match').every(row => selectedNPCs.has(row.Source?.Id ?? row.Sink?.Id))}
+                               onChange={(e) => {
+                                   const visibleRows = diffRows.filter(row => diffFilter === 'all' || row.Status !== 'match')
+                                   if (e.target.checked) {
+                                       setSelectedNPCs(new Set(visibleRows.map(row => row.Source?.Id ?? row.Sink?.Id)))
+                                   } else {
+                                       setSelectedNPCs(new Set())
+                                   }
+                               }}
+                        />
                         <div className="flex-1 text-xs px-2 py-1 text-gray-400 uppercase tracking-wider">
                             Source: {dbSourceName}
                         </div>
@@ -310,9 +333,10 @@ function App() {
                                 })
                                 .map((row) => {
                                     const rowKey = `${row.Source?.Id ?? ''}-${row.Sink?.Id ?? ''}`
+                                    const npcId = row.Source?.Id ?? row.Sink?.Id
                                     return (
                                         <div key={rowKey}
-                                             className={`flex border-b border-gray-800 cursor-pointer ${
+                                             className={`flex items-center border-b border-gray-800 cursor-pointer ${
                                                  selectedRowKey === rowKey ? 'bg-blue-900/40 border-l-2 border-l-yellow-400' :
                                                      row.Status === 'new' ? 'bg-green-950 border-l-2 border-l-transparent' :
                                                          row.Status === 'removed' ? 'bg-red-950 border-l-2 border-l-transparent' :
@@ -324,10 +348,26 @@ function App() {
                                                  setSelectedRowKey(rowKey)
                                              }}
                                         >
+                                            <input type="checkbox"
+                                                   className="accent-yellow-400 cursor-pointer w-3 h-3 mx-2"
+                                                   checked={selectedNPCs.has(npcId)}
+                                                   onChange={(e) => {
+                                                       e.stopPropagation()
+                                                       const newSet = new Set(selectedNPCs)
+                                                       if (newSet.has(npcId)) {
+                                                           newSet.delete(npcId)
+                                                       } else {
+                                                           newSet.add(npcId)
+                                                       }
+                                                       setSelectedNPCs(newSet)
+                                                   }}
+                                                   onClick={e => e.stopPropagation()}
+                                            />
                                             <div
                                                 className="flex-1 text-xs px-2 py-1">{row.Source?.Fields?.name ? `${row.Source.Fields.name} (${row.Source?.Id})` : '-'}</div>
                                             <div className={`flex-1 text-xs px-2 py-1 border-l border-gray-700`}>
-                                                {row.Sink?.Fields?.name ? `${row.Sink.Fields.name} (${row.Sink?.Id})` : '-'}</div>
+                                                {row.Sink?.Fields?.name ? `${row.Sink.Fields.name} (${row.Sink?.Id})` : '-'}
+                                            </div>
                                         </div>
                                     )
                                 })}

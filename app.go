@@ -60,6 +60,31 @@ type NPCDiffRow struct {
 	Sink   *NPC
 }
 
+type SyncOptions struct {
+	ZoneShortName string
+	SyncNPCTypes  bool
+	SyncSpawns    bool
+	DryRun        bool
+	NPCIds        []int64 // empty means all NPCs in zone
+}
+
+type SyncResult struct {
+	DryRun       bool
+	NPCsSynced   []int64
+	SpawnsSynced int
+	TODOItems    []string
+	Errors       []string
+}
+
+type TODOItem struct {
+	Type     string // "loottable", "faction", "spells"
+	SourceID int64
+	SinkID   int64
+	NPCID    int64
+	NPCName  string
+	ZoneName string
+}
+
 // NewApp creates a new App application struct
 func NewApp() *App {
 	return &App{}
