@@ -654,10 +654,15 @@ function App() {
                         </div>
                     </>
                 )}
-                {/* Zone NPC List View*/}
-                <div id="input" className="w-1/2 flex flex-1 flex-col overflow-hidden">
+                {/* Header + content row are wrapped together so the header's own width is
+                    independent of whether the detail panel column is currently rendered below it —
+                    otherwise switching to the TODO tab (which hides the detail panel to reclaim
+                    space, see the conditional near the bottom of this row) would widen this whole
+                    wrapper and visibly shift the tab-switcher buttons to the right on every switch,
+                    even though nothing about the window itself changed size. */}
+                <div className="flex-1 flex flex-col overflow-hidden">
 
-                    {/* Persistent zone header - never slides */}
+                    {/* Persistent zone header - never slides, and its width never changes either */}
                     <div
                         className="px-3 py-2 text-xs font-medium text-gray-400 uppercase tracking-wider border-b border-gray-700 flex items-center gap-3">
                         {selectedZoneLongName} - {selectedZoneShortName}
@@ -790,6 +795,11 @@ function App() {
                         </div>
                     </div>
 
+                    {/* Tab content + detail panel share this row; the header above is a sibling of
+                        this row (not a child of #input), so its width doesn't depend on whether
+                        the detail panel is rendered inside this row. */}
+                    <div className="flex flex-1 min-h-0">
+                    <div id="input" className="w-1/2 flex flex-1 flex-col overflow-hidden">
                     {/* Sliding content area (NPCs tab) */}
                     {activeView === 'npcs' && (
                         <NpcsTab
@@ -861,47 +871,51 @@ function App() {
                             selectedZoneShortName={selectedZoneShortName}
                         />
                     )}
+                    </div>
+                    {/* Drag handle + detail panel are omitted entirely on the TODO tab — it has no
+                        corresponding detail content (see DetailPanel), so hiding both lets the TODO
+                        list's flex-1 center panel reclaim that width instead of it sitting idle.
+                        This only affects the content row's width, not the header's — see the
+                        wrapper comment above. */}
+                    {activeView !== 'todo' && (
+                        <>
+                            <div
+                                className="w-1 bg-gray-700 hover:bg-yellow-400 cursor-col-resize"
+                                onMouseDown={(e) => {
+                                    e.preventDefault()
+                                    const startX = e.clientX
+                                    const startWidth = detailWidth
+                                    let finalWidth = startWidth
+                                    const onMouseMove = (e) => {
+                                        const delta = startX - e.clientX
+                                        finalWidth = Math.max(180, Math.min(600, startWidth + delta))
+                                        setDetailWidth(finalWidth)
+                                    }
+                                    const onMouseUp = () => {
+                                        window.removeEventListener('mousemove', onMouseMove)
+                                        window.removeEventListener('mouseup', onMouseUp)
+                                        persistUIPrefs({DetailWidth: finalWidth})
+                                    }
+                                    window.addEventListener('mousemove', onMouseMove)
+                                    window.addEventListener('mouseup', onMouseUp)
+                                }}
+                            />
+                            {/* Detail panel (NPC / Spawn Point / Grid, depending on active tab) */}
+                            <DetailPanel
+                                activeView={activeView} setShowSpawnHelp={setShowSpawnHelp} detailWidth={detailWidth}
+                                selectedNpc={selectedNpc}
+                                selectedSpawnRow={selectedSpawnRow}
+                                selectAllSharingSpawngroup={selectAllSharingSpawngroup}
+                                openSyncSpawnGroupPreview={openSyncSpawnGroupPreviewFromSpawn}
+                                selectedGridRow={selectedGridRow}
+                                selectedSpawnGroupRow={selectedSpawnGroupRow}
+                                openSyncSpawnGroupPreviewFromSpawnGroup={openSyncSpawnGroupPreviewFromSpawnGroup}
+                                expandedSections={expandedSections} setExpandedSections={setExpandedSections}
+                            />
+                        </>
+                    )}
+                    </div>
                 </div>
-                {/* Drag handle + detail panel are omitted entirely on the TODO tab — it has no
-                    corresponding detail content (see DetailPanel), so hiding both lets the TODO
-                    list's flex-1 center panel reclaim that width instead of it sitting idle. */}
-                {activeView !== 'todo' && (
-                    <>
-                        <div
-                            className="w-1 bg-gray-700 hover:bg-yellow-400 cursor-col-resize"
-                            onMouseDown={(e) => {
-                                e.preventDefault()
-                                const startX = e.clientX
-                                const startWidth = detailWidth
-                                let finalWidth = startWidth
-                                const onMouseMove = (e) => {
-                                    const delta = startX - e.clientX
-                                    finalWidth = Math.max(180, Math.min(600, startWidth + delta))
-                                    setDetailWidth(finalWidth)
-                                }
-                                const onMouseUp = () => {
-                                    window.removeEventListener('mousemove', onMouseMove)
-                                    window.removeEventListener('mouseup', onMouseUp)
-                                    persistUIPrefs({DetailWidth: finalWidth})
-                                }
-                                window.addEventListener('mousemove', onMouseMove)
-                                window.addEventListener('mouseup', onMouseUp)
-                            }}
-                        />
-                        {/* Detail panel (NPC / Spawn Point / Grid, depending on active tab) */}
-                        <DetailPanel
-                            activeView={activeView} setShowSpawnHelp={setShowSpawnHelp} detailWidth={detailWidth}
-                            selectedNpc={selectedNpc}
-                            selectedSpawnRow={selectedSpawnRow}
-                            selectAllSharingSpawngroup={selectAllSharingSpawngroup}
-                            openSyncSpawnGroupPreview={openSyncSpawnGroupPreviewFromSpawn}
-                            selectedGridRow={selectedGridRow}
-                            selectedSpawnGroupRow={selectedSpawnGroupRow}
-                            openSyncSpawnGroupPreviewFromSpawnGroup={openSyncSpawnGroupPreviewFromSpawnGroup}
-                            expandedSections={expandedSections} setExpandedSections={setExpandedSections}
-                        />
-                    </>
-                )}
             </div>
         </div>
     )
