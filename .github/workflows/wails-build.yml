@@ -55,7 +55,7 @@ jobs:
         run: wails build -platform ${{ matrix.platform }}
 
       - name: Upload Build Artifacts
-        uses: actions/all-artifacts-action@v4 # Maintained artifact upload utility
+        uses: actions/upload-artifact@v4 # Maintained artifact upload utility
         with:
           name: ${{ matrix.artifact_name }}
           path: build/bin/*
