@@ -13,3 +13,5 @@ export function GetZones():Promise<Array<main.Zone>>;
 export function LoadConfig():Promise<main.Config>;
 
 export function SaveConfig(arg1:main.Config):Promise<void>;
+
+export function Sync(arg1:main.SyncOptions):Promise<main.SyncResult>;

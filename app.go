@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	_ "github.com/go-sql-driver/mysql"
@@ -72,7 +74,7 @@ type SyncResult struct {
 	DryRun       bool
 	NPCsSynced   []int64
 	SpawnsSynced int
-	TODOItems    []string
+	TODOItems    []TODOItem
 	Errors       []string
 }
 
@@ -123,6 +125,14 @@ func configPath() (string, error) {
 		return "", err
 	}
 	return filepath.Join(dir, "eqemu-sync", "config.json"), nil
+}
+
+func todoPath() (string, error) {
+	dir, err := os.UserConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "eqemu-sync", "todo.json"), nil
 }
 
 func toInt64(v interface{}) int64 {
@@ -338,6 +348,202 @@ func (a *App) CompareZones(shortName string) ([]NPCDiffRow, error) {
 	}
 
 	return diff, nil
+}
+
+func (a *App) getSinkNPCTypeColumns() (map[string]bool, error) {
+	rows, err := a.sinkDB.QueryContext(a.ctx, "SHOW COLUMNS FROM npc_types")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	cols, err := rows.Columns()
+	if err != nil {
+		return nil, err
+	}
+	columns := make(map[string]bool)
+	for rows.Next() {
+		values := make([]interface{}, len(cols))
+		valuePtrs := make([]interface{}, len(cols))
+		for i := range values {
+			valuePtrs[i] = &values[i]
+		}
+		if err := rows.Scan(valuePtrs...); err != nil {
+			return nil, err
+		}
+		if name, ok := values[0].([]byte); ok {
+			columns[string(name)] = true
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return columns, nil
+}
+
+func buildTODOItems(sourceNpc NPC, sinkNpc *NPC, zoneShortName string) []TODOItem {
+	fkFields := []struct {
+		field   string
+		todoTyp string
+	}{
+		{"loottable_id", "loottable"},
+		{"npc_spells_id", "spells"},
+		{"npc_faction_id", "faction"},
+	}
+	name := fmt.Sprintf("%v", sourceNpc.Fields["name"])
+	var items []TODOItem
+	for _, fk := range fkFields {
+		sourceID := toInt64(sourceNpc.Fields[fk.field])
+		if sourceID == 0 {
+			continue
+		}
+		var sinkID int64
+		if sinkNpc != nil {
+			sinkID = toInt64(sinkNpc.Fields[fk.field])
+		}
+		items = append(items, TODOItem{
+			Type:     fk.todoTyp,
+			SourceID: sourceID,
+			SinkID:   sinkID,
+			NPCID:    sourceNpc.Id,
+			NPCName:  name,
+			ZoneName: zoneShortName,
+		})
+	}
+	return items
+}
+
+func upsertNPC(ctx context.Context, tx *sql.Tx, fields map[string]interface{}, sinkColumns map[string]bool) error {
+	var columns []string
+	for col := range fields {
+		if sinkColumns[col] {
+			columns = append(columns, col)
+		}
+	}
+	sort.Strings(columns)
+
+	placeholders := make([]string, len(columns))
+	values := make([]interface{}, len(columns))
+	updateClauses := make([]string, 0, len(columns)-1)
+	for i, col := range columns {
+		placeholders[i] = "?"
+		values[i] = fields[col]
+		if col != "id" {
+			updateClauses = append(updateClauses, fmt.Sprintf("%s=VALUES(%s)", col, col))
+		}
+	}
+
+	query := fmt.Sprintf(
+		"INSERT INTO npc_types (%s) VALUES (%s) ON DUPLICATE KEY UPDATE %s",
+		strings.Join(columns, ", "),
+		strings.Join(placeholders, ", "),
+		strings.Join(updateClauses, ", "),
+	)
+	_, err := tx.ExecContext(ctx, query, values...)
+	return err
+}
+
+func appendTODOItems(items []TODOItem) error {
+	if len(items) == 0 {
+		return nil
+	}
+	path, err := todoPath()
+	if err != nil {
+		return err
+	}
+	var existing []TODOItem
+	if data, err := os.ReadFile(path); err == nil {
+		_ = json.Unmarshal(data, &existing)
+	}
+	existing = append(existing, items...)
+
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		return err
+	}
+	data, err := json.Marshal(existing)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, data, 0644)
+}
+
+func (a *App) Sync(options SyncOptions) (SyncResult, error) {
+	result := SyncResult{DryRun: options.DryRun}
+
+	if a.sourceDB == nil {
+		return result, fmt.Errorf("source database not connected")
+	}
+	if a.sinkDB == nil {
+		return result, fmt.Errorf("sink database not connected")
+	}
+	if !options.SyncNPCTypes {
+		return result, nil
+	}
+
+	sourceNpcs, err := a.GetNPCsForZone(options.ZoneShortName, true)
+	if err != nil {
+		return result, err
+	}
+	sinkNpcs, err := a.GetNPCsForZone(options.ZoneShortName, false)
+	if err != nil {
+		return result, err
+	}
+	sourceById := make(map[int64]NPC, len(sourceNpcs))
+	for _, npc := range sourceNpcs {
+		sourceById[npc.Id] = npc
+	}
+	sinkById := make(map[int64]NPC, len(sinkNpcs))
+	for _, npc := range sinkNpcs {
+		sinkById[npc.Id] = npc
+	}
+
+	var sinkColumns map[string]bool
+	var tx *sql.Tx
+	if !options.DryRun {
+		sinkColumns, err = a.getSinkNPCTypeColumns()
+		if err != nil {
+			return result, err
+		}
+		tx, err = a.sinkDB.BeginTx(a.ctx, nil)
+		if err != nil {
+			return result, err
+		}
+	}
+
+	for _, id := range options.NPCIds {
+		sourceNpc, ok := sourceById[id]
+		if !ok {
+			result.Errors = append(result.Errors, fmt.Sprintf("NPC %d: not found in source zone data", id))
+			continue
+		}
+		var sinkNpc *NPC
+		if npc, ok := sinkById[id]; ok {
+			sinkNpc = &npc
+		}
+
+		result.TODOItems = append(result.TODOItems, buildTODOItems(sourceNpc, sinkNpc, options.ZoneShortName)...)
+
+		if options.DryRun {
+			result.NPCsSynced = append(result.NPCsSynced, id)
+			continue
+		}
+
+		if err := upsertNPC(a.ctx, tx, sourceNpc.Fields, sinkColumns); err != nil {
+			_ = tx.Rollback()
+			return result, fmt.Errorf("NPC %d: %w", id, err)
+		}
+		result.NPCsSynced = append(result.NPCsSynced, id)
+	}
+
+	if !options.DryRun {
+		if err := tx.Commit(); err != nil {
+			return result, err
+		}
+		if err := appendTODOItems(result.TODOItems); err != nil {
+			result.Errors = append(result.Errors, fmt.Sprintf("failed to save TODO items: %v", err))
+		}
+	}
+
+	return result, nil
 }
 
 func (a *App) shutdown(ctx context.Context) {

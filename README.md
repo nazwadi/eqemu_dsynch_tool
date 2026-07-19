@@ -24,13 +24,14 @@ If you run an EQEmu server, you've lived this: you build and test content — NP
 - **Field-level detail view** — collapsible sections (Identity, Combat, Resistances, Ability Scores, Behavior, References) with differing values highlighted
 - **Color-coded status** — new / modified / removed / match, at a glance
 - **Sortable, filterable, multi-select diff table** — filter to just the differences, sort by status/name/ID, select the NPCs you care about
+- **`npc_types` sync, with dry-run preview** — select NPCs, preview exactly what will change (and what won't be touched), then execute inside a transaction that rolls back on any error; automatically handles source/sink schema drift (e.g. 136 columns vs. 131) by only writing columns the sink actually has
+- **TODO queue** — loot tables, factions, and spells referenced by synced NPCs are queued to `~/.config/eqemu-sync/todo.json` for manual review instead of being blindly overwritten, since those tables are shared across NPCs
 
 ### In progress
-- **Executing the sync** — writing selected NPC/spawn changes from source → sink inside a transaction (the preview UI is built; the write path is next)
-- **TODO queue** — automatically flagging loot tables, factions, and spells for manual review instead of overwriting shared data
+- **Zone-wide spawn/grid sync** — writing `spawn2` / `spawngroup` / `spawnentry` / `grid` / `grid_entries` changes from source → sink (currently only `npc_types` rows are synced; spawn placement is not)
 - **SSH tunneling** — for connecting to databases that aren't exposed directly (config fields exist; not wired up yet)
 
-> This is an early-stage, actively-developed personal project. Diffing works today; writing changes back to the sink database does not yet. See [Roadmap](#roadmap).
+> This is an early-stage, actively-developed personal project. Diffing and `npc_types` sync work today; spawn/grid placement sync does not yet. See [Roadmap](#roadmap).
 
 ## Tech stack
 
@@ -72,14 +73,16 @@ Source/sink connection settings are saved automatically after your first success
 2. Pick a zone from the source DB's zone list.
 3. The tool joins `spawn2 → spawngroup → spawnentry → npc_types` on both databases and diffs every NPC by ID, column by column.
 4. Each NPC lands in one bucket: **new** (in source only), **modified** (same ID, different fields), **removed** (in sink only), or **match**.
-5. Select the NPCs you want to bring over and review the sync preview before committing anything.
+5. Select the NPCs you want to bring over and click "Sync" to see a dry-run preview — exactly what will change, plus any loot/faction/spell references that will be queued as TODOs.
+6. Click "Execute Sync" to write the selected `npc_types` rows to the sink inside a transaction. The diff view refreshes automatically so synced NPCs flip to "match".
 
 ## Roadmap
 
-- [ ] Execute sync: write `npc_types` (upsert) and `spawn2` / `spawngroup` / `spawnentry` / `grid` / `grid_entries` (zone-wide replace) to the sink DB inside a transaction, with rollback on failure
-- [ ] Persist the TODO queue (loot tables, factions, spells) to `~/.config/eqemu-sync/todo.json` for manual follow-up
+- [x] Execute sync: write `npc_types` (upsert) to the sink DB inside a transaction, with rollback on failure
+- [x] Persist the TODO queue (loot tables, factions, spells) to `~/.config/eqemu-sync/todo.json` for manual follow-up
+- [x] Dry-run mode surfaced in the UI before executing a real sync
+- [ ] Zone-wide replace of `spawn2` / `spawngroup` / `spawnentry` / `grid` / `grid_entries`
 - [ ] SSH tunnel support for remote database connections
-- [ ] Dry-run mode surfaced in the UI before executing a real sync
 
 ## Contributing
 

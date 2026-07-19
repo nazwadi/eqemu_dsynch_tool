@@ -1,6 +1,6 @@
 import {useEffect, useState} from 'react';
 import './App.css';
-import {CompareZones, Connect, GetZones, LoadConfig, SaveConfig} from "../wailsjs/go/main/App";
+import {CompareZones, Connect, GetZones, LoadConfig, SaveConfig, Sync} from "../wailsjs/go/main/App";
 
 function App() {
     const [zones, setZones] = useState([])
@@ -30,6 +30,31 @@ function App() {
     const [detailWidth, setDetailWidth] = useState(240)
     const [selectedNPCs, setSelectedNPCs] = useState(new Set())
     const [showSyncPreview, setShowSyncPreview] = useState(false)
+    const [syncPreview, setSyncPreview] = useState(null)
+    const [syncing, setSyncing] = useState(false)
+    const [syncOutcome, setSyncOutcome] = useState(null)
+
+    function runSync(dryRun) {
+        return Sync({
+            ZoneShortName: selectedZoneShortName,
+            SyncNPCTypes: true,
+            SyncSpawns: false,
+            DryRun: dryRun,
+            NPCIds: Array.from(selectedNPCs)
+        })
+    }
+
+    function executeSync() {
+        setSyncing(true)
+        runSync(false)
+            .then(result => {
+                setSyncOutcome(result)
+                setSelectedNPCs(new Set())
+                return CompareZones(selectedZoneShortName).then(setDiffRows)
+            })
+            .catch(err => setSyncOutcome({Errors: [String(err)]}))
+            .finally(() => setSyncing(false))
+    }
 
     function connect() {
         const config = {
@@ -254,7 +279,12 @@ function App() {
                                     ? 'bg-yellow-400 text-gray-900 cursor-pointer hover:bg-yellow-300'
                                     : 'bg-gray-700 text-gray-500 cursor-not-allowed'
                             }`}
-                            onClick={() => setShowSyncPreview(true)}
+                            onClick={() => {
+                                setShowSyncPreview(true)
+                                setSyncPreview(null)
+                                setSyncOutcome(null)
+                                runSync(true).then(setSyncPreview)
+                            }}
                         >
                             {selectedNPCs.size > 0 ? `Sync ${selectedNPCs.size} NPCs` : 'Sync NPCs'}
                         </button>
@@ -392,8 +422,7 @@ function App() {
                             className={`absolute inset-0 flex flex-col transition-transform duration-200 ease-out bg-gray-800 z-10 ${
                                 showSyncPreview ? 'translate-x-0' : 'translate-x-full'
                             }`}>
-                            <div className="text-red-500 text-lg p-4">SYNC PREVIEW IS HERE</div>
-                            <div className="p-4 flex flex-col gap-4">
+                            <div className="p-4 flex flex-col gap-4 flex-1 min-h-0 overflow-y-auto">
                                 <div className="flex items-center justify-between border-b border-gray-700 pb-3">
                                     <button
                                         onClick={() => setShowSyncPreview(false)}
@@ -404,11 +433,83 @@ function App() {
                                     <span className="text-xs text-gray-400">
                                         {selectedNPCs.size} NPCs → {dbSinkName}
                                     </span>
-                                    <button
-                                        className="text-xs px-3 py-1 rounded bg-yellow-400 text-gray-900 font-medium hover:bg-yellow-300">
-                                        Execute Sync →
-                                    </button>
+                                    {!syncOutcome && (
+                                        <button
+                                            disabled={syncing || !syncPreview}
+                                            onClick={executeSync}
+                                            className={`text-xs px-3 py-1 rounded font-medium ${
+                                                syncing || !syncPreview
+                                                    ? 'bg-gray-700 text-gray-500 cursor-not-allowed'
+                                                    : 'bg-yellow-400 text-gray-900 hover:bg-yellow-300'
+                                            }`}>
+                                            {syncing ? 'Syncing…' : 'Execute Sync →'}
+                                        </button>
+                                    )}
                                 </div>
+
+                                {syncOutcome ? (
+                                    <div className="flex flex-col gap-3">
+                                        <div className="text-sm text-green-400">
+                                            {syncOutcome.NPCsSynced?.length ?? 0} NPCs synced, {syncOutcome.TODOItems?.length ?? 0} TODO items saved
+                                        </div>
+                                        {syncOutcome.Errors?.length > 0 && (
+                                            <div className="flex flex-col gap-1">
+                                                <div className="text-xs text-gray-400 uppercase tracking-wider">Errors</div>
+                                                {syncOutcome.Errors.map((e, i) => (
+                                                    <div key={i} className="text-xs text-red-400">{e}</div>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
+                                ) : !syncPreview ? (
+                                    <div className="text-xs text-gray-500">Comparing…</div>
+                                ) : (
+                                    <>
+                                        <div className="flex flex-col gap-1">
+                                            <div className="text-xs text-gray-400 uppercase tracking-wider">
+                                                NPCs to sync ({syncPreview.NPCsSynced?.length ?? 0})
+                                            </div>
+                                            {(syncPreview.NPCsSynced ?? []).map(id => {
+                                                const row = diffRows.find(r => (r.Source?.Id ?? r.Sink?.Id) === id)
+                                                const name = row?.Source?.Fields?.name ?? row?.Sink?.Fields?.name ?? `NPC ${id}`
+                                                return (
+                                                    <div key={id} className="flex items-center gap-2 text-xs px-2 py-1">
+                                                        <span className={row?.Status === 'new' ? 'text-green-400' : 'text-yellow-400'}>
+                                                            {row?.Status === 'new' ? '+' : '~'}
+                                                        </span>
+                                                        <span className="text-gray-300">{name} ({id})</span>
+                                                    </div>
+                                                )
+                                            })}
+                                        </div>
+
+                                        {syncPreview.TODOItems?.length > 0 && (
+                                            <div className="flex flex-col gap-1">
+                                                <div className="text-xs text-gray-400 uppercase tracking-wider">
+                                                    TODO items — needs manual reconciliation
+                                                </div>
+                                                {syncPreview.TODOItems.map((item, i) => (
+                                                    <div key={i} className="flex items-center gap-2 text-xs px-2 py-1">
+                                                        <span className="text-gray-500 w-20 shrink-0">{item.Type}</span>
+                                                        <span className="text-gray-300">{item.NPCName}</span>
+                                                        <span className="text-gray-600">
+                                                            source {item.SourceID} → sink {item.SinkID || '—'}
+                                                        </span>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
+
+                                        {syncPreview.Errors?.length > 0 && (
+                                            <div className="flex flex-col gap-1">
+                                                <div className="text-xs text-gray-400 uppercase tracking-wider">Errors</div>
+                                                {syncPreview.Errors.map((e, i) => (
+                                                    <div key={i} className="text-xs text-red-400">{e}</div>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </>
+                                )}
                             </div>
                         </div>
                     </div>

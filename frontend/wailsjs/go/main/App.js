@@ -25,3 +25,7 @@ export function LoadConfig() {
 export function SaveConfig(arg1) {
   return window['go']['main']['App']['SaveConfig'](arg1);
 }
+
+export function Sync(arg1) {
+  return window['go']['main']['App']['Sync'](arg1);
+}

@@ -142,6 +142,87 @@ export namespace main {
 		}
 	}
 	
+	export class SyncOptions {
+	    ZoneShortName: string;
+	    SyncNPCTypes: boolean;
+	    SyncSpawns: boolean;
+	    DryRun: boolean;
+	    NPCIds: number[];
+	
+	    static createFrom(source: any = {}) {
+	        return new SyncOptions(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.ZoneShortName = source["ZoneShortName"];
+	        this.SyncNPCTypes = source["SyncNPCTypes"];
+	        this.SyncSpawns = source["SyncSpawns"];
+	        this.DryRun = source["DryRun"];
+	        this.NPCIds = source["NPCIds"];
+	    }
+	}
+	export class TODOItem {
+	    Type: string;
+	    SourceID: number;
+	    SinkID: number;
+	    NPCID: number;
+	    NPCName: string;
+	    ZoneName: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new TODOItem(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.Type = source["Type"];
+	        this.SourceID = source["SourceID"];
+	        this.SinkID = source["SinkID"];
+	        this.NPCID = source["NPCID"];
+	        this.NPCName = source["NPCName"];
+	        this.ZoneName = source["ZoneName"];
+	    }
+	}
+	export class SyncResult {
+	    DryRun: boolean;
+	    NPCsSynced: number[];
+	    SpawnsSynced: number;
+	    TODOItems: TODOItem[];
+	    Errors: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new SyncResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.DryRun = source["DryRun"];
+	        this.NPCsSynced = source["NPCsSynced"];
+	        this.SpawnsSynced = source["SpawnsSynced"];
+	        this.TODOItems = this.convertValues(source["TODOItems"], TODOItem);
+	        this.Errors = source["Errors"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
 	export class Zone {
 	    Id: number;
 	    ZoneIdNumber: number;
