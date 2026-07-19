@@ -26,15 +26,15 @@ If you run an EQEmu server, you've lived this: you build and test content — NP
 - **Sortable, filterable, multi-select diff table** — filter to just the differences, sort by status/name/ID, select the NPCs you care about
 - **`npc_types` sync, with dry-run preview** — select NPCs, preview exactly what will change (and what won't be touched), then execute inside a transaction that rolls back on any error; automatically handles source/sink schema drift (e.g. 136 columns vs. 131) by only writing columns the sink actually has
 - **TODO queue** — loot tables, factions, and spells referenced by synced NPCs are queued to `~/.config/eqemu-sync/todo.json` for manual review instead of being blindly overwritten, since those tables are shared across NPCs
+- **Spawn point creation for new NPCs** — opt-in ("Create spawn points" checkbox) creation of a `spawngroup`/`spawnentry`/`spawn2` chain for a new NPC that needs one, instead of leaving it permanently blocked. Scoped to just that NPC, not a zone-wide replace — and it won't touch anything if the source's spawn location already matches an existing sink spawn point, flagging that for manual review instead of guessing. Patrol pathing (`grid`) isn't synced yet, so spawned NPCs stand still rather than patrolling
 
 ### In progress
-- **Zone-wide spawn sync** *(actively being built)* — writing `spawn2` / `spawngroup` / `spawnentry` changes from source → sink (currently only `npc_types` rows are synced; spawn placement is not). `grid` / `grid_entries` (patrol pathing) is deliberately a later increment — an NPC with a spawn point but no grid still works, it just stands still instead of patrolling
 - **SSH tunneling** — for connecting to databases that aren't exposed directly (config fields exist; not wired up yet)
 - **Per-item deselection in the sync preview** — the preview currently syncs exactly what you checked in the diff view; there's no way to uncheck an individual NPC once you're on the preview screen
 - **In-app TODO queue viewer** — loot/faction/spell/merchant/alt-currency references get queued to `~/.config/eqemu-sync/todo.json` on every sync, but the only way to see them today is opening that file yourself
 - **Safely syncing shared reference tables** (loot, faction, spells, merchant inventory, alternate currency) instead of only flagging them for manual follow-up — deferred because these tables are shared across many NPCs, so a naive overwrite risks corrupting loot/faction/spells for every other NPC referencing the same row
 
-> This is an early-stage, actively-developed personal project. Diffing and `npc_types` sync work today; spawn/grid placement sync does not yet. See [Roadmap](#roadmap).
+> This is an early-stage, actively-developed personal project. Diffing, `npc_types` sync, and per-NPC spawn point creation work today; patrol pathing (`grid`) sync does not yet. See [Roadmap](#roadmap).
 
 ## Tech stack
 
@@ -84,8 +84,8 @@ Source/sink connection settings are saved automatically after your first success
 - [x] Execute sync: write `npc_types` (upsert) to the sink DB inside a transaction, with rollback on failure
 - [x] Persist the TODO queue (loot tables, factions, spells) to `~/.config/eqemu-sync/todo.json` for manual follow-up
 - [x] Dry-run mode surfaced in the UI before executing a real sync
-- [ ] Zone-wide replace of `spawn2` / `spawngroup` / `spawnentry` *(in progress)*
-- [ ] Zone-wide replace of `grid` / `grid_entries` (patrol pathing) — deferred until spawn2 lands
+- [x] Per-NPC `spawngroup`/`spawnentry`/`spawn2` creation for new NPCs that need a spawn point (opt-in, coordinate-conflict-safe)
+- [ ] Zone-wide replace of `grid` / `grid_entries` (patrol pathing)
 - [ ] SSH tunnel support for remote database connections
 - [ ] Per-item deselection within the sync preview
 - [ ] In-app viewer for the TODO queue (`~/.config/eqemu-sync/todo.json`)

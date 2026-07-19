@@ -74,11 +74,13 @@ type SyncOptions struct {
 }
 
 type SyncResult struct {
-	DryRun       bool
-	NPCsSynced   []int64
-	SpawnsSynced int
-	TODOItems    []TODOItem
-	Errors       []string
+	DryRun               bool
+	NPCsSynced           []int64
+	SpawnsSynced         int          // count of spawn2 rows created (or, on dry run, that would be created)
+	SpawnsCreatedForNPCs []int64      // subset of NPCsSynced that also got/will get a spawn point — drives the preview badge
+	Skipped              []SkippedNPC // NPCs deliberately not synced (not found, needs a spawn point, spawn conflict) — every NPCId ends up in exactly one of NPCsSynced or Skipped
+	TODOItems            []TODOItem
+	Errors               []string // genuine unexpected failures only — never used for a deliberate skip, see SkippedNPC
 }
 
 type TODOItem struct {
@@ -88,6 +90,29 @@ type TODOItem struct {
 	NPCID    int64
 	NPCName  string
 	ZoneName string
+}
+
+// SkippedNPC is an NPC Sync() deliberately declined to touch — not a failure, the safety
+// mechanism doing its job. Structured (not a formatted string) so the frontend can render it
+// inline next to the NPC it applies to instead of a disconnected wall of text.
+type SkippedNPC struct {
+	NPCID  int64
+	Name   string
+	Reason string
+}
+
+// spawnCandidate is one of a source NPC's real spawn2/spawngroup/spawnentry locations.
+// Unlike npc_types.id, a newly-added spawn2/spawngroup row's own ID has no meaning in the
+// sink — X/Y/Z is the only thing stable enough across two diverged databases to identify
+// "this spawn point," which is why the fields below carry the raw coordinates separately
+// from the dynamic column maps (which have their id/spawngroupID columns stripped, since
+// the sink will assign its own).
+type spawnCandidate struct {
+	X, Y, Z          float64
+	Chance           int64
+	SharedPool       bool // true if source's spawngroup has spawnentries for OTHER NPCs too — a weighted pool, not a single-NPC spawn point
+	Spawn2Fields     map[string]interface{}
+	SpawnGroupFields map[string]interface{}
 }
 
 // NewApp creates a new App application struct
@@ -147,6 +172,20 @@ func toInt64(v interface{}) int64 {
 		return n
 	case string:
 		n, _ := strconv.ParseInt(val, 10, 64)
+		return n
+	}
+	return 0
+}
+
+func toFloat64(v interface{}) float64 {
+	switch val := v.(type) {
+	case float64:
+		return val
+	case []byte:
+		n, _ := strconv.ParseFloat(string(val), 64)
+		return n
+	case string:
+		n, _ := strconv.ParseFloat(val, 64)
 		return n
 	}
 	return 0
@@ -377,8 +416,8 @@ func (a *App) CompareZones(shortName string, version int8, zoneIdNumber int64) (
 	return diff, nil
 }
 
-func (a *App) getSinkNPCTypeColumns() (map[string]bool, error) {
-	rows, err := a.sinkDB.QueryContext(a.ctx, "SHOW COLUMNS FROM npc_types")
+func getSinkColumns(ctx context.Context, db *sql.DB, table string) (map[string]bool, error) {
+	rows, err := db.QueryContext(ctx, "SHOW COLUMNS FROM "+table)
 	if err != nil {
 		return nil, err
 	}
@@ -495,6 +534,172 @@ func appendTODOItems(items []TODOItem) error {
 	return os.WriteFile(path, data, 0644)
 }
 
+// scanDynamicRows reads every row of an already-executed query into a slice of column-name-keyed
+// maps. Used for spawn2/spawngroup queries the same way GetNPCsForZone does it inline for
+// npc_types — kept separate here rather than refactoring GetNPCsForZone to share it, since that
+// function's loop is already intertwined with npc_types-specific extraction (has_spawn_point).
+func scanDynamicRows(rows *sql.Rows) ([]map[string]interface{}, error) {
+	cols, err := rows.Columns()
+	if err != nil {
+		return nil, err
+	}
+	var result []map[string]interface{}
+	for rows.Next() {
+		values := make([]interface{}, len(cols))
+		valuePtrs := make([]interface{}, len(cols))
+		for i := range values {
+			valuePtrs[i] = &values[i]
+		}
+		if err := rows.Scan(valuePtrs...); err != nil {
+			return nil, err
+		}
+		fields := make(map[string]interface{}, len(cols))
+		for i, col := range cols {
+			if b, ok := values[i].([]byte); ok {
+				fields[col] = string(b)
+			} else {
+				fields[col] = values[i]
+			}
+		}
+		result = append(result, fields)
+	}
+	return result, rows.Err()
+}
+
+// getSourceSpawnCandidates finds every real spawn2/spawngroup/spawnentry location a source NPC
+// spawns at within one zone/version. Deliberately two separate queries rather than one join:
+// spawn2 and spawngroup both have an `id` column, and SELECT sg.*, s.* in one query would
+// produce two columns both named "id" — scanDynamicRows keys its map by column name, so the
+// second would silently clobber the first.
+func (a *App) getSourceSpawnCandidates(shortName string, version int8, npcId int64) ([]spawnCandidate, error) {
+	rows, err := a.sourceDB.QueryContext(a.ctx, `
+		SELECT s.*, se.chance AS spawnentry_chance
+		FROM spawn2 s
+		    JOIN spawnentry se ON se.spawngroupID = s.spawngroupID AND se.npcID = ?
+		WHERE s.zone = ? AND s.version = ?
+		`, npcId, shortName, version)
+	if err != nil {
+		return nil, err
+	}
+	spawn2Rows, err := scanDynamicRows(rows)
+	_ = rows.Close()
+	if err != nil {
+		return nil, err
+	}
+
+	var candidates []spawnCandidate
+	for _, s2 := range spawn2Rows {
+		chance := toInt64(s2["spawnentry_chance"])
+		spawnGroupId := toInt64(s2["spawngroupID"])
+
+		sgRows, err := a.sourceDB.QueryContext(a.ctx, "SELECT * FROM spawngroup WHERE id = ?", spawnGroupId)
+		if err != nil {
+			return nil, err
+		}
+		spawnGroups, err := scanDynamicRows(sgRows)
+		_ = sgRows.Close()
+		if err != nil {
+			return nil, err
+		}
+		if len(spawnGroups) == 0 {
+			continue
+		}
+
+		var otherNPCCount int
+		if err := a.sourceDB.QueryRowContext(a.ctx,
+			"SELECT COUNT(*) FROM spawnentry WHERE spawngroupID = ? AND npcID != ?",
+			spawnGroupId, npcId,
+		).Scan(&otherNPCCount); err != nil {
+			return nil, err
+		}
+
+		spawn2Fields := make(map[string]interface{}, len(s2))
+		for k, v := range s2 {
+			if k == "id" || k == "spawngroupID" || k == "spawnentry_chance" {
+				continue
+			}
+			spawn2Fields[k] = v
+		}
+		spawnGroupFields := make(map[string]interface{}, len(spawnGroups[0]))
+		for k, v := range spawnGroups[0] {
+			if k == "id" {
+				continue
+			}
+			spawnGroupFields[k] = v
+		}
+
+		candidates = append(candidates, spawnCandidate{
+			X:                toFloat64(s2["x"]),
+			Y:                toFloat64(s2["y"]),
+			Z:                toFloat64(s2["z"]),
+			Chance:           chance,
+			SharedPool:       otherNPCCount > 0,
+			Spawn2Fields:     spawn2Fields,
+			SpawnGroupFields: spawnGroupFields,
+		})
+	}
+	return candidates, nil
+}
+
+// sinkSpawnPointExists reports whether the sink already has a spawn2 row at this exact
+// location in this zone/version — the signal used to detect "this spawn point already
+// exists, possibly serving a different NPC now" and skip rather than guess.
+func (a *App) sinkSpawnPointExists(shortName string, version int8, x, y, z float64) (int64, error) {
+	var id int64
+	err := a.sinkDB.QueryRowContext(a.ctx,
+		"SELECT id FROM spawn2 WHERE zone = ? AND version = ? AND x = ? AND y = ? AND z = ? LIMIT 1",
+		shortName, version, x, y, z,
+	).Scan(&id)
+	if err == sql.ErrNoRows {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, err
+	}
+	return id, nil
+}
+
+// insertRow builds a plain INSERT (never ON DUPLICATE KEY UPDATE — callers only use this for
+// rows they've already established are brand new) from a dynamic field map filtered to columns
+// that actually exist on the sink, with overrides taking precedence over copied source values.
+// Returns the new row's auto-increment id.
+func insertRow(ctx context.Context, tx *sql.Tx, table string, fields map[string]interface{}, sinkColumns map[string]bool, overrides map[string]interface{}) (int64, error) {
+	merged := make(map[string]interface{}, len(fields)+len(overrides))
+	for k, v := range fields {
+		merged[k] = v
+	}
+	for k, v := range overrides {
+		merged[k] = v
+	}
+
+	var columns []string
+	for col := range merged {
+		if sinkColumns[col] {
+			columns = append(columns, col)
+		}
+	}
+	sort.Strings(columns)
+
+	placeholders := make([]string, len(columns))
+	values := make([]interface{}, len(columns))
+	for i, col := range columns {
+		placeholders[i] = "?"
+		values[i] = merged[col]
+	}
+
+	query := fmt.Sprintf(
+		"INSERT INTO %s (%s) VALUES (%s)",
+		table,
+		strings.Join(columns, ", "),
+		strings.Join(placeholders, ", "),
+	)
+	result, err := tx.ExecContext(ctx, query, values...)
+	if err != nil {
+		return 0, err
+	}
+	return result.LastInsertId()
+}
+
 func (a *App) Sync(options SyncOptions) (SyncResult, error) {
 	result := SyncResult{DryRun: options.DryRun}
 
@@ -525,12 +730,29 @@ func (a *App) Sync(options SyncOptions) (SyncResult, error) {
 		sinkById[npc.Id] = npc
 	}
 
-	var sinkColumns map[string]bool
+	var sinkColumns, spawnGroupColumns, spawn2Columns map[string]bool
 	var tx *sql.Tx
+	// claimedThisSync tracks spawn2 coordinates already committed to being created earlier in
+	// this same Sync() call — necessary because sinkSpawnPointExists() queries a.sinkDB (the
+	// connection pool), which can't see this transaction's own uncommitted writes, and because
+	// dry runs have no transaction to check against at all. Without this, two NPCs sharing
+	// nearby spawn locations (even after the shared-pool check above) could each independently
+	// decide "no conflict" and create duplicate spawn points at the same coordinates.
+	claimedThisSync := make(map[[3]float64]int64)
 	if !options.DryRun {
-		sinkColumns, err = a.getSinkNPCTypeColumns()
+		sinkColumns, err = getSinkColumns(a.ctx, a.sinkDB, "npc_types")
 		if err != nil {
 			return result, err
+		}
+		if options.SyncSpawns {
+			spawnGroupColumns, err = getSinkColumns(a.ctx, a.sinkDB, "spawngroup")
+			if err != nil {
+				return result, err
+			}
+			spawn2Columns, err = getSinkColumns(a.ctx, a.sinkDB, "spawn2")
+			if err != nil {
+				return result, err
+			}
 		}
 		tx, err = a.sinkDB.BeginTx(a.ctx, nil)
 		if err != nil {
@@ -541,25 +763,89 @@ func (a *App) Sync(options SyncOptions) (SyncResult, error) {
 	for _, id := range options.NPCIds {
 		sourceNpc, ok := sourceById[id]
 		if !ok {
-			result.Errors = append(result.Errors, fmt.Sprintf("NPC %d: not found in source zone data", id))
+			result.Skipped = append(result.Skipped, SkippedNPC{
+				NPCID:  id,
+				Name:   fmt.Sprintf("NPC %d", id),
+				Reason: "not found in source zone data",
+			})
 			continue
 		}
 		var sinkNpc *NPC
 		if npc, ok := sinkById[id]; ok {
 			sinkNpc = &npc
 		}
+		npcName := fmt.Sprintf("%v", sourceNpc.Fields["name"])
 
+		var spawnCandidates []spawnCandidate
 		if sinkNpc == nil && sourceNpc.HasSpawnPoint {
-			result.Errors = append(result.Errors, fmt.Sprintf(
-				"NPC %d (%v): skipped — new NPCs need a spawn point in the sink first, and spawn sync isn't implemented yet",
-				id, sourceNpc.Fields["name"]))
-			continue
+			if !options.SyncSpawns {
+				result.Skipped = append(result.Skipped, SkippedNPC{
+					NPCID:  id,
+					Name:   npcName,
+					Reason: `needs a spawn point in the sink — enable "Create spawn points" to sync it`,
+				})
+				continue
+			}
+			spawnCandidates, err = a.getSourceSpawnCandidates(options.ZoneShortName, options.ZoneVersion, id)
+			if err != nil {
+				return result, err
+			}
+			conflict := false
+			for _, c := range spawnCandidates {
+				if c.SharedPool {
+					result.Skipped = append(result.Skipped, SkippedNPC{
+						NPCID: id,
+						Name:  npcName,
+						Reason: fmt.Sprintf(
+							"spawn point at (%.2f, %.2f, %.2f) is a shared pool with other NPCs, not a single-NPC spawn point — needs manual reconciliation",
+							c.X, c.Y, c.Z),
+					})
+					conflict = true
+					break
+				}
+				existingId, err := a.sinkSpawnPointExists(options.ZoneShortName, options.ZoneVersion, c.X, c.Y, c.Z)
+				if err != nil {
+					return result, err
+				}
+				if existingId != 0 {
+					result.Skipped = append(result.Skipped, SkippedNPC{
+						NPCID: id,
+						Name:  npcName,
+						Reason: fmt.Sprintf(
+							"spawn point at (%.2f, %.2f, %.2f) matches existing sink spawn2 #%d — needs manual reconciliation",
+							c.X, c.Y, c.Z, existingId),
+					})
+					conflict = true
+					break
+				}
+				if claimed, ok := claimedThisSync[[3]float64{c.X, c.Y, c.Z}]; ok {
+					result.Skipped = append(result.Skipped, SkippedNPC{
+						NPCID: id,
+						Name:  npcName,
+						Reason: fmt.Sprintf(
+							"spawn point at (%.2f, %.2f, %.2f) is also being created for NPC %d in this same sync — needs manual reconciliation",
+							c.X, c.Y, c.Z, claimed),
+					})
+					conflict = true
+					break
+				}
+			}
+			if conflict {
+				continue
+			}
+			for _, c := range spawnCandidates {
+				claimedThisSync[[3]float64{c.X, c.Y, c.Z}] = id
+			}
 		}
 
 		result.TODOItems = append(result.TODOItems, buildTODOItems(sourceNpc, sinkNpc, options.ZoneShortName)...)
 
 		if options.DryRun {
 			result.NPCsSynced = append(result.NPCsSynced, id)
+			if len(spawnCandidates) > 0 {
+				result.SpawnsCreatedForNPCs = append(result.SpawnsCreatedForNPCs, id)
+				result.SpawnsSynced += len(spawnCandidates)
+			}
 			continue
 		}
 
@@ -567,6 +853,35 @@ func (a *App) Sync(options SyncOptions) (SyncResult, error) {
 			_ = tx.Rollback()
 			return result, fmt.Errorf("NPC %d: %w", id, err)
 		}
+
+		for _, c := range spawnCandidates {
+			newSpawnGroupId, err := insertRow(a.ctx, tx, "spawngroup", c.SpawnGroupFields, spawnGroupColumns, nil)
+			if err != nil {
+				_ = tx.Rollback()
+				return result, fmt.Errorf("NPC %d: creating spawngroup: %w", id, err)
+			}
+			if _, err := tx.ExecContext(a.ctx,
+				"INSERT INTO spawnentry (spawngroupID, npcID, chance) VALUES (?, ?, ?)",
+				newSpawnGroupId, id, c.Chance,
+			); err != nil {
+				_ = tx.Rollback()
+				return result, fmt.Errorf("NPC %d: creating spawnentry: %w", id, err)
+			}
+			if _, err := insertRow(a.ctx, tx, "spawn2", c.Spawn2Fields, spawn2Columns, map[string]interface{}{
+				"spawngroupID": newSpawnGroupId,
+				"zone":         options.ZoneShortName,
+				"version":      options.ZoneVersion,
+				"pathgrid":     0,
+			}); err != nil {
+				_ = tx.Rollback()
+				return result, fmt.Errorf("NPC %d: creating spawn2: %w", id, err)
+			}
+		}
+		if len(spawnCandidates) > 0 {
+			result.SpawnsCreatedForNPCs = append(result.SpawnsCreatedForNPCs, id)
+			result.SpawnsSynced += len(spawnCandidates)
+		}
+
 		result.NPCsSynced = append(result.NPCsSynced, id)
 	}
 

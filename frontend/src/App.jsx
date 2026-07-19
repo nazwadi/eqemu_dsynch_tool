@@ -42,6 +42,7 @@ function App() {
     const [syncing, setSyncing] = useState(false)
     const [syncOutcome, setSyncOutcome] = useState(null)
     const [showSyncConfirm, setShowSyncConfirm] = useState(false)
+    const [syncSpawns, setSyncSpawns] = useState(false)
 
     useEffect(() => {
         if (activeModal) connectModalRef.current?.focus()
@@ -52,7 +53,7 @@ function App() {
     }, [showSyncConfirm])
 
     function needsSpawnPoint(row) {
-        return row.Status === 'new' && row.Source?.HasSpawnPoint
+        return row.Status === 'new' && row.Source?.HasSpawnPoint && !syncSpawns
     }
 
     function runSync(dryRun) {
@@ -61,7 +62,7 @@ function App() {
             ZoneVersion: selectedZoneVersion,
             ZoneIdNumber: selectedZoneIdNumber,
             SyncNPCTypes: true,
-            SyncSpawns: false,
+            SyncSpawns: syncSpawns,
             DryRun: dryRun,
             NPCIds: Array.from(selectedNPCs)
         })
@@ -255,8 +256,14 @@ function App() {
                             <div className="text-yellow-400 font-medium">{dbSinkName} (sink)</div>
                         </div>
                         <div className="text-sm text-gray-300">
-                            {selectedNPCs.size} NPCs will be upserted
+                            {syncPreview?.NPCsSynced?.length ?? 0} NPCs will be upserted
+                            {syncPreview?.Skipped?.length > 0 && ` (${syncPreview.Skipped.length} skipped, see preview)`}
                         </div>
+                        {syncPreview?.SpawnsSynced > 0 && (
+                            <div className="text-sm text-cyan-400">
+                                {syncPreview.SpawnsSynced} new spawn point{syncPreview.SpawnsSynced === 1 ? '' : 's'} will be created ({syncPreview.SpawnsCreatedForNPCs?.length ?? 0} NPCs)
+                            </div>
+                        )}
                         <div className="text-sm text-gray-300">
                             {syncPreview?.TODOItems?.length ?? 0} TODO items will be queued
                         </div>
@@ -389,10 +396,19 @@ function App() {
                             <span className="px-2 py-0.5 rounded bg-yellow-950 text-yellow-400">~{modifiedCount}</span>
                             <span className="px-2 py-0.5 rounded bg-red-950 text-red-400">-{removedCount}</span>
                         </>}
+                        <label className={`ml-auto flex items-center gap-1 text-xs ${showSyncPreview ? 'text-gray-600 cursor-not-allowed' : 'text-gray-400 cursor-pointer'}`}>
+                            <input type="checkbox"
+                                   className="accent-yellow-400 cursor-pointer w-3 h-3 disabled:cursor-not-allowed"
+                                   checked={syncSpawns}
+                                   disabled={showSyncPreview}
+                                   onChange={e => setSyncSpawns(e.target.checked)}
+                                   title={showSyncPreview ? 'Go back to the diff view to change this — toggling it here would leave the preview out of sync with what executes' : 'When syncing a new NPC that needs a spawn point, also create it (spawngroup/spawnentry/spawn2) instead of skipping the NPC'}/>
+                            Create spawn points
+                        </label>
                         <button
-                            disabled={selectedNPCs.size === 0}
-                            className={`ml-auto px-3 py-1 rounded text-xs font-medium ${
-                                selectedNPCs.size > 0
+                            disabled={selectedNPCs.size === 0 || showSyncPreview}
+                            className={`px-3 py-1 rounded text-xs font-medium ${
+                                selectedNPCs.size > 0 && !showSyncPreview
                                     ? 'bg-yellow-400 text-gray-900 cursor-pointer hover:bg-yellow-300'
                                     : 'bg-gray-700 text-gray-500 cursor-not-allowed'
                             }`}
@@ -400,7 +416,7 @@ function App() {
                                 setShowSyncPreview(true)
                                 setSyncPreview(null)
                                 setSyncOutcome(null)
-                                runSync(true).then(setSyncPreview)
+                                runSync(true).then(setSyncPreview).catch(err => setSyncPreview({Errors: [String(err)]}))
                             }}
                         >
                             {selectedNPCs.size > 0 ? `Sync ${selectedNPCs.size} NPCs` : 'Sync NPCs'}
@@ -565,10 +581,10 @@ function App() {
                                     </span>
                                     {!syncOutcome && (
                                         <button
-                                            disabled={syncing || !syncPreview}
+                                            disabled={syncing || !syncPreview || syncPreview.Errors?.length > 0}
                                             onClick={() => setShowSyncConfirm(true)}
                                             className={`text-xs px-3 py-1 rounded font-medium ${
-                                                syncing || !syncPreview
+                                                syncing || !syncPreview || syncPreview.Errors?.length > 0
                                                     ? 'bg-gray-700 text-gray-500 cursor-not-allowed'
                                                     : 'bg-yellow-400 text-gray-900 hover:bg-yellow-300'
                                             }`}>
@@ -580,8 +596,18 @@ function App() {
                                 {syncOutcome ? (
                                     <div className="flex flex-col gap-3">
                                         <div className="text-sm text-green-400">
-                                            {syncOutcome.NPCsSynced?.length ?? 0} NPCs synced, {syncOutcome.TODOItems?.length ?? 0} TODO items saved
+                                            {syncOutcome.NPCsSynced?.length ?? 0} NPCs synced
+                                            {syncOutcome.SpawnsSynced > 0 && `, ${syncOutcome.SpawnsSynced} spawn point${syncOutcome.SpawnsSynced === 1 ? '' : 's'} created`}
+                                            , {syncOutcome.TODOItems?.length ?? 0} TODO items saved
                                         </div>
+                                        {syncOutcome.Skipped?.length > 0 && (
+                                            <div className="flex flex-col gap-1">
+                                                <div className="text-xs text-gray-400 uppercase tracking-wider">Skipped</div>
+                                                {syncOutcome.Skipped.map((s, i) => (
+                                                    <div key={i} className="text-xs text-amber-400">{s.Name} ({s.NPCID}): {s.Reason}</div>
+                                                ))}
+                                            </div>
+                                        )}
                                         {syncOutcome.Errors?.length > 0 && (
                                             <div className="flex flex-col gap-1">
                                                 <div className="text-xs text-gray-400 uppercase tracking-wider">Errors</div>
@@ -593,24 +619,58 @@ function App() {
                                     </div>
                                 ) : !syncPreview ? (
                                     <div className="text-xs text-gray-500">Comparing…</div>
+                                ) : syncPreview.Errors?.length > 0 ? (
+                                    <div className="flex flex-col gap-1">
+                                        <div className="text-xs text-gray-400 uppercase tracking-wider">Preview failed</div>
+                                        {syncPreview.Errors.map((e, i) => (
+                                            <div key={i} className="text-xs text-red-400">{e}</div>
+                                        ))}
+                                    </div>
                                 ) : (
                                     <>
                                         <div className="flex flex-col gap-1">
                                             <div className="text-xs text-gray-400 uppercase tracking-wider">
-                                                NPCs to sync ({syncPreview.NPCsSynced?.length ?? 0})
+                                                {selectedNPCs.size} NPCs selected
+                                                {syncPreview.NPCsSynced?.length > 0 && ` · ${syncPreview.NPCsSynced.length} will sync`}
+                                                {syncPreview.SpawnsSynced > 0 && ` (${syncPreview.SpawnsSynced} spawn point${syncPreview.SpawnsSynced === 1 ? '' : 's'})`}
+                                                {syncPreview.Skipped?.length > 0 && ` · ${syncPreview.Skipped.length} skipped`}
                                             </div>
-                                            {(syncPreview.NPCsSynced ?? []).map(id => {
-                                                const row = diffRows.find(r => (r.Source?.Id ?? r.Sink?.Id) === id)
-                                                const name = row?.Source?.Fields?.name ?? row?.Sink?.Fields?.name ?? `NPC ${id}`
-                                                return (
+                                            {Array.from(selectedNPCs)
+                                                .map(id => {
+                                                    const row = diffRows.find(r => (r.Source?.Id ?? r.Sink?.Id) === id)
+                                                    const name = row?.Source?.Fields?.name ?? row?.Sink?.Fields?.name ?? `NPC ${id}`
+                                                    const skipped = syncPreview.Skipped?.find(s => s.NPCID === id)
+                                                    const createsSpawnPoint = syncPreview.SpawnsCreatedForNPCs?.includes(id)
+                                                    const todoCount = syncPreview.TODOItems?.filter(t => t.NPCID === id).length ?? 0
+                                                    return {id, name, row, skipped, createsSpawnPoint, todoCount}
+                                                })
+                                                .sort((a, b) => a.name.localeCompare(b.name))
+                                                .map(({id, name, row, skipped, createsSpawnPoint, todoCount}) => (
                                                     <div key={id} className="flex items-center gap-2 text-xs px-2 py-1">
-                                                        <span className={row?.Status === 'new' ? 'text-green-400' : 'text-yellow-400'}>
-                                                            {row?.Status === 'new' ? '+' : '~'}
-                                                        </span>
-                                                        <span className="text-gray-300">{name} ({id})</span>
+                                                        {skipped ? (
+                                                            <>
+                                                                <span className="text-gray-600">⊘</span>
+                                                                <span className="text-gray-500">{name} ({id})</span>
+                                                                <span className="text-amber-400">{skipped.Reason}</span>
+                                                            </>
+                                                        ) : (
+                                                            <>
+                                                                <span className={row?.Status === 'new' ? 'text-green-400' : 'text-yellow-400'}>
+                                                                    {row?.Status === 'new' ? '+' : '~'}
+                                                                </span>
+                                                                <span className="text-gray-300">{name} ({id})</span>
+                                                                {createsSpawnPoint && (
+                                                                    <span className="text-cyan-400" title="A new spawngroup/spawnentry/spawn2 will be created for this NPC">
+                                                                        + spawn point
+                                                                    </span>
+                                                                )}
+                                                                {todoCount > 0 && (
+                                                                    <span className="text-gray-500">{todoCount} TODO item{todoCount === 1 ? '' : 's'}</span>
+                                                                )}
+                                                            </>
+                                                        )}
                                                     </div>
-                                                )
-                                            })}
+                                                ))}
                                         </div>
 
                                         {syncPreview.TODOItems?.length > 0 && (
@@ -626,15 +686,6 @@ function App() {
                                                             source {item.SourceID} → sink {item.SinkID || '—'}
                                                         </span>
                                                     </div>
-                                                ))}
-                                            </div>
-                                        )}
-
-                                        {syncPreview.Errors?.length > 0 && (
-                                            <div className="flex flex-col gap-1">
-                                                <div className="text-xs text-gray-400 uppercase tracking-wider">Errors</div>
-                                                {syncPreview.Errors.map((e, i) => (
-                                                    <div key={i} className="text-xs text-red-400">{e}</div>
                                                 ))}
                                             </div>
                                         )}

@@ -143,6 +143,22 @@ export namespace main {
 		    return a;
 		}
 	}
+	export class SkippedNPC {
+	    NPCID: number;
+	    Name: string;
+	    Reason: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new SkippedNPC(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.NPCID = source["NPCID"];
+	        this.Name = source["Name"];
+	        this.Reason = source["Reason"];
+	    }
+	}
 	
 	export class SyncOptions {
 	    ZoneShortName: string;
@@ -194,6 +210,8 @@ export namespace main {
 	    DryRun: boolean;
 	    NPCsSynced: number[];
 	    SpawnsSynced: number;
+	    SpawnsCreatedForNPCs: number[];
+	    Skipped: SkippedNPC[];
 	    TODOItems: TODOItem[];
 	    Errors: string[];
 	
@@ -206,6 +224,8 @@ export namespace main {
 	        this.DryRun = source["DryRun"];
 	        this.NPCsSynced = source["NPCsSynced"];
 	        this.SpawnsSynced = source["SpawnsSynced"];
+	        this.SpawnsCreatedForNPCs = source["SpawnsCreatedForNPCs"];
+	        this.Skipped = this.convertValues(source["Skipped"], SkippedNPC);
 	        this.TODOItems = this.convertValues(source["TODOItems"], TODOItem);
 	        this.Errors = source["Errors"];
 	    }
