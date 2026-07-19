@@ -1,19 +1,90 @@
-# README
+# EQEmu Data Sync Tool
 
-## About
+A domain-aware database diff & sync tool for [EverQuest Emulator](https://github.com/EQEmu/Server) (EQEmu) servers. Think **Navicat Data Compare**, but it actually understands the EQEmu schema — spawn chains, shared loot/faction/spell tables, and all.
 
-This is the official Wails React template.
+![Go](https://img.shields.io/badge/Go-1.25-00ADD8?logo=go&logoColor=white)
+![Wails](https://img.shields.io/badge/Wails-v2-DF0000)
+![React](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=white)
+![Platform](https://img.shields.io/badge/platform-macOS-lightgrey)
+![Status](https://img.shields.io/badge/status-early--alpha-orange)
+![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
 
-You can configure the project by editing `wails.json`. More information about the project settings can be found
-here: https://wails.io/docs/reference/project-config
+## Why this exists
 
-## Live Development
+If you run an EQEmu server, you've lived this: you build and test content — NPCs, spawns, loot — against a local or dev database, then need to push it to your live server. Generic DB sync tools don't know that `npc_types` is joined to `spawn2` through `spawngroup` and `spawnentry`, that `loottable_id` / `npc_faction_id` / `npc_spells_id` point at *shared* tables that can't be blindly overwritten per-NPC, or that your dev and live databases might have drifted schemas (136 columns vs. 131, in one real case).
 
-To run in live development mode, run `wails dev` in the project directory. This will run a Vite development
-server that will provide very fast hot reload of your frontend changes. If you want to develop in a browser
-and have access to your Go methods, there is also a dev server that runs on http://localhost:34115. Connect
-to this in your browser, and you can call your Go code from devtools.
+**EQEmu Data Sync Tool** is purpose-built for this workflow: connect to a source and sink database, pick a zone, and get an instant, field-level diff of every NPC in it — color-coded, sortable, and safe by design (it queues anything it can't sync safely instead of guessing).
 
-## Building
+## Features
 
-To build a redistributable, production mode package, use `wails build`.
+### Available now
+- **Dual DB connections** — connect to a source (dev) and sink (live) MariaDB/MySQL database side by side; credentials are saved locally so you only enter them once
+- **Zone browser** — searchable list of every zone in the source database
+- **Schema-aware NPC diffing** — walks the real `spawn2 → spawngroup → spawnentry → npc_types` join chain and diffs *every* column, not a hardcoded subset
+- **Field-level detail view** — collapsible sections (Identity, Combat, Resistances, Ability Scores, Behavior, References) with differing values highlighted
+- **Color-coded status** — new / modified / removed / match, at a glance
+- **Sortable, filterable, multi-select diff table** — filter to just the differences, sort by status/name/ID, select the NPCs you care about
+
+### In progress
+- **Executing the sync** — writing selected NPC/spawn changes from source → sink inside a transaction (the preview UI is built; the write path is next)
+- **TODO queue** — automatically flagging loot tables, factions, and spells for manual review instead of overwriting shared data
+- **SSH tunneling** — for connecting to databases that aren't exposed directly (config fields exist; not wired up yet)
+
+> This is an early-stage, actively-developed personal project. Diffing works today; writing changes back to the sink database does not yet. See [Roadmap](#roadmap).
+
+## Tech stack
+
+| Layer      | Tech                                                   |
+|------------|---------------------------------------------------------|
+| Desktop shell | [Wails v2](https://wails.io)                        |
+| Backend    | Go, [`go-sql-driver/mysql`](https://github.com/go-sql-driver/mysql) |
+| Frontend   | React 18, Tailwind CSS v4, Vite                        |
+| Database   | MariaDB / MySQL running the EQEmu schema               |
+
+## Getting started
+
+### Prerequisites
+- Go 1.25+
+- Node 22 ([nvm](https://github.com/nvm-sh/nvm) recommended: `nvm use 22`)
+- Wails CLI v2: `go install github.com/wailsapp/wails/v2/cmd/wails@latest`
+- Two MariaDB/MySQL databases running an EQEmu schema (source and sink) — they can be the same server if you just want to try it out
+
+### Run in dev mode
+```bash
+nvm use 22
+wails dev
+```
+This launches the desktop app with hot reload on frontend changes. To call the Go backend directly from your browser's devtools, open [http://localhost:34115](http://localhost:34115).
+
+### Build a release binary
+```bash
+wails build
+```
+Outputs a redistributable app bundle to `build/bin`.
+
+## Configuration
+
+Source/sink connection settings are saved automatically after your first successful connection, via Go's `os.UserConfigDir()` — on macOS that's `~/Library/Application Support/eqemu-sync/config.json`. Nothing is synced or sent anywhere; it's a local file next to your other app configs.
+
+## How it works
+
+1. Connect to your **source** (e.g. dev) and **sink** (e.g. live) databases.
+2. Pick a zone from the source DB's zone list.
+3. The tool joins `spawn2 → spawngroup → spawnentry → npc_types` on both databases and diffs every NPC by ID, column by column.
+4. Each NPC lands in one bucket: **new** (in source only), **modified** (same ID, different fields), **removed** (in sink only), or **match**.
+5. Select the NPCs you want to bring over and review the sync preview before committing anything.
+
+## Roadmap
+
+- [ ] Execute sync: write `npc_types` (upsert) and `spawn2` / `spawngroup` / `spawnentry` / `grid` / `grid_entries` (zone-wide replace) to the sink DB inside a transaction, with rollback on failure
+- [ ] Persist the TODO queue (loot tables, factions, spells) to `~/.config/eqemu-sync/todo.json` for manual follow-up
+- [ ] SSH tunnel support for remote database connections
+- [ ] Dry-run mode surfaced in the UI before executing a real sync
+
+## Contributing
+
+Issues and PRs are welcome. This project is built to scratch a real itch (keeping EQEmu dev and live content in sync without hand-written SQL), so bug reports from anyone running an EQEmu server are especially useful — even if you're not touching the code.
+
+## License
+
+[MIT](LICENSE)
