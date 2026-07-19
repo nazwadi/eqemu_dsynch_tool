@@ -59,4 +59,12 @@ jobs:
         with:
           name: ${{ matrix.artifact_name }}
           path: build/bin/*
+      - name: Upload Binaries to Tagged Release
+        if: startsWith(github.ref, 'refs/tags/')   # Ensures this only runs when you push a tag
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}        # Automatically matches 'v1.0.0a' or any future tag
+          files: build/bin/*                       # Uploads all compiled binaries from the build folder
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # Built-in GitHub token with write access
 
