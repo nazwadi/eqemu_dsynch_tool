@@ -64,6 +64,7 @@ type NPCDiffRow struct {
 
 type SyncOptions struct {
 	ZoneShortName string
+	ZoneVersion   int8
 	SyncNPCTypes  bool
 	SyncSpawns    bool
 	DryRun        bool
@@ -99,7 +100,7 @@ func (a *App) startup(ctx context.Context) {
 }
 
 func (a *App) Connect(c *ConnectionConfig, isSource bool) error {
-	db, err := sql.Open("mysql", c.Username+":"+c.Password+"@tcp("+c.Host+":"+c.Port+")/"+c.DbName)
+	db, err := sql.Open("mysql", c.Username+":"+c.Password+"@tcp("+c.Host+":"+c.Port+")/"+c.DbName+"?timeout=5s")
 	if err != nil {
 		return err
 	}
@@ -179,7 +180,7 @@ func (a *App) SaveConfig(c *Config) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, data, 0644)
+	return os.WriteFile(path, data, 0600)
 }
 
 func (a *App) LoadConfig() (Config, error) {
@@ -230,7 +231,7 @@ func (a *App) GetZones() ([]Zone, error) {
 	return zones, nil
 }
 
-func (a *App) GetNPCsForZone(shortName string, isSource bool) ([]NPC, error) {
+func (a *App) GetNPCsForZone(shortName string, version int8, isSource bool) ([]NPC, error) {
 	db := a.sourceDB
 	if !isSource {
 		db = a.sinkDB
@@ -241,10 +242,10 @@ func (a *App) GetNPCsForZone(shortName string, isSource bool) ([]NPC, error) {
 		    JOIN spawnentry se ON se.npcID = nt.id
 		    JOIN spawngroup sg ON sg.id = se.spawngroupID
 		    JOIN spawn2 s2 ON s2.spawngroupID = sg.id
-		WHERE s2.zone = ?
+		WHERE s2.zone = ? AND s2.version = ?
 		GROUP BY nt.id
 		ORDER BY nt.Name
-		`, shortName)
+		`, shortName, version)
 	if err != nil {
 		return nil, err
 	}
@@ -284,13 +285,13 @@ func (a *App) GetNPCsForZone(shortName string, isSource bool) ([]NPC, error) {
 	return npcs, nil
 }
 
-func (a *App) CompareZones(shortName string) ([]NPCDiffRow, error) {
+func (a *App) CompareZones(shortName string, version int8) ([]NPCDiffRow, error) {
 	// Call GetNPCsForZone for source and sink
-	sourceNpcs, err := a.GetNPCsForZone(shortName, true)
+	sourceNpcs, err := a.GetNPCsForZone(shortName, version, true)
 	if err != nil {
 		return nil, err
 	}
-	sinkNpcs, err := a.GetNPCsForZone(shortName, false)
+	sinkNpcs, err := a.GetNPCsForZone(shortName, version, false)
 	if err != nil {
 		return nil, err
 	}
@@ -479,11 +480,11 @@ func (a *App) Sync(options SyncOptions) (SyncResult, error) {
 		return result, nil
 	}
 
-	sourceNpcs, err := a.GetNPCsForZone(options.ZoneShortName, true)
+	sourceNpcs, err := a.GetNPCsForZone(options.ZoneShortName, options.ZoneVersion, true)
 	if err != nil {
 		return result, err
 	}
-	sinkNpcs, err := a.GetNPCsForZone(options.ZoneShortName, false)
+	sinkNpcs, err := a.GetNPCsForZone(options.ZoneShortName, options.ZoneVersion, false)
 	if err != nil {
 		return result, err
 	}

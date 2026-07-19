@@ -19,7 +19,7 @@ If you run an EQEmu server, you've lived this: you build and test content — NP
 
 ### Available now
 - **Dual DB connections** — connect to a source (dev) and sink (live) MariaDB/MySQL database side by side; credentials are saved locally so you only enter them once
-- **Zone browser** — searchable list of every zone in the source database
+- **Zone browser** — searchable list of every zone in the source database, version-aware (EQEmu zones are keyed by `short_name` + `version`, so same-named zones with different content revisions are shown and synced separately)
 - **Schema-aware NPC diffing** — walks the real `spawn2 → spawngroup → spawnentry → npc_types` join chain and diffs *every* column, not a hardcoded subset
 - **Field-level detail view** — collapsible sections (Identity, Combat, Resistances, Ability Scores, Behavior, References) with differing values highlighted
 - **Color-coded status** — new / modified / removed / match, at a glance
@@ -30,6 +30,8 @@ If you run an EQEmu server, you've lived this: you build and test content — NP
 ### In progress
 - **Zone-wide spawn/grid sync** — writing `spawn2` / `spawngroup` / `spawnentry` / `grid` / `grid_entries` changes from source → sink (currently only `npc_types` rows are synced; spawn placement is not)
 - **SSH tunneling** — for connecting to databases that aren't exposed directly (config fields exist; not wired up yet)
+- **Per-item deselection in the sync preview** — the preview currently syncs exactly what you checked in the diff view; there's no way to uncheck an individual NPC once you're on the preview screen
+- **In-app TODO queue viewer** — loot/faction/spell references get queued to `~/.config/eqemu-sync/todo.json` on every sync, but the only way to see them today is opening that file yourself
 
 > This is an early-stage, actively-developed personal project. Diffing and `npc_types` sync work today; spawn/grid placement sync does not yet. See [Roadmap](#roadmap).
 
@@ -83,6 +85,8 @@ Source/sink connection settings are saved automatically after your first success
 - [x] Dry-run mode surfaced in the UI before executing a real sync
 - [ ] Zone-wide replace of `spawn2` / `spawngroup` / `spawnentry` / `grid` / `grid_entries`
 - [ ] SSH tunnel support for remote database connections
+- [ ] Per-item deselection within the sync preview
+- [ ] In-app viewer for the TODO queue (`~/.config/eqemu-sync/todo.json`)
 
 ## Contributing
 

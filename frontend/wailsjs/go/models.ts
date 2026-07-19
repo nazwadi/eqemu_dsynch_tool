@@ -144,6 +144,7 @@ export namespace main {
 	
 	export class SyncOptions {
 	    ZoneShortName: string;
+	    ZoneVersion: number;
 	    SyncNPCTypes: boolean;
 	    SyncSpawns: boolean;
 	    DryRun: boolean;
@@ -156,6 +157,7 @@ export namespace main {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.ZoneShortName = source["ZoneShortName"];
+	        this.ZoneVersion = source["ZoneVersion"];
 	        this.SyncNPCTypes = source["SyncNPCTypes"];
 	        this.SyncSpawns = source["SyncSpawns"];
 	        this.DryRun = source["DryRun"];

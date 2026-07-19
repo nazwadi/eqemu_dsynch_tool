@@ -1,4 +1,4 @@
-import {useEffect, useState} from 'react';
+import {useEffect, useRef, useState} from 'react';
 import './App.css';
 import {CompareZones, Connect, GetZones, LoadConfig, SaveConfig, Sync} from "../wailsjs/go/main/App";
 
@@ -15,11 +15,19 @@ function App() {
     const [sinkPassword, setSinkPassword] = useState('')
     const [dbSinkName, setDbSinkName] = useState('')
     const [activeModal, setActiveModal] = useState(null)
+    const [connectError, setConnectError] = useState(null)
+    const [connecting, setConnecting] = useState(false)
+    const connectModalRef = useRef(null)
+    const syncConfirmModalRef = useRef(null)
     const [searchFilter, setSearchFilter] = useState('')
     const [selectedZoneShortName, setSelectedZoneShortName] = useState('')
     const [selectedZoneLongName, setSelectedZoneLongName] = useState('')
+    const [selectedZoneId, setSelectedZoneId] = useState(null)
+    const [selectedZoneVersion, setSelectedZoneVersion] = useState(0)
+    const [selectedZoneIdNumber, setSelectedZoneIdNumber] = useState(null)
     const [selectedNpc, setSelectedNpc] = useState(null)
     const [diffRows, setDiffRows] = useState([])
+    const [diffLoading, setDiffLoading] = useState(false)
     const [sourceConnected, setSourceConnected] = useState(false)
     const [sinkConnected, setSinkConnected] = useState(false)
     const [diffFilter, setDiffFilter] = useState('all')
@@ -33,10 +41,20 @@ function App() {
     const [syncPreview, setSyncPreview] = useState(null)
     const [syncing, setSyncing] = useState(false)
     const [syncOutcome, setSyncOutcome] = useState(null)
+    const [showSyncConfirm, setShowSyncConfirm] = useState(false)
+
+    useEffect(() => {
+        if (activeModal) connectModalRef.current?.focus()
+    }, [activeModal])
+
+    useEffect(() => {
+        if (showSyncConfirm) syncConfirmModalRef.current?.focus()
+    }, [showSyncConfirm])
 
     function runSync(dryRun) {
         return Sync({
             ZoneShortName: selectedZoneShortName,
+            ZoneVersion: selectedZoneVersion,
             SyncNPCTypes: true,
             SyncSpawns: false,
             DryRun: dryRun,
@@ -50,13 +68,17 @@ function App() {
             .then(result => {
                 setSyncOutcome(result)
                 setSelectedNPCs(new Set())
-                return CompareZones(selectedZoneShortName).then(setDiffRows)
+                setSelectedNpc(null)
+                setSelectedRowKey(null)
+                return CompareZones(selectedZoneShortName, selectedZoneVersion).then(setDiffRows)
             })
             .catch(err => setSyncOutcome({Errors: [String(err)]}))
             .finally(() => setSyncing(false))
     }
 
     function connect() {
+        setConnectError(null)
+        setConnecting(true)
         const config = {
             Host: activeModal === 'source' ? sourceHost : sinkHost,
             Port: activeModal === 'source' ? sourcePort : sinkPort,
@@ -92,7 +114,8 @@ function App() {
                     }
                 }).catch(err => console.error("save config failed:", err))
             })
-            .catch(err => console.error("connection failed:", err))
+            .catch(err => setConnectError(String(err)))
+            .finally(() => setConnecting(false))
     }
 
     useEffect(() => {
@@ -152,16 +175,30 @@ function App() {
 
     return (
         <div id="App" className="h-screen bg-gray-900 text-white overflow-hidden flex flex-col">
-            {activeModal && <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center">
+            {activeModal && <div
+                ref={connectModalRef}
+                tabIndex={-1}
+                onKeyDown={e => {
+                    if (e.key === 'Escape') {
+                        e.preventDefault()
+                        setActiveModal(null)
+                        setConnectError(null)
+                    }
+                }}
+                className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 outline-none">
                 <div className="bg-gray-800 p-6 rounded-lg w-96 flex flex-col gap-3">
                     <div className="flex justify-between items-center mb-4">
-                        <h2 className="text-lg font-medium">Connect Source</h2>
-                        <button onClick={() => setActiveModal(null)}>✕</button>
+                        <h2 className="text-lg font-medium">{activeModal === 'source' ? 'Connect Source' : 'Connect Sink'}</h2>
+                        <button onClick={() => {
+                            setActiveModal(null)
+                            setConnectError(null)
+                        }}>✕</button>
                     </div>
                     <label>Host</label>
                     <input className="border border-gray-600 bg-gray-700 rounded px-2 py-1"
                            value={activeModal === 'source' ? sourceHost : sinkHost}
-                           onChange={e => activeModal === 'source' ? setSourceHost(e.target.value) : setSinkHost(e.target.value)}/>
+                           onChange={e => activeModal === 'source' ? setSourceHost(e.target.value) : setSinkHost(e.target.value)}
+                           autoCapitalize="off" autoCorrect="off" spellCheck={false}/>
                     <label>Port</label>
                     <input className="border border-gray-600 bg-gray-700 rounded px-2 py-1"
                            value={activeModal === 'source' ? sourcePort : sinkPort}
@@ -169,7 +206,8 @@ function App() {
                     <label>Username</label>
                     <input className="border border-gray-600 bg-gray-700 rounded px-2 py-1"
                            value={activeModal === 'source' ? sourceUsername : sinkUsername}
-                           onChange={e => activeModal === 'source' ? setSourceUsername(e.target.value) : setSinkUsername(e.target.value)}/>
+                           onChange={e => activeModal === 'source' ? setSourceUsername(e.target.value) : setSinkUsername(e.target.value)}
+                           autoCapitalize="off" autoCorrect="off" spellCheck={false}/>
                     <label>Password</label>
                     <input className="border border-gray-600 bg-gray-700 rounded px-2 py-1"
                            value={activeModal === 'source' ? sourcePassword : sinkPassword}
@@ -178,12 +216,63 @@ function App() {
                     <label>Database</label>
                     <input className="border border-gray-600 bg-gray-700 rounded px-2 py-1"
                            value={activeModal === 'source' ? dbSourceName : dbSinkName}
-                           onChange={e => activeModal === 'source' ? setDbSourceName(e.target.value) : setDbSinkName(e.target.value)}/>
-                    <button onClick={connect}>
-                        {activeModal === 'source' ? 'Connect Source' : 'Connect Sink'}
+                           onChange={e => activeModal === 'source' ? setDbSourceName(e.target.value) : setDbSinkName(e.target.value)}
+                           autoCapitalize="off" autoCorrect="off" spellCheck={false}/>
+                    {connectError && (
+                        <div className="text-xs text-red-400 bg-red-950 border border-red-800 rounded px-2 py-1">
+                            {connectError}
+                        </div>
+                    )}
+                    <button onClick={connect} disabled={connecting}>
+                        {connecting ? 'Connecting…' : (activeModal === 'source' ? 'Connect Source' : 'Connect Sink')}
                     </button>
                 </div>
             </div>}
+            {showSyncConfirm && (
+                <div
+                    ref={syncConfirmModalRef}
+                    tabIndex={-1}
+                    onKeyDown={e => {
+                        if (e.key === 'Escape') {
+                            e.preventDefault()
+                            setShowSyncConfirm(false)
+                        }
+                    }}
+                    className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 outline-none">
+                    <div className="bg-gray-800 p-6 rounded-lg w-96 flex flex-col gap-3">
+                        <div className="flex justify-between items-center mb-2">
+                            <h2 className="text-lg font-medium">Confirm Sync</h2>
+                            <button onClick={() => setShowSyncConfirm(false)}>✕</button>
+                        </div>
+                        <div className="text-sm text-gray-300">
+                            You are about to write to:
+                            <div className="text-yellow-400 font-medium">{dbSinkName} (sink)</div>
+                        </div>
+                        <div className="text-sm text-gray-300">
+                            {selectedNPCs.size} NPCs will be upserted
+                        </div>
+                        <div className="text-sm text-gray-300">
+                            {syncPreview?.TODOItems?.length ?? 0} TODO items will be queued
+                        </div>
+                        <div className="text-sm text-red-400">This cannot be undone.</div>
+                        <div className="flex justify-end gap-2 mt-2">
+                            <button
+                                onClick={() => setShowSyncConfirm(false)}
+                                className="text-xs px-3 py-1 rounded border border-gray-600 text-gray-300 hover:border-gray-400">
+                                Cancel
+                            </button>
+                            <button
+                                onClick={() => {
+                                    setShowSyncConfirm(false)
+                                    executeSync()
+                                }}
+                                className="text-xs px-3 py-1 rounded bg-yellow-400 text-gray-900 font-medium hover:bg-yellow-300">
+                                Sync Now →
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
             <div className="flex flex-1 min-h-0">
                 <div className="w-64 bg-gray-900 border-b border-gray-700 flex flex-col h-full min-h-0">
                     <div
@@ -200,7 +289,10 @@ function App() {
                             <div className="flex flex-items gap-2">
                                 <div
                                     className={`w-2 h-2 rounded-full ${sourceConnected ? 'bg-green-500' : 'bg-red-500'}`}></div>
-                                <button onClick={() => setActiveModal('source')}
+                                <button onClick={() => {
+                                    setActiveModal('source')
+                                    setConnectError(null)
+                                }}
                                         className="text-xs text-gray-400 border border-gray-600 rounded px-2 py-1 hover:text-white hover:border-gray-400">
                                     {sourceConnected ? 'Edit' : 'Connect'}
                                 </button>
@@ -214,7 +306,10 @@ function App() {
                             <div className="flex flex-items gap-2">
                                 <div
                                     className={`w-2 h-2 rounded-full ${sinkConnected ? 'bg-green-500' : 'bg-red-500'}`}></div>
-                                <button onClick={() => setActiveModal('sink')}
+                                <button onClick={() => {
+                                    setActiveModal('sink')
+                                    setConnectError(null)
+                                }}
                                         className="text-xs text-gray-400 border border-gray-600 rounded px-2 py-1 hover:text-white hover:border-gray-400">
                                     {sinkConnected ? 'Edit' : 'Connect'}
                                 </button>
@@ -226,34 +321,47 @@ function App() {
                         Zones
                     </div>
                     <div className="px-3 py-2">
-                        <input className="w-full border border-gray-600 bg-gray-700 rounded px-2 py-1 text-sm"
+                        <input className="w-full border border-gray-600 bg-gray-700 rounded px-2 py-1 text-sm disabled:opacity-40 disabled:cursor-not-allowed"
                                placeholder="Filter zones..."
                                value={searchFilter}
-                               onChange={e => setSearchFilter(e.target.value)}/>
+                               onChange={e => setSearchFilter(e.target.value)}
+                               disabled={showSyncPreview}
+                               autoCapitalize="off" autoCorrect="off" spellCheck={false}/>
                     </div>
                     <div className="overflow-y-auto flex-1 pl-4 pt-2">
                         <div className="overflow-y-auto">
                             <ul>
                                 {zones
-                                    .filter(zone => zone.ShortName.toLowerCase().includes(searchFilter.toLowerCase()))
+                                    .filter(zone =>
+                                        zone.ShortName.toLowerCase().includes(searchFilter.toLowerCase()) ||
+                                        zone.LongName.toLowerCase().includes(searchFilter.toLowerCase())
+                                    )
                                     .map(zone => (
                                         <li
                                             onClick={() => {
+                                                if (showSyncPreview) return
                                                 setSelectedZoneShortName(zone.ShortName)
                                                 setSelectedZoneLongName(zone.LongName)
+                                                setSelectedZoneId(zone.Id)
+                                                setSelectedZoneVersion(zone.Version)
+                                                setSelectedZoneIdNumber(zone.ZoneIdNumber)
                                                 setSelectedNPCs(new Set())
-                                                // CompareZones(zone.ShortName).then(diffRows => setDiffRows(diffRows))
-                                                CompareZones(zone.ShortName).then(diffRows => {
-                                                    console.log('match count:', diffRows.filter(r => r.Status === 'match').length)
-                                                    console.log('modified count:', diffRows.filter(r => r.Status === 'modified').length)
-                                                    setDiffRows(diffRows)
-                                                })
-
+                                                setSelectedNpc(null)
+                                                setSelectedRowKey(null)
+                                                setDiffRows([])
+                                                setDiffLoading(true)
+                                                CompareZones(zone.ShortName, zone.Version)
+                                                    .then(setDiffRows)
+                                                    .catch(err => console.error("compare zones failed:", err))
+                                                    .finally(() => setDiffLoading(false))
                                             }}
                                             key={zone.Id}
-                                            className={selectedZoneShortName === zone.ShortName ? 'text-yellow-400 cursor-pointer' : 'cursor-pointer'}
+                                            className={`truncate ${
+                                                showSyncPreview ? 'opacity-40 cursor-not-allowed' :
+                                                    selectedZoneId === zone.Id ? 'text-yellow-400 cursor-pointer' : 'cursor-pointer'
+                                            }`}
                                         >
-                                            {zone.ShortName}
+                                            {zone.LongName} <span className="text-gray-500 text-xs">({zone.ShortName} v{zone.Version})</span>
                                         </li>
                                     ))}
                             </ul>
@@ -267,6 +375,9 @@ function App() {
                     <div
                         className="px-3 py-2 text-xs font-medium text-gray-400 uppercase tracking-wider border-b border-gray-700 flex items-center gap-3">
                         {selectedZoneLongName} - {selectedZoneShortName}
+                        {selectedZoneShortName && (
+                            <span className="text-gray-500">(zone {selectedZoneIdNumber}, v{selectedZoneVersion})</span>
+                        )}
                         {diffRows.length > 0 && <>
                             <span className="px-2 py-0.5 rounded bg-green-950 text-green-400">+{newCount}</span>
                             <span className="px-2 py-0.5 rounded bg-yellow-950 text-yellow-400">~{modifiedCount}</span>
@@ -353,7 +464,11 @@ function App() {
                                 </div>
                             </div>
                             {/*Diff List of NPCs*/}
-                            {diffRows.length === 0 && selectedZoneShortName ? (
+                            {diffLoading ? (
+                                <div className="flex-1 flex items-center justify-center text-gray-500 text-sm">
+                                    Loading NPCs…
+                                </div>
+                            ) : diffRows.length === 0 && selectedZoneShortName ? (
                                 <div className="flex-1 flex items-center justify-center text-gray-600 text-sm">
                                     No NPCs found in this zone
                                 </div>
@@ -436,7 +551,7 @@ function App() {
                                     {!syncOutcome && (
                                         <button
                                             disabled={syncing || !syncPreview}
-                                            onClick={executeSync}
+                                            onClick={() => setShowSyncConfirm(true)}
                                             className={`text-xs px-3 py-1 rounded font-medium ${
                                                 syncing || !syncPreview
                                                     ? 'bg-gray-700 text-gray-500 cursor-not-allowed'
@@ -541,6 +656,11 @@ function App() {
                             NPC Detail
                         </div>
                         <div className="px-2 py-2 flex flex-col gap-1 text-xs overflow-y-auto flex-1">
+                            {!selectedNpc && (
+                                <div className="flex-1 flex items-center justify-center text-gray-600 text-sm">
+                                    Select an NPC to view details
+                                </div>
+                            )}
                             {selectedNpc && Object.entries(fieldGroups).map(([section, fields]) => (
                                 <div key={section}>
                                     <div
