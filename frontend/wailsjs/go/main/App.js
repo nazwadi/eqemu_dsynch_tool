@@ -42,6 +42,10 @@ export function Sync(arg1) {
   return window['go']['main']['App']['Sync'](arg1);
 }
 
+export function SyncSpawnGroupEntries(arg1) {
+  return window['go']['main']['App']['SyncSpawnGroupEntries'](arg1);
+}
+
 export function SyncSpawnPoints(arg1) {
   return window['go']['main']['App']['SyncSpawnPoints'](arg1);
 }

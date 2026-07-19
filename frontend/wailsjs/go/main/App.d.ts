@@ -22,4 +22,6 @@ export function SetTODOItemDismissed(arg1:number,arg2:boolean):Promise<void>;
 
 export function Sync(arg1:main.SyncOptions):Promise<main.SyncResult>;
 
+export function SyncSpawnGroupEntries(arg1:main.SyncSpawnGroupEntriesOptions):Promise<main.SpawnGroupEntriesSyncResult>;
+
 export function SyncSpawnPoints(arg1:main.SpawnSyncOptions):Promise<main.SpawnSyncResult>;

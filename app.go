@@ -142,10 +142,17 @@ type SpawnPoint struct {
 
 // SpawnDiffRow mirrors NPCDiffRow, but matched by coordinate (see SpawnPoint) not ID.
 type SpawnDiffRow struct {
-	Status      string // "new" | "modified" | "removed" | "match"
-	Source      *SpawnPoint
-	Sink        *SpawnPoint
-	PoolDiffers bool // true if Source/Sink pool composition differs — never auto-synced, always flagged for manual review
+	Status       string // "new" | "modified" | "removed" | "match"
+	Source       *SpawnPoint
+	Sink         *SpawnPoint
+	FieldsDiffer bool // true if Source/Sink spawn2 columns (its own fields) differ — the only thing "modified" status actually lets Sync fix
+	PoolDiffers  bool // true if Source/Sink pool composition differs — never auto-synced, always flagged for manual review
+
+	// Status can be "modified" from FieldsDiffer alone, PoolDiffers alone, or both — exposing them
+	// separately lets the frontend tell "this row has something Sync can actually change" apart from
+	// "this row only differs in its spawn entries, which Sync will never touch." Collapsing both into
+	// one "modified" bucket let a user select/sync a pool-only row, get a no-op UPDATE, and believe
+	// they'd handled it when the real (unsyncable) difference was still sitting there.
 }
 
 type SpawnSyncOptions struct {
@@ -169,6 +176,31 @@ type SpawnSyncResult struct {
 	Updated int // existing spawn points updated, or would be on dry run
 	Skipped []SkippedSpawn
 	Errors  []string
+}
+
+// SpawnGroupZoneUsage is one (zone, version) pair whose spawn2 rows reference a spawngroupID —
+// spawngroup has no zone column of its own, so this is the only way to discover what a group is
+// actually "used for" before touching its shared spawnentry rows. See SyncSpawnGroupEntries.
+type SpawnGroupZoneUsage struct {
+	Zone    string
+	Version int8
+	Count   int
+}
+
+type SyncSpawnGroupEntriesOptions struct {
+	ZoneShortName string
+	ZoneVersion   int8
+	X, Y, Z       float64 // identifies the spawn2 location whose spawngroup's entries are being synced
+	DryRun        bool
+}
+
+type SpawnGroupEntriesSyncResult struct {
+	DryRun         bool
+	SpawnGroupName string
+	EntriesBefore  int
+	EntriesAfter   int
+	OtherZoneUsage []SpawnGroupZoneUsage // non-empty means blocked — nothing was changed
+	NotFound       bool                  // true if no sink spawn2 exists at this location yet
 }
 
 // NewApp creates a new App application struct
@@ -237,6 +269,14 @@ func toFloat64(v interface{}) float64 {
 	switch val := v.(type) {
 	case float64:
 		return val
+	case float32:
+		// go-sql-driver/mysql scans a SQL FLOAT column (spawn2.x/y/z in the standard EQEmu
+		// schema) as Go float32, not float64, when the destination is interface{} — DOUBLE
+		// columns come back as float64. Without this case, every spawn2 coordinate silently
+		// zeroed out here, which is what coordKey() is built from: x/y/z all resolving to 0
+		// on both databases collapses every spawn2 row onto the same map key, so CompareSpawns
+		// matched every source row to whatever one sink row happened to be last into the map.
+		return float64(val)
 	case []byte:
 		n, _ := strconv.ParseFloat(string(val), 64)
 		return n
@@ -245,6 +285,13 @@ func toFloat64(v interface{}) float64 {
 		return n
 	}
 	return 0
+}
+
+// spawnCoordKey is the shared coordinate-matching key for a SpawnPoint — extracted so
+// CompareSpawns, SyncSpawnPoints, and SyncSpawnGroupEntries don't each redefine the same
+// closure. See toFloat64's float32 case for why correct handling here specifically matters.
+func spawnCoordKey(p SpawnPoint) [3]float64 {
+	return [3]float64{toFloat64(p.Fields["x"]), toFloat64(p.Fields["y"]), toFloat64(p.Fields["z"])}
 }
 
 func mapsEqual(a, b map[string]interface{}) bool {
@@ -494,18 +541,15 @@ func (a *App) CompareSpawns(shortName string, version int8) ([]SpawnDiffRow, err
 		return nil, err
 	}
 
-	coordKey := func(p SpawnPoint) [3]float64 {
-		return [3]float64{toFloat64(p.Fields["x"]), toFloat64(p.Fields["y"]), toFloat64(p.Fields["z"])}
-	}
 	sinkByCoord := make(map[[3]float64]SpawnPoint, len(sinkPoints))
 	for _, p := range sinkPoints {
-		sinkByCoord[coordKey(p)] = p
+		sinkByCoord[spawnCoordKey(p)] = p
 	}
 
 	var diff []SpawnDiffRow
 	seen := make(map[[3]float64]bool)
 	for _, sp := range sourcePoints {
-		key := coordKey(sp)
+		key := spawnCoordKey(sp)
 		sinkPoint, exists := sinkByCoord[key]
 		row := SpawnDiffRow{Source: &sp}
 		if !exists {
@@ -515,8 +559,9 @@ func (a *App) CompareSpawns(shortName string, version int8) ([]SpawnDiffRow, err
 		}
 		seen[key] = true
 		row.Sink = &sinkPoint
+		row.FieldsDiffer = !mapsEqual(sp.Fields, sinkPoint.Fields)
 		row.PoolDiffers = !poolsEqual(sp.Pool, sinkPoint.Pool)
-		if mapsEqual(sp.Fields, sinkPoint.Fields) && !row.PoolDiffers {
+		if !row.FieldsDiffer && !row.PoolDiffers {
 			row.Status = "match"
 		} else {
 			row.Status = "modified"
@@ -524,7 +569,7 @@ func (a *App) CompareSpawns(shortName string, version int8) ([]SpawnDiffRow, err
 		diff = append(diff, row)
 	}
 	for _, sk := range sinkPoints {
-		if !seen[coordKey(sk)] {
+		if !seen[spawnCoordKey(sk)] {
 			diff = append(diff, SpawnDiffRow{Status: "removed", Sink: &sk})
 		}
 	}
@@ -767,10 +812,22 @@ func scanDynamicRows(rows *sql.Rows) ([]map[string]interface{}, error) {
 		}
 		fields := make(map[string]interface{}, len(cols))
 		for i, col := range cols {
-			if b, ok := values[i].([]byte); ok {
-				fields[col] = string(b)
-			} else {
-				fields[col] = values[i]
+			switch v := values[i].(type) {
+			case []byte:
+				fields[col] = string(v)
+			case float32:
+				// Widen to float64 here, once, rather than leaving the raw float32 in place.
+				// A float32 round-trips through JSON to the frontend using *32-bit* shortest-
+				// round-trip formatting (Go's encoding/json knows the static type), but the
+				// frontend only ever produces float64s — so parsing that JSON text back gives
+				// the closest float64 to that decimal string, which isn't always bit-identical
+				// to float64(v) computed directly. That mismatch is invisible until something
+				// compares the two for exact equality, which is exactly what spawnCoordKey does
+				// when a value sent back by the frontend (e.g. SyncSpawnPoints' NewSpawnCoords)
+				// needs to match a coordinate this function scanned moments earlier.
+				fields[col] = float64(v)
+			default:
+				fields[col] = v
 			}
 		}
 		result = append(result, fields)
@@ -1243,7 +1300,7 @@ func (a *App) Sync(options SyncOptions) (SyncResult, error) {
 						NPCID: id,
 						Name:  npcName,
 						Reason: fmt.Sprintf(
-							"spawn point at (%.2f, %.2f, %.2f) is a shared pool with other NPCs, not a single-NPC spawn point — needs manual reconciliation",
+							"spawn point at (%.2f, %.2f, %.2f) uses a shared spawngroup (other NPCs too), not a single-NPC spawn point — needs manual reconciliation",
 							c.X, c.Y, c.Z),
 					})
 					conflict = true
@@ -1352,12 +1409,9 @@ func (a *App) SyncSpawnPoints(options SpawnSyncOptions) (SpawnSyncResult, error)
 		return result, err
 	}
 
-	coordKey := func(p SpawnPoint) [3]float64 {
-		return [3]float64{toFloat64(p.Fields["x"]), toFloat64(p.Fields["y"]), toFloat64(p.Fields["z"])}
-	}
 	sourceByCoord := make(map[[3]float64]SpawnPoint, len(sourcePoints))
 	for _, p := range sourcePoints {
-		sourceByCoord[coordKey(p)] = p
+		sourceByCoord[spawnCoordKey(p)] = p
 	}
 	sinkById := make(map[int64]SpawnPoint, len(sinkPoints))
 	for _, p := range sinkPoints {
@@ -1387,7 +1441,7 @@ func (a *App) SyncSpawnPoints(options SpawnSyncOptions) (SpawnSyncResult, error)
 			result.Errors = append(result.Errors, fmt.Sprintf("spawn2 #%d: not found in sink zone data", sinkId))
 			continue
 		}
-		sourcePoint, ok := sourceByCoord[coordKey(sinkPoint)]
+		sourcePoint, ok := sourceByCoord[spawnCoordKey(sinkPoint)]
 		if !ok {
 			result.Errors = append(result.Errors, fmt.Sprintf("spawn2 #%d: no matching source spawn point at its coordinates", sinkId))
 			continue
@@ -1415,9 +1469,9 @@ func (a *App) SyncSpawnPoints(options SpawnSyncOptions) (SpawnSyncResult, error)
 			continue
 		}
 		if len(sourcePoint.Pool) != 1 {
-			reason := "source pool is empty"
+			reason := "source spawngroup has no spawn entries"
 			if len(sourcePoint.Pool) > 1 {
-				reason = "shared pool with other NPCs, not a single-NPC spawn point — needs manual reconciliation"
+				reason = "uses a shared spawngroup (other NPCs too), not a single-NPC spawn point — needs manual reconciliation"
 			}
 			result.Skipped = append(result.Skipped, SkippedSpawn{X: coord[0], Y: coord[1], Z: coord[2], Reason: reason})
 			continue
@@ -1463,6 +1517,114 @@ func (a *App) SyncSpawnPoints(options SpawnSyncOptions) (SpawnSyncResult, error)
 		}
 	}
 
+	return result, nil
+}
+
+// SyncSpawnGroupEntries replaces one spawngroup's spawnentry rows on the sink with source's,
+// identified by the spawn2 location whose spawngroup the caller wants reconciled. Deliberately
+// separate from SyncSpawnPoints — spawn entries are shared data (see PoolDiffers), and unlike a
+// spawn2's own fields, blindly syncing them can affect every OTHER location sharing the same
+// spawngroupID, possibly in a zone the caller never reviewed, since spawngroup has no zone column
+// of its own. Blocked outright (not just warned) if the sink's spawngroupID is referenced by any
+// spawn2 row outside options.ZoneShortName/ZoneVersion — see CLAUDE.md's "Spawn point identity"
+// notes for why this app treats shared data as something to flag, never silently resolve.
+//
+// npcID values need no translation between databases — npc_types.id is the portable identity
+// this whole app is built on — so this is a plain delete-and-reinsert of source's entries, once
+// the safety check above has cleared it.
+func (a *App) SyncSpawnGroupEntries(options SyncSpawnGroupEntriesOptions) (SpawnGroupEntriesSyncResult, error) {
+	result := SpawnGroupEntriesSyncResult{DryRun: options.DryRun}
+
+	if a.sourceDB == nil {
+		return result, fmt.Errorf("source database not connected")
+	}
+	if a.sinkDB == nil {
+		return result, fmt.Errorf("sink database not connected")
+	}
+
+	sourcePoints, err := getSpawnPointsForZone(a.ctx, a.sourceDB, options.ZoneShortName, options.ZoneVersion)
+	if err != nil {
+		return result, err
+	}
+	sinkPoints, err := getSpawnPointsForZone(a.ctx, a.sinkDB, options.ZoneShortName, options.ZoneVersion)
+	if err != nil {
+		return result, err
+	}
+
+	target := [3]float64{options.X, options.Y, options.Z}
+	var sourcePoint, sinkPoint *SpawnPoint
+	for i := range sourcePoints {
+		if spawnCoordKey(sourcePoints[i]) == target {
+			sourcePoint = &sourcePoints[i]
+			break
+		}
+	}
+	for i := range sinkPoints {
+		if spawnCoordKey(sinkPoints[i]) == target {
+			sinkPoint = &sinkPoints[i]
+			break
+		}
+	}
+	if sourcePoint == nil {
+		return result, fmt.Errorf("no source spawn2 at (%.2f, %.2f, %.2f)", options.X, options.Y, options.Z)
+	}
+	if sinkPoint == nil {
+		result.NotFound = true
+		return result, nil
+	}
+
+	result.SpawnGroupName = fmt.Sprintf("%v", sourcePoint.SpawnGroupFields["name"])
+	result.EntriesBefore = len(sinkPoint.Pool)
+	result.EntriesAfter = len(sourcePoint.Pool)
+
+	rows, err := a.sinkDB.QueryContext(a.ctx,
+		"SELECT zone, version, COUNT(*) FROM spawn2 WHERE spawngroupID = ? GROUP BY zone, version",
+		sinkPoint.SpawnGroupId,
+	)
+	if err != nil {
+		return result, err
+	}
+	for rows.Next() {
+		var usage SpawnGroupZoneUsage
+		if err := rows.Scan(&usage.Zone, &usage.Version, &usage.Count); err != nil {
+			_ = rows.Close()
+			return result, err
+		}
+		if usage.Zone == options.ZoneShortName && usage.Version == options.ZoneVersion {
+			continue
+		}
+		result.OtherZoneUsage = append(result.OtherZoneUsage, usage)
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return result, err
+	}
+	_ = rows.Close()
+
+	if len(result.OtherZoneUsage) > 0 || options.DryRun {
+		return result, nil
+	}
+
+	tx, err := a.sinkDB.BeginTx(a.ctx, nil)
+	if err != nil {
+		return result, err
+	}
+	if _, err := tx.ExecContext(a.ctx, "DELETE FROM spawnentry WHERE spawngroupID = ?", sinkPoint.SpawnGroupId); err != nil {
+		_ = tx.Rollback()
+		return result, fmt.Errorf("clearing existing spawn entries: %w", err)
+	}
+	for _, entry := range sourcePoint.Pool {
+		if _, err := tx.ExecContext(a.ctx,
+			"INSERT INTO spawnentry (spawngroupID, npcID, chance) VALUES (?, ?, ?)",
+			sinkPoint.SpawnGroupId, entry.NPCID, entry.Chance,
+		); err != nil {
+			_ = tx.Rollback()
+			return result, fmt.Errorf("creating spawn entry for NPC %d: %w", entry.NPCID, err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return result, err
+	}
 	return result, nil
 }
 

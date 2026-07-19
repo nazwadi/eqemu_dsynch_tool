@@ -10,6 +10,7 @@ import {
     SaveConfig,
     SetTODOItemDismissed,
     Sync,
+    SyncSpawnGroupEntries,
     SyncSpawnPoints
 } from "../wailsjs/go/main/App";
 
@@ -69,7 +70,17 @@ function App() {
     const [showSpawnSyncConfirm, setShowSpawnSyncConfirm] = useState(false)
     const [selectedSpawnRow, setSelectedSpawnRow] = useState(null)
     const [spawnDiffFilter, setSpawnDiffFilter] = useState('all')
+    const [spawnSortBy, setSpawnSortBy] = useState('status')  // 'status' | 'spawngroup' | 'shared'
+    const [spawnSortDir, setSpawnSortDir] = useState('asc')
+    const [spawnSearchFilter, setSpawnSearchFilter] = useState('')  // matches spawngroup name or any spawn entry's NPC name
     const spawnSyncConfirmModalRef = useRef(null)
+    const [showSpawnHelp, setShowSpawnHelp] = useState(false)  // right-edge drawer explaining spawn2→spawngroup→spawn entries; see the Spawn Point Detail panel's "?" button
+    const spawnHelpDrawerRef = useRef(null)
+    const [showSpawnGroupEntriesConfirm, setShowSpawnGroupEntriesConfirm] = useState(false)
+    const [spawnGroupEntriesPreview, setSpawnGroupEntriesPreview] = useState(null)  // dry-run SpawnGroupEntriesSyncResult, null while loading
+    const [spawnGroupEntriesError, setSpawnGroupEntriesError] = useState(null)  // unexpected Go-level error, separate from the "blocked"/"not found" outcomes the result itself carries
+    const [syncingSpawnGroupEntries, setSyncingSpawnGroupEntries] = useState(false)
+    const spawnGroupEntriesConfirmModalRef = useRef(null)
 
     function refreshTodoItems() {
         LoadTODOItems().then(items => setTodoItems(items ?? [])).catch(err => console.error("load todo items failed:", err))
@@ -103,6 +114,14 @@ function App() {
     useEffect(() => {
         if (showSpawnSyncConfirm) spawnSyncConfirmModalRef.current?.focus()
     }, [showSpawnSyncConfirm])
+
+    useEffect(() => {
+        if (showSpawnHelp) spawnHelpDrawerRef.current?.focus()
+    }, [showSpawnHelp])
+
+    useEffect(() => {
+        if (showSpawnGroupEntriesConfirm) spawnGroupEntriesConfirmModalRef.current?.focus()
+    }, [showSpawnGroupEntriesConfirm])
 
     function needsSpawnPoint(row) {
         return row.Status === 'new' && row.Source?.HasSpawnPoint && !syncSpawns
@@ -146,8 +165,31 @@ function App() {
         return spawnCoords(row).join(',')
     }
 
+    // A "modified" row can differ in its own spawn2 fields, its spawn entries, or both — but Sync
+    // only ever fixes the former (spawn entries are never auto-synced, see spawnEntriesOnly below).
+    // A row that's "modified" purely because its spawn entries differ has nothing for Sync to do;
+    // letting it stay checkbox-selectable would produce a no-op UPDATE that looks like progress
+    // while the actual (unsyncable) difference is still sitting there unresolved.
     function spawnRowSelectable(row) {
-        return row.Status === 'new' || row.Status === 'modified'
+        if (row.Status === 'new') return true
+        if (row.Status === 'modified') return row.FieldsDiffer
+        return false
+    }
+
+    // True when a "modified" row's only difference is its spawn entries — nothing here for Sync to
+    // change. Used to visually separate "this needs syncing" from "this needs manual review" instead
+    // of lumping both under one yellow "modified" treatment.
+    function spawnEntriesOnly(row) {
+        return row.Status === 'modified' && !row.FieldsDiffer
+    }
+
+    function spawnRowMatchesSearch(row, query) {
+        if (!query.trim()) return true
+        const q = query.trim().toLowerCase()
+        return [row.Source, row.Sink].filter(Boolean).some(point =>
+            (point.SpawnGroupFields?.name ?? '').toLowerCase().includes(q) ||
+            (point.Pool ?? []).some(pe => (pe.NPCName ?? '').toLowerCase().includes(q))
+        )
     }
 
     function loadSpawnDiffs() {
@@ -188,19 +230,32 @@ function App() {
         return Number.isFinite(n) ? n.toFixed(1) : '—'
     }
 
-    // A pool with one entry is a normal single-NPC spawn; more than one means it's a weighted
-    // pool shared across whichever NPCs are listed — surfaced here instead of just showing a count
-    // so "what's here" is visible without opening the detail panel.
+    // A spawngroup with one spawn entry is a normal single-NPC spawn; more than one means it's a
+    // weighted spawngroup shared across whichever NPCs are listed — surfaced here instead of just
+    // showing a count so "what's here" is visible without opening the detail panel. Terminology
+    // matches the EQEmu tables/editor (spawngroup, spawn entry), not a generic "pool", per direct
+    // feedback that "Pool" wasn't recognizable vocabulary for someone editing this schema day to day.
+    // Deliberately doesn't say "spawngroup" itself — spawnRowLabel() below prefixes that label
+    // so it's clear this text is a preview of the linked spawngroup's contents, not the row's
+    // own identity (the row is a spawn2 location; see the diff list's explanatory caption).
     function spawnPoolSummary(point) {
-        if (!point || !point.Pool || point.Pool.length === 0) return '(empty pool)'
+        if (!point || !point.Pool || point.Pool.length === 0) return '(no spawn entries)'
         if (point.Pool.length === 1) return point.Pool[0].NPCName || `NPC ${point.Pool[0].NPCID}`
-        return `${point.Pool.length} NPCs (pool)`
+        return `${point.Pool.length} NPCs`
     }
 
-    // Merges source/sink pool entries by NPCID so the detail panel can show a single table with
+    // The one-line "coordinates · spawngroup: preview" text used everywhere a spawn2 row is
+    // rendered as a single line (diff list, sync preview) — keeps the spawn2-vs-spawngroup
+    // distinction consistent instead of re-templating it at each call site.
+    function spawnRowLabel(point) {
+        if (!point) return '-'
+        return `(${fmtCoord(Number(point.Fields.x))}, ${fmtCoord(Number(point.Fields.y))}, ${fmtCoord(Number(point.Fields.z))}) · spawngroup: ${spawnPoolSummary(point)}`
+    }
+
+    // Merges source/sink spawn entries by NPCID so the detail panel can show a single table with
     // both sides' chance side by side, the same shape as the field-level source→sink comparisons
     // elsewhere in the detail panel.
-    function spawnPoolRows(row) {
+    function spawnEntryRows(row) {
         const byId = new Map()
         for (const pe of row.Source?.Pool ?? []) {
             byId.set(pe.NPCID, {npcId: pe.NPCID, name: pe.NPCName || `NPC ${pe.NPCID}`, srcChance: pe.Chance})
@@ -215,21 +270,85 @@ function App() {
             .sort((a, b) => a.name.localeCompare(b.name))
     }
 
-    const spawnLocationFieldNames = ['x', 'y', 'z', 'heading']
+    // Adds every other selectable location sharing the given row's spawngroup to the current
+    // selection — the spawn2-level equivalent of the "shared ×N" badge, turned into an action.
+    // Compares SpawnGroupId only within the same side (source-to-source, sink-to-sink) since
+    // those IDs are independent auto-increment sequences from separate databases; a coincidental
+    // numeric match across sides would be meaningless.
+    function selectAllSharingSpawngroup(row) {
+        const useSource = !!row.Source
+        const anchor = useSource ? row.Source : row.Sink
+        if (!anchor) return
+        setSelectedSpawnKeys(prev => {
+            const next = new Set(prev)
+            spawnDiffRows
+                .filter(r => (useSource ? r.Source : r.Sink)?.SpawnGroupId === anchor.SpawnGroupId)
+                .filter(spawnRowSelectable)
+                .forEach(r => next.add(spawnKey(r)))
+            return next
+        })
+    }
+
+    function runSyncSpawnGroupEntries(row, dryRun) {
+        const point = row.Source ?? row.Sink
+        return SyncSpawnGroupEntries({
+            ZoneShortName: selectedZoneShortName,
+            ZoneVersion: selectedZoneVersion,
+            X: point.Fields.x,
+            Y: point.Fields.y,
+            Z: point.Fields.z,
+            DryRun: dryRun
+        })
+    }
+
+    function openSyncSpawnGroupEntriesPreview(row) {
+        setShowSpawnGroupEntriesConfirm(true)
+        setSpawnGroupEntriesPreview(null)
+        setSpawnGroupEntriesError(null)
+        runSyncSpawnGroupEntries(row, true)
+            .then(setSpawnGroupEntriesPreview)
+            .catch(err => setSpawnGroupEntriesError(String(err)))
+    }
+
+    function executeSyncSpawnGroupEntries() {
+        if (!selectedSpawnRow) return
+        setSyncingSpawnGroupEntries(true)
+        runSyncSpawnGroupEntries(selectedSpawnRow, false)
+            .then(() => {
+                setShowSpawnGroupEntriesConfirm(false)
+                setSpawnGroupEntriesPreview(null)
+                setSelectedSpawnRow(null)
+                loadSpawnDiffs()
+            })
+            .catch(err => setSpawnGroupEntriesError(String(err)))
+            .finally(() => setSyncingSpawnGroupEntries(false))
+    }
+
+    // x/y/z are the coordinate-matching key itself (see CLAUDE.md's "Spawn point identity" note) —
+    // a matched row's source and sink are guaranteed identical on these three by construction, so
+    // showing them as a source→sink diff pair would always be blank noise. They're rendered once,
+    // as static identity, not as a diffable field group. `heading` is a genuine spawn2 column that
+    // can vary independently, so it's treated as an ordinary Behavior field instead.
+    const spawnIdentityFieldNames = ['x', 'y', 'z']
+
+    // Fields most worth a glance first — a soft ordering hint, not an exhaustive/authoritative list
+    // (unlike fieldGroups on the NPC panel). Anything not named here still shows, just after these,
+    // alphabetically — same drift-tolerant philosophy as the rest of the spawn2 column handling.
+    const spawnPriorityFieldNames = ['respawntime', 'variance', 'pathgrid', 'enabled']
 
     // spawn2 has far fewer columns than npc_types and no established grouping convention like
     // the NPC detail panel's fieldGroups, so instead of hardcoding a column list that could drift
-    // from either database's schema, Behavior is just "whatever spawn2 columns aren't location" —
-    // the same drift-tolerant approach getSpawnPointsForZone already takes on the Go side.
-    function spawnFieldGroupsFor(row) {
+    // from either database's schema, Behavior is just "whatever spawn2 columns aren't the identity
+    // coordinates" — the same drift-tolerant approach getSpawnPointsForZone already takes on the Go side.
+    function spawnBehaviorFields(row) {
         const allFields = new Set([
             ...Object.keys(row.Source?.Fields ?? {}),
             ...Object.keys(row.Sink?.Fields ?? {})
         ])
-        return {
-            location: spawnLocationFieldNames.filter(f => allFields.has(f)),
-            behavior: Array.from(allFields).filter(f => !spawnLocationFieldNames.includes(f)).sort()
-        }
+        const remaining = Array.from(allFields).filter(f => !spawnIdentityFieldNames.includes(f))
+        const priority = spawnPriorityFieldNames.filter(f => remaining.includes(f))
+        const rest = remaining.filter(f => !spawnPriorityFieldNames.includes(f)).sort()
+        return [...priority, ...rest]
     }
 
     function connect() {
@@ -311,13 +430,17 @@ function App() {
     const newCount = diffRows.filter(r => r.Status === 'new').length
     const removedCount = diffRows.filter(r => r.Status === 'removed').length
     const modifiedCount = diffRows.filter(r => r.Status === 'modified').length
+    // Matches the Spawns tab badge's semantics (new+modified, i.e. "needs a look"), not
+    // diffRows.length — otherwise this number would count "removed"/"match" rows too, which
+    // aren't actionable and are already visible via the +/~/- badges when this tab is active.
+    const npcActionableCount = newCount + modifiedCount
     const selectableRows = diffRows.filter(row => (diffFilter === 'all' || row.Status !== 'match') && !needsSpawnPoint(row))
     const zoneTodoItems = todoItems.filter(t => t.ZoneName === selectedZoneShortName && t.ZoneVersion === selectedZoneVersion)
     const openZoneTodoCount = zoneTodoItems.filter(t => !t.Dismissed).length
-    const spawnNewCount = spawnDiffRows.filter(r => r.Status === 'new').length
-    const spawnModifiedCount = spawnDiffRows.filter(r => r.Status === 'modified').length
-    const spawnRemovedCount = spawnDiffRows.filter(r => r.Status === 'removed').length
-    const selectableSpawnRows = spawnDiffRows.filter(spawnRowSelectable)
+    const spawnNewCount = spawnDiffRows?.filter(r => r.Status === 'new').length
+    const spawnModifiedCount = spawnDiffRows?.filter(r => r.Status === 'modified').length
+    const spawnRemovedCount = spawnDiffRows?.filter(r => r.Status === 'removed').length
+    const selectableSpawnRows = spawnDiffRows?.filter(spawnRowSelectable)
     // Variables for npc_types detail view
     const [expandedSections, setExpandedSections] = useState({
         identity: true,
@@ -326,8 +449,7 @@ function App() {
         ability_scores: false,
         behavior: false,
         references: true,
-        spawn_location: true,
-        spawn_behavior: false,
+        spawn_behavior: true,
         spawn_pool: true
     })
     const fieldGroups = {
@@ -473,7 +595,7 @@ function App() {
                             {spawnSyncPreview?.Skipped?.length > 0 && ` (${spawnSyncPreview.Skipped.length} skipped, see preview)`}
                         </div>
                         <div className="text-sm text-cyan-400">
-                            Pool composition (spawngroup/spawnentry) is never changed by this action — differences are flagged, not synced.
+                            A spawn point's spawngroup (its spawn entries) is never changed by this action — differences are flagged, not synced.
                         </div>
                         <div className="text-sm text-red-400">This cannot be undone.</div>
                         <div className="flex justify-end gap-2 mt-2">
@@ -491,6 +613,137 @@ function App() {
                                 Sync Now →
                             </button>
                         </div>
+                    </div>
+                </div>
+            )}
+            {showSpawnHelp && (
+                <>
+                    <div className="fixed inset-0 bg-black bg-opacity-50 z-40" onClick={() => setShowSpawnHelp(false)}/>
+                    <div
+                        ref={spawnHelpDrawerRef}
+                        tabIndex={-1}
+                        onKeyDown={e => {
+                            if (e.key === 'Escape') {
+                                e.preventDefault()
+                                setShowSpawnHelp(false)
+                            }
+                        }}
+                        className="fixed top-0 right-0 bottom-0 w-96 max-w-full bg-gray-800 border-l border-gray-700 z-50 outline-none flex flex-col shadow-2xl">
+                        <div className="flex items-center justify-between px-4 py-3 border-b border-gray-700">
+                            <h2 className="text-sm font-medium text-gray-200">How spawn points fit together</h2>
+                            <button onClick={() => setShowSpawnHelp(false)}
+                                    className="text-gray-400 hover:text-white">✕</button>
+                        </div>
+                        <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-4 text-sm text-gray-300">
+                            <p>
+                                These three EQEmu tables form a strict hierarchy, not a many-to-many relationship:
+                            </p>
+                            <div className="rounded border border-gray-700 bg-gray-850 p-3 flex flex-col gap-2 text-xs">
+                                <div>
+                                    <div className="text-gray-200 font-medium">spawn2</div>
+                                    <div className="text-gray-500">A physical location (x, y, z) in a zone. Each row in this tab's list is one spawn2.</div>
+                                </div>
+                                <div className="text-gray-600 pl-3">↓ every location points at exactly one spawngroup</div>
+                                <div className="pl-3">
+                                    <div className="text-gray-200 font-medium">spawngroup</div>
+                                    <div className="text-gray-500">A named, reusable config. The same spawngroup can be pointed at by many spawn2 locations — that's what the "shared ×N" badge means. A location can never point at more than one spawngroup at once.</div>
+                                </div>
+                                <div className="text-gray-600 pl-6">↓ one spawngroup can hold many spawn entries</div>
+                                <div className="pl-6">
+                                    <div className="text-gray-200 font-medium">spawn entries</div>
+                                    <div className="text-gray-500">Rows in the spawnentry table — each links the spawngroup to one NPC and a chance %. Every location sharing a spawngroup gets the exact same entries; there's no per-location override.</div>
+                                </div>
+                            </div>
+                            <p>
+                                In practice: "shared ×9, 2 NPCs" means one spawngroup reused at 9 physical spots, each always offering the same 2 possible NPCs.
+                            </p>
+                            <p className="text-gray-500">
+                                A spawn2 row's own fields (coordinates, respawn timing, etc.) can be synced directly. Spawn entries are shared data — this tool always flags differences there for manual review instead of guessing which side is right.
+                            </p>
+                            <p className="text-gray-500">
+                                Note on coordinates: the database (and this tool) store and display <span className="text-gray-300">X, Y, Z</span>. In-game, the <span className="text-gray-300">/loc</span> command reports <span className="text-gray-300">Y, X, Z</span> — a different order. The Location fields in the detail panel are labeled per-axis specifically so this never has to be guessed.
+                            </p>
+                        </div>
+                    </div>
+                </>
+            )}
+            {showSpawnGroupEntriesConfirm && (
+                <div
+                    ref={spawnGroupEntriesConfirmModalRef}
+                    tabIndex={-1}
+                    onKeyDown={e => {
+                        if (e.key === 'Escape') {
+                            e.preventDefault()
+                            setShowSpawnGroupEntriesConfirm(false)
+                        }
+                    }}
+                    className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 outline-none">
+                    <div className="bg-gray-800 p-6 rounded-lg w-[28rem] flex flex-col gap-3 max-h-[80vh] overflow-y-auto">
+                        <div className="flex justify-between items-center mb-2">
+                            <h2 className="text-lg font-medium">Sync Spawn Entries</h2>
+                            <button onClick={() => setShowSpawnGroupEntriesConfirm(false)}>✕</button>
+                        </div>
+                        {spawnGroupEntriesError ? (
+                            <div className="text-sm text-red-400">{spawnGroupEntriesError}</div>
+                        ) : !spawnGroupEntriesPreview ? (
+                            <div className="text-xs text-gray-500">Checking…</div>
+                        ) : spawnGroupEntriesPreview.NotFound ? (
+                            <div className="text-sm text-amber-400">
+                                No matching sink spawn point exists at this location yet — sync this spawn point itself first.
+                            </div>
+                        ) : spawnGroupEntriesPreview.OtherZoneUsage?.length > 0 ? (
+                            <>
+                                <div className="text-sm text-red-400">
+                                    Blocked: spawngroup "{spawnGroupEntriesPreview.SpawnGroupName}" is also referenced outside this zone/version in the sink:
+                                </div>
+                                <div className="flex flex-col gap-1 text-xs text-gray-300">
+                                    {spawnGroupEntriesPreview.OtherZoneUsage.map((u, i) => (
+                                        <div key={i}>{u.Zone} (v{u.Version}) — {u.Count} location{u.Count === 1 ? '' : 's'}</div>
+                                    ))}
+                                </div>
+                                <div className="text-sm text-gray-400">
+                                    Syncing here would silently change spawns in a zone that hasn't been reviewed, so this is blocked. Reconcile it manually if that's really intended.
+                                </div>
+                            </>
+                        ) : (
+                            <>
+                                <div className="text-sm text-gray-300">
+                                    You are about to write to:
+                                    <div className="text-yellow-400 font-medium">{dbSinkName} (sink)</div>
+                                </div>
+                                <div className="text-sm text-gray-300">
+                                    Spawngroup "{spawnGroupEntriesPreview.SpawnGroupName}": {spawnGroupEntriesPreview.EntriesBefore} → {spawnGroupEntriesPreview.EntriesAfter} entries
+                                </div>
+                                <div className="flex flex-col gap-1 text-xs max-h-48 overflow-y-auto">
+                                    <div className="flex text-gray-500">
+                                        <span className="flex-1">NPC</span>
+                                        <span className="w-24 text-right">Current (sink)</span>
+                                        <span className="w-24 text-right">Will become</span>
+                                    </div>
+                                    {selectedSpawnRow && spawnEntryRows(selectedSpawnRow).map(({npcId, name, srcChance, sinkChance, differs}) => (
+                                        <div key={npcId} className={`flex ${differs ? 'text-yellow-400' : 'text-gray-400'}`}>
+                                            <span className="flex-1">{name} ({npcId})</span>
+                                            <span className="w-24 text-right">{sinkChance ?? '—'}</span>
+                                            <span className="w-24 text-right">{srcChance ?? '—'}</span>
+                                        </div>
+                                    ))}
+                                </div>
+                                <div className="text-sm text-red-400">This cannot be undone.</div>
+                                <div className="flex justify-end gap-2 mt-2">
+                                    <button
+                                        onClick={() => setShowSpawnGroupEntriesConfirm(false)}
+                                        className="text-xs px-3 py-1 rounded border border-gray-600 text-gray-300 hover:border-gray-400">
+                                        Cancel
+                                    </button>
+                                    <button
+                                        disabled={syncingSpawnGroupEntries}
+                                        onClick={executeSyncSpawnGroupEntries}
+                                        className="text-xs px-3 py-1 rounded bg-yellow-400 text-gray-900 font-medium hover:bg-yellow-300 disabled:opacity-50 disabled:cursor-not-allowed">
+                                        {syncingSpawnGroupEntries ? 'Syncing…' : 'Sync Entries Now →'}
+                                    </button>
+                                </div>
+                            </>
+                        )}
                     </div>
                 </div>
             )}
@@ -670,12 +923,12 @@ function App() {
                             <button
                                 onClick={() => setActiveView('npcs')}
                                 className={`px-2 py-1 rounded text-xs border ${activeView === 'npcs' ? 'border-yellow-400 text-yellow-400' : 'border-gray-600 text-gray-400 hover:border-gray-400'}`}>
-                                NPCs
+                                NPCs{npcActionableCount > 0 && ` (${npcActionableCount})`}
                             </button>
                             <button
                                 onClick={() => setActiveView('spawns')}
                                 className={`px-2 py-1 rounded text-xs border ${activeView === 'spawns' ? 'border-yellow-400 text-yellow-400' : 'border-gray-600 text-gray-400 hover:border-gray-400'}`}>
-                                Spawns{selectableSpawnRows.length > 0 && ` (${selectableSpawnRows.length})`}
+                                Spawn Points{selectableSpawnRows?.length > 0 && ` (${selectableSpawnRows?.length})`}
                             </button>
                             <button
                                 onClick={() => setActiveView('todo')}
@@ -1027,7 +1280,7 @@ function App() {
                             showSpawnSyncPreview ? '-translate-x-full' : 'translate-x-0'
                         }`}>
 
-                            <div className="flex gap-2 px-3 py-2 border-b border-gray-700">
+                            <div className="flex items-center gap-2 px-3 py-2 border-b border-gray-700">
                                 <button
                                     onClick={() => setSpawnDiffFilter('all')}
                                     className={`text-xs px-3 py-1 rounded border ${spawnDiffFilter === 'all' ? 'border-yellow-400 text-yellow-400' : 'border-gray-600 text-gray-400 hover:border-gray-400'}`}>
@@ -1038,11 +1291,41 @@ function App() {
                                     className={`text-xs px-3 py-1 rounded border ${spawnDiffFilter === 'diff' ? 'border-yellow-400 text-yellow-400' : 'border-gray-600 text-gray-400 hover:border-gray-400'}`}>
                                     Differences Only
                                 </button>
+                                <input
+                                    className="ml-auto w-48 text-xs border border-gray-600 bg-gray-700 rounded px-2 py-1 disabled:opacity-40 disabled:cursor-not-allowed"
+                                    placeholder="Filter by spawngroup or NPC..."
+                                    value={spawnSearchFilter}
+                                    onChange={e => setSpawnSearchFilter(e.target.value)}
+                                    autoCapitalize="off" autoCorrect="off" spellCheck={false}/>
+                            </div>
+                            <div className="flex gap-2 px-3 py-1 border-b border-gray-700 bg-gray-850">
+                                {[
+                                    {label: 'Status', value: 'status'},
+                                    {label: 'Spawngroup', value: 'spawngroup'},
+                                    {label: 'Shared', value: 'shared'},
+                                ].map(sort => (
+                                    <button
+                                        key={sort.value}
+                                        onClick={() => {
+                                            if (spawnSortBy === sort.value) {
+                                                setSpawnSortDir(spawnSortDir === 'asc' ? 'desc' : 'asc')
+                                            } else {
+                                                setSpawnSortBy(sort.value)
+                                                setSpawnSortDir('asc')
+                                            }
+                                        }}
+                                        className={`text-xs px-3 py-1 rounded border ${spawnSortBy === sort.value ? 'border-yellow-400 text-yellow-400' : 'border-gray-600 text-gray-400 hover:border-gray-400'}`}>
+                                        {sort.label} {spawnSortBy === sort.value ? (spawnSortDir === 'asc' ? '↑' : '↓') : ''}
+                                    </button>
+                                ))}
+                            </div>
+                            <div className="px-3 py-1 text-xs text-gray-500 border-b border-gray-700 bg-gray-850">
+                                Each row is one <span className="text-gray-400">spawn2</span> location, matched by coordinate across databases — not a spawngroup or spawn entry. The name(s) shown per row are a preview of that location's linked spawngroup; open a row for its full spawn entries.
                             </div>
                             <div className="flex items-center border-b border-gray-700 bg-gray-800">
                                 <input type="checkbox"
                                        className="accent-yellow-400 cursor-pointer w-3 h-3 mx-2"
-                                       title="Only new and modified spawn points can be synced from this tab — removed spawn points aren't deletable here"
+                                       title="Only new spawn points and locations whose own spawn2 fields differ can be synced from this tab — removed spawn points, and rows that only differ in their spawn entries, aren't"
                                        checked={selectableSpawnRows.length > 0 && selectableSpawnRows.every(row => selectedSpawnKeys.has(spawnKey(row)))}
                                        onChange={(e) => {
                                            if (e.target.checked) {
@@ -1073,18 +1356,34 @@ function App() {
                                 <div className="flex flex-1 min-h-0 overflow-hidden flex-col overflow-y-auto">
                                     {spawnDiffRows
                                         .filter(row => spawnDiffFilter === 'all' || row.Status !== 'match')
-                                        .sort((a, b) => statusOrder[a.Status] - statusOrder[b.Status])
+                                        .filter(row => spawnRowMatchesSearch(row, spawnSearchFilter))
+                                        .sort((a, b) => {
+                                            let result
+                                            if (spawnSortBy === 'spawngroup') {
+                                                const aName = (a.Source ?? a.Sink)?.SpawnGroupFields?.name ?? ''
+                                                const bName = (b.Source ?? b.Sink)?.SpawnGroupFields?.name ?? ''
+                                                result = aName.localeCompare(bName)
+                                            } else if (spawnSortBy === 'shared') {
+                                                const aShared = (a.Source ?? a.Sink)?.LocationSharedCount ?? 0
+                                                const bShared = (b.Source ?? b.Sink)?.LocationSharedCount ?? 0
+                                                result = aShared - bShared
+                                            } else {
+                                                result = statusOrder[a.Status] - statusOrder[b.Status]
+                                            }
+                                            return spawnSortDir === 'asc' ? result : result * -1
+                                        })
                                         .map((row) => {
                                             const rowKey = spawnKey(row)
                                             const point = row.Source ?? row.Sink
                                             const sharedCount = point?.LocationSharedCount ?? 0
+                                            const entriesOnly = spawnEntriesOnly(row)
                                             return (
                                                 <div key={rowKey}
                                                      className={`flex items-center border-b border-gray-800 cursor-pointer ${
                                                          selectedSpawnRow && spawnKey(selectedSpawnRow) === rowKey ? 'bg-blue-900/40 border-l-2 border-l-yellow-400' :
                                                              row.Status === 'new' ? 'bg-green-950 border-l-2 border-l-transparent' :
                                                                  row.Status === 'removed' ? 'bg-red-950 border-l-2 border-l-transparent' :
-                                                                     row.Status === 'modified' ? 'bg-yellow-950 border-l-2 border-l-transparent' :
+                                                                     row.Status === 'modified' ? (entriesOnly ? 'bg-amber-950/40 border-l-2 border-l-transparent' : 'bg-yellow-950 border-l-2 border-l-transparent') :
                                                                          'bg-transparent border-l-2 border-l-transparent'
                                                      }`}
                                                      onClick={() => setSelectedSpawnRow(row)}
@@ -1093,7 +1392,11 @@ function App() {
                                                            className="accent-yellow-400 cursor-pointer w-3 h-3 mx-2 disabled:opacity-40 disabled:cursor-not-allowed"
                                                            checked={selectedSpawnKeys.has(rowKey)}
                                                            disabled={!spawnRowSelectable(row)}
-                                                           title={!spawnRowSelectable(row) ? "Removed spawn points can't be synced from this tab" : undefined}
+                                                           title={
+                                                               row.Status === 'removed' ? "Removed spawn points can't be synced from this tab" :
+                                                                   entriesOnly ? "Only this location's spawn entries differ — Sync never touches those (see Spawn Entries in the detail panel), so there's nothing here for it to change" :
+                                                                       undefined
+                                                           }
                                                            onChange={(e) => {
                                                                e.stopPropagation()
                                                                const newSet = new Set(selectedSpawnKeys)
@@ -1109,18 +1412,18 @@ function App() {
                                                     {sharedCount > 0 && (
                                                         <span className="text-cyan-400 text-xs px-1"
                                                               title={`This spawngroup is used at ${sharedCount} other location${sharedCount === 1 ? '' : 's'} too`}>
-                                                            shared ×{sharedCount + 1}
+                                                            ×{sharedCount + 1} locations
                                                         </span>
                                                     )}
                                                     {row.PoolDiffers && (
                                                         <span className="text-amber-400 text-xs px-1"
-                                                              title="Pool composition differs — needs manual reconciliation">⚠</span>
+                                                              title="Spawn entries differ from source — needs manual reconciliation">⚠</span>
                                                     )}
                                                     <div className="flex-1 text-xs px-2 py-1">
-                                                        {row.Source ? `(${fmtCoord(Number(row.Source.Fields.x))}, ${fmtCoord(Number(row.Source.Fields.y))}, ${fmtCoord(Number(row.Source.Fields.z))}) ${spawnPoolSummary(row.Source)}` : '-'}
+                                                        {spawnRowLabel(row.Source)}
                                                     </div>
                                                     <div className="flex-1 text-xs px-2 py-1 border-l border-gray-700">
-                                                        {row.Sink ? `(${fmtCoord(Number(row.Sink.Fields.x))}, ${fmtCoord(Number(row.Sink.Fields.y))}, ${fmtCoord(Number(row.Sink.Fields.z))}) ${spawnPoolSummary(row.Sink)}` : '-'}
+                                                        {spawnRowLabel(row.Sink)}
                                                     </div>
                                                 </div>
                                             )
@@ -1143,7 +1446,7 @@ function App() {
                                         ← Back to Diff
                                     </button>
                                     <span className="text-xs text-gray-400">
-                                        {selectedSpawnKeys.size} spawn points → {dbSinkName}
+                                        {selectedSpawnKeys.size} of {spawnDiffRows.length} spawn points → {dbSinkName}
                                     </span>
                                     {!spawnSyncOutcome && (
                                         <button
@@ -1197,7 +1500,7 @@ function App() {
                                     <>
                                         <div className="flex flex-col gap-1">
                                             <div className="text-xs text-gray-400 uppercase tracking-wider">
-                                                {selectedSpawnKeys.size} spawn points selected
+                                                {selectedSpawnKeys.size} of {spawnDiffRows.length} spawn points selected
                                                 {spawnSyncPreview.Created > 0 && ` · ${spawnSyncPreview.Created} will be created`}
                                                 {spawnSyncPreview.Updated > 0 && ` · ${spawnSyncPreview.Updated} will be updated`}
                                                 {spawnSyncPreview.Skipped?.length > 0 && ` · ${spawnSyncPreview.Skipped.length} skipped`}
@@ -1216,7 +1519,7 @@ function App() {
                                                             <>
                                                                 <span className="text-gray-600">⊘</span>
                                                                 <span className="text-gray-500">
-                                                                    ({fmtCoord(Number(point.Fields.x))}, {fmtCoord(Number(point.Fields.y))}, {fmtCoord(Number(point.Fields.z))})
+                                                                    {spawnRowLabel(point)}
                                                                 </span>
                                                                 <span className="text-amber-400">{skipped.Reason}</span>
                                                             </>
@@ -1226,11 +1529,11 @@ function App() {
                                                                     {row.Status === 'new' ? '+' : '~'}
                                                                 </span>
                                                                 <span className="text-gray-300">
-                                                                    ({fmtCoord(Number(point.Fields.x))}, {fmtCoord(Number(point.Fields.y))}, {fmtCoord(Number(point.Fields.z))}) {spawnPoolSummary(point)}
+                                                                    {spawnRowLabel(point)}
                                                                 </span>
                                                                 {row.PoolDiffers && (
-                                                                    <span className="text-amber-400" title="Pool composition differs — not touched by this sync">
-                                                                        pool differs
+                                                                    <span className="text-amber-400" title="Spawn entries differ — not touched by this sync">
+                                                                        entries differ
                                                                     </span>
                                                                 )}
                                                             </>
@@ -1268,8 +1571,16 @@ function App() {
                 <div style={{width: detailWidth, minWidth: detailWidth}} className="bg-gray-800 flex flex-col">
                     <div className="flex flex-col overflow-hidden h-full">
                         <div
-                            className="px-3 py-2 text-xs font-medium text-gray-400 uppercase tracking-wider border-b border-gray-700">
-                            {activeView === 'spawns' ? 'Spawn Point Detail' : 'NPC Detail'}
+                            className="px-3 py-2 text-xs font-medium text-gray-400 uppercase tracking-wider border-b border-gray-700 flex items-center justify-between">
+                            <span>{activeView === 'spawns' ? 'Spawn Point Detail' : 'NPC Detail'}</span>
+                            {activeView === 'spawns' && (
+                                <button
+                                    onClick={() => setShowSpawnHelp(true)}
+                                    title="How spawn2, spawngroup, and spawn entries relate"
+                                    className="w-4 h-4 flex items-center justify-center rounded-full border border-gray-600 text-gray-400 text-[10px] normal-case tracking-normal hover:border-gray-400 hover:text-white">
+                                    ?
+                                </button>
+                            )}
                         </div>
                         <div className="px-2 py-2 flex flex-col gap-1 text-xs overflow-y-auto flex-1">
                             {activeView === 'npcs' && (
@@ -1327,50 +1638,62 @@ function App() {
                                     {selectedSpawnRow && (() => {
                                         const point = selectedSpawnRow.Source ?? selectedSpawnRow.Sink
                                         const sharedCount = point?.LocationSharedCount ?? 0
-                                        const {location, behavior} = spawnFieldGroupsFor(selectedSpawnRow)
+                                        const behaviorFields = spawnBehaviorFields(selectedSpawnRow)
                                         return (
                                             <>
                                                 {selectedSpawnRow.PoolDiffers && (
                                                     <div className="text-amber-400 px-2 py-1 flex items-center gap-1">
-                                                        <span>⚠</span> Pool composition differs — needs manual reconciliation
+                                                        <span>⚠</span> Spawn entries differ from source — needs manual reconciliation
                                                     </div>
                                                 )}
-                                                {sharedCount > 0 && (
-                                                    <div className="text-cyan-400 px-2 py-1">
-                                                        shared ×{sharedCount + 1} — spawngroup "{point?.SpawnGroupFields?.name ?? '?'}" is used at {sharedCount} other location{sharedCount === 1 ? '' : 's'} in this zone
-                                                    </div>
-                                                )}
-                                                {[
-                                                    {key: 'spawn_location', label: 'Location', fields: location},
-                                                    {key: 'spawn_behavior', label: 'Behavior', fields: behavior}
-                                                ].map(({key, label, fields}) => (
-                                                    <div key={key}>
-                                                        <div
-                                                            className="flex justify-between items-center py-1 px-2 bg-gray-800 rounded cursor-pointer hover:bg-gray-700"
-                                                            onClick={() => setExpandedSections(prev => ({
-                                                                ...prev,
-                                                                [key]: !prev[key]
-                                                            }))}
-                                                        >
-                                                            <span className="text-gray-400 uppercase tracking-wider text-xs">{label}</span>
-                                                            <span className="text-gray-600">{expandedSections[key] ? '▾' : '▸'}</span>
-                                                        </div>
-                                                        {expandedSections[key] && fields.map(field => {
-                                                            const srcVal = selectedSpawnRow.Source?.Fields?.[field]
-                                                            const sinkVal = selectedSpawnRow.Sink?.Fields?.[field]
-                                                            const differs = srcVal !== sinkVal
-                                                            return (
-                                                                <div key={field} className="flex justify-between px-2 py-0.5">
-                                                                    <span className="text-gray-500 w-24 shrink-0">{field}</span>
-                                                                    <span className={differs ? 'text-yellow-400' : 'text-gray-400'}>{srcVal ?? '—'}</span>
-                                                                    <span className="text-gray-600 px-1">→</span>
-                                                                    <span className={differs ? 'text-yellow-400' : 'text-gray-400'}>{sinkVal ?? '—'}</span>
-                                                                </div>
-                                                            )
-                                                        })}
-                                                    </div>
-                                                ))}
+                                                {/* Static identity — not a diffable field group. Coordinates are the matching key
+                                                    itself (see spawnIdentityFieldNames), so source/sink are guaranteed identical here.
+                                                    Axis-labeled (not a bare "(x, y, z)" tuple) since EQ's in-game /loc command reports
+                                                    Y, X, Z while the database and most editors — this app included — store/display
+                                                    X, Y, Z; a labeled row is unambiguous regardless of which order someone expects. */}
+                                                <div className="px-2 pt-1 text-gray-400 uppercase tracking-wider text-xs">Location</div>
+                                                <div className="flex justify-between px-2 py-0.5">
+                                                    <span className="text-gray-500 w-24 shrink-0">x</span>
+                                                    <span className="text-gray-300">{fmtCoord(Number(point?.Fields?.x))}</span>
+                                                </div>
+                                                <div className="flex justify-between px-2 py-0.5">
+                                                    <span className="text-gray-500 w-24 shrink-0">y</span>
+                                                    <span className="text-gray-300">{fmtCoord(Number(point?.Fields?.y))}</span>
+                                                </div>
+                                                <div className="flex justify-between px-2 py-0.5">
+                                                    <span className="text-gray-500 w-24 shrink-0">z</span>
+                                                    <span className="text-gray-300">{fmtCoord(Number(point?.Fields?.z))}</span>
+                                                </div>
                                                 <div>
+                                                    <div
+                                                        className="flex justify-between items-center py-1 px-2 bg-gray-800 rounded cursor-pointer hover:bg-gray-700"
+                                                        onClick={() => setExpandedSections(prev => ({
+                                                            ...prev,
+                                                            spawn_behavior: !prev.spawn_behavior
+                                                        }))}
+                                                    >
+                                                        <span className="text-gray-400 uppercase tracking-wider text-xs">Behavior</span>
+                                                        <span className="text-gray-600">{expandedSections.spawn_behavior ? '▾' : '▸'}</span>
+                                                    </div>
+                                                    {expandedSections.spawn_behavior && behaviorFields.map(field => {
+                                                        const srcVal = selectedSpawnRow.Source?.Fields?.[field]
+                                                        const sinkVal = selectedSpawnRow.Sink?.Fields?.[field]
+                                                        const differs = srcVal !== sinkVal
+                                                        return (
+                                                            <div key={field} className="flex justify-between px-2 py-0.5">
+                                                                <span className="text-gray-500 w-24 shrink-0">{field}</span>
+                                                                <span className={differs ? 'text-yellow-400' : 'text-gray-400'}>{srcVal ?? '—'}</span>
+                                                                <span className="text-gray-600 px-1">→</span>
+                                                                <span className={differs ? 'text-yellow-400' : 'text-gray-400'}>{sinkVal ?? '—'}</span>
+                                                            </div>
+                                                        )
+                                                    })}
+                                                </div>
+                                                <div>
+                                                    {/* Spawngroup name lives in this section's own header, not as a separate row up
+                                                        top — it's a fact about the entries below, so it reads better right next to
+                                                        them. Full spawn2→spawngroup→spawn entries relationship is in the "?" help
+                                                        drawer (see showSpawnHelp) rather than repeated inline every time. */}
                                                     <div
                                                         className="flex justify-between items-center py-1 px-2 bg-gray-800 rounded cursor-pointer hover:bg-gray-700"
                                                         onClick={() => setExpandedSections(prev => ({
@@ -1379,18 +1702,40 @@ function App() {
                                                         }))}
                                                     >
                                                         <span className="text-gray-400 uppercase tracking-wider text-xs">
-                                                            Pool{selectedSpawnRow.PoolDiffers ? ' ⚠' : ''}
+                                                            Spawn Entries{selectedSpawnRow.PoolDiffers ? ' ⚠' : ''}
+                                                            <span className="text-gray-500 normal-case tracking-normal"> — "{point?.SpawnGroupFields?.name ?? '—'}"</span>
                                                         </span>
                                                         <span className="text-gray-600">{expandedSections.spawn_pool ? '▾' : '▸'}</span>
                                                     </div>
                                                     {expandedSections.spawn_pool && (
                                                         <div className="flex flex-col gap-0.5 px-2 py-1">
+                                                            {sharedCount > 0 && (
+                                                                <div className="flex items-center justify-between text-xs pb-1 gap-2">
+                                                                    <span className="text-cyan-400">
+                                                                        Also used at {sharedCount} other location{sharedCount === 1 ? '' : 's'} in this zone
+                                                                    </span>
+                                                                    <button
+                                                                        onClick={() => selectAllSharingSpawngroup(selectedSpawnRow)}
+                                                                        className="text-cyan-400 hover:text-cyan-300 underline shrink-0"
+                                                                        title="Add every location sharing this spawngroup to the current selection">
+                                                                        Select all {sharedCount + 1} →
+                                                                    </button>
+                                                                </div>
+                                                            )}
+                                                            {selectedSpawnRow.PoolDiffers && (
+                                                                <button
+                                                                    onClick={() => openSyncSpawnGroupEntriesPreview(selectedSpawnRow)}
+                                                                    className="text-xs text-amber-400 hover:text-amber-300 underline text-left pb-1"
+                                                                    title="Replace this spawngroup's entries on the sink to match source">
+                                                                    Sync entries from source →
+                                                                </button>
+                                                            )}
                                                             <div className="flex text-gray-500 text-xs">
                                                                 <span className="flex-1">NPC</span>
                                                                 <span className="w-14 text-right">Src %</span>
                                                                 <span className="w-14 text-right">Sink %</span>
                                                             </div>
-                                                            {spawnPoolRows(selectedSpawnRow).map(({npcId, name, srcChance, sinkChance, differs}) => (
+                                                            {spawnEntryRows(selectedSpawnRow).map(({npcId, name, srcChance, sinkChance, differs}) => (
                                                                 <div key={npcId}
                                                                      className={`flex text-xs ${differs ? 'text-yellow-400' : 'text-gray-400'}`}>
                                                                     <span className="flex-1">{name} ({npcId})</span>
