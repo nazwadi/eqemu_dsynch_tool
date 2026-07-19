@@ -1,0 +1,62 @@
+name: Build Wails App
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
+  pull_request:
+    branches:
+      - main
+
+env:
+  NODE_OPTIONS: "--max-old-space-size=4096" # Prevents Out-Of-Memory errors during frontend bundling
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false # Keeps other builds running even if one platform fails
+      matrix:
+        include:
+          - os: windows-latest
+            platform: windows/amd64
+            artifact_name: wails-app-windows
+          - os: macos-latest
+            platform: darwin/universal
+            artifact_name: wails-app-macos
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: 'stable'
+          check-latest: true
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 'lts/*'
+
+      - name: Install Wails CLI
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@latest
+
+      - name: Install Frontend Dependencies
+        run: |
+          cd frontend
+          npm install
+
+      - name: Build Wails App
+        run: wails build -platform ${{ matrix.platform }}
+
+      - name: Upload Build Artifacts
+        uses: actions/all-artifacts-action@v4 # Maintained artifact upload utility
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: build/bin/*
+
