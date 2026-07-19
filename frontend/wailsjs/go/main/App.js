@@ -6,6 +6,10 @@ export function CompareGrids(arg1) {
   return window['go']['main']['App']['CompareGrids'](arg1);
 }
 
+export function CompareSpawnGroups(arg1, arg2) {
+  return window['go']['main']['App']['CompareSpawnGroups'](arg1, arg2);
+}
+
 export function CompareSpawns(arg1, arg2) {
   return window['go']['main']['App']['CompareSpawns'](arg1, arg2);
 }
@@ -50,8 +54,8 @@ export function SyncGrids(arg1) {
   return window['go']['main']['App']['SyncGrids'](arg1);
 }
 
-export function SyncSpawnGroupEntries(arg1) {
-  return window['go']['main']['App']['SyncSpawnGroupEntries'](arg1);
+export function SyncSpawnGroup(arg1) {
+  return window['go']['main']['App']['SyncSpawnGroup'](arg1);
 }
 
 export function SyncSpawnPoints(arg1) {

@@ -4,6 +4,8 @@ import {main} from '../models';
 
 export function CompareGrids(arg1:number):Promise<Array<main.GridDiffRow>>;
 
+export function CompareSpawnGroups(arg1:string,arg2:number):Promise<Array<main.SpawnGroupDiffRow>>;
+
 export function CompareSpawns(arg1:string,arg2:number):Promise<Array<main.SpawnDiffRow>>;
 
 export function CompareZones(arg1:string,arg2:number,arg3:number):Promise<Array<main.NPCDiffRow>>;
@@ -26,6 +28,6 @@ export function Sync(arg1:main.SyncOptions):Promise<main.SyncResult>;
 
 export function SyncGrids(arg1:main.SyncGridsOptions):Promise<main.SyncGridsResult>;
 
-export function SyncSpawnGroupEntries(arg1:main.SyncSpawnGroupEntriesOptions):Promise<main.SpawnGroupEntriesSyncResult>;
+export function SyncSpawnGroup(arg1:main.SyncSpawnGroupOptions):Promise<main.SpawnGroupSyncResult>;
 
 export function SyncSpawnPoints(arg1:main.SpawnSyncOptions):Promise<main.SpawnSyncResult>;

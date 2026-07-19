@@ -2,6 +2,7 @@ import {useEffect, useState} from 'react';
 import './App.css';
 import {
     CompareGrids,
+    CompareSpawnGroups,
     CompareSpawns,
     CompareZones,
     Connect,
@@ -12,20 +13,21 @@ import {
     SetTODOItemDismissed,
     Sync,
     SyncGrids,
-    SyncSpawnGroupEntries,
+    SyncSpawnGroup,
     SyncSpawnPoints
 } from "../wailsjs/go/main/App";
 import ConnectModal from './components/ConnectModal';
 import ConfirmSyncModal from './components/ConfirmSyncModal';
 import ConfirmSpawnSyncModal from './components/ConfirmSpawnSyncModal';
 import SpawnHelpDrawer from './components/SpawnHelpDrawer';
-import ConfirmSpawnGroupEntriesModal from './components/ConfirmSpawnGroupEntriesModal';
+import ConfirmSpawnGroupSyncModal from './components/ConfirmSpawnGroupSyncModal';
 import ConfirmGridSyncModal from './components/ConfirmGridSyncModal';
 import Sidebar from './components/Sidebar';
 import NpcsTab from './components/NpcsTab';
 import SpawnsTab from './components/SpawnsTab';
 import TodoTab from './components/TodoTab';
 import GridsTab from './components/GridsTab';
+import SpawngroupsTab from './components/SpawngroupsTab';
 import DetailPanel from './components/DetailPanel';
 import {needsSpawnPoint} from './lib/npcHelpers';
 import {keysSharingSpawngroup, spawnCoords, spawnKey, spawnRowSelectable} from './lib/spawnHelpers';
@@ -72,7 +74,7 @@ function App() {
     const [syncOutcome, setSyncOutcome] = useState(null)
     const [showSyncConfirm, setShowSyncConfirm] = useState(false)
     const [syncSpawns, setSyncSpawns] = useState(false)
-    const [activeView, setActiveView] = useState('npcs') // 'npcs' | 'todo' | 'spawns' | 'grids'
+    const [activeView, setActiveView] = useState('npcs') // 'npcs' | 'todo' | 'spawns' | 'grids' | 'spawngroups'
     const [todoItems, setTodoItems] = useState([])
     const [showDismissedTodos, setShowDismissedTodos] = useState(false)
 
@@ -91,10 +93,18 @@ function App() {
     const [spawnSortDir, setSpawnSortDir] = useState('asc')
     const [spawnSearchFilter, setSpawnSearchFilter] = useState('')  // matches spawngroup name or any spawn entry's NPC name
     const [showSpawnHelp, setShowSpawnHelp] = useState(false)  // right-edge drawer explaining spawn2→spawngroup→spawn entries; see the Spawn Point Detail panel's "?" button
-    const [showSpawnGroupEntriesConfirm, setShowSpawnGroupEntriesConfirm] = useState(false)
-    const [spawnGroupEntriesPreview, setSpawnGroupEntriesPreview] = useState(null)  // dry-run SpawnGroupEntriesSyncResult, null while loading
-    const [spawnGroupEntriesError, setSpawnGroupEntriesError] = useState(null)  // unexpected Go-level error, separate from the "blocked"/"not found" outcomes the result itself carries
-    const [syncingSpawnGroupEntries, setSyncingSpawnGroupEntries] = useState(false)
+
+    // SyncSpawnGroup confirm modal — shared by two trigger points: the Spawn Points detail panel's
+    // per-row action and the Spawngroups tab's own row action (see openSyncSpawnGroupPreview below).
+    // Coords/pools/source are captured at open time so the modal itself never needs to know which
+    // tab triggered it.
+    const [showSpawnGroupSyncConfirm, setShowSpawnGroupSyncConfirm] = useState(false)
+    const [spawnGroupSyncPreview, setSpawnGroupSyncPreview] = useState(null)  // dry-run SpawnGroupSyncResult, null while loading
+    const [spawnGroupSyncError, setSpawnGroupSyncError] = useState(null)  // unexpected Go-level error, separate from the "blocked"/"not found" outcomes the result itself carries
+    const [syncingSpawnGroup, setSyncingSpawnGroup] = useState(false)
+    const [spawnGroupSyncCoords, setSpawnGroupSyncCoords] = useState(null)  // [x,y,z] identifying the target spawngroup, for SyncSpawnGroup
+    const [spawnGroupSyncPools, setSpawnGroupSyncPools] = useState({source: [], sink: []})  // entry preview data for the confirm modal
+    const [spawnGroupSyncSource, setSpawnGroupSyncSource] = useState(null)  // 'spawns' | 'spawngroups' — which tab's selection/diff-list to refresh after a successful sync
 
     // Grids tab
     const [gridDiffRows, setGridDiffRows] = useState([])
@@ -107,6 +117,12 @@ function App() {
     const [gridSyncing, setGridSyncing] = useState(false)
     const [gridSyncOutcome, setGridSyncOutcome] = useState(null)
     const [showGridSyncConfirm, setShowGridSyncConfirm] = useState(false)
+
+    // Spawngroups tab
+    const [spawnGroupDiffRows, setSpawnGroupDiffRows] = useState([])
+    const [spawnGroupDiffLoading, setSpawnGroupDiffLoading] = useState(false)
+    const [spawnGroupDiffFilter, setSpawnGroupDiffFilter] = useState('all')
+    const [selectedSpawnGroupRow, setSelectedSpawnGroupRow] = useState(null)
 
     function refreshTodoItems() {
         LoadTODOItems().then(items => setTodoItems(items ?? [])).catch(err => console.error("load todo items failed:", err))
@@ -198,39 +214,59 @@ function App() {
         setSelectedSpawnKeys(prev => new Set([...prev, ...keys]))
     }
 
-    function runSyncSpawnGroupEntries(row, dryRun) {
-        const point = row.Source ?? row.Sink
-        return SyncSpawnGroupEntries({
+    function runSyncSpawnGroup(coords, dryRun) {
+        const [x, y, z] = coords
+        return SyncSpawnGroup({
             ZoneShortName: selectedZoneShortName,
             ZoneVersion: selectedZoneVersion,
-            X: point.Fields.x,
-            Y: point.Fields.y,
-            Z: point.Fields.z,
+            X: x, Y: y, Z: z,
             DryRun: dryRun
         })
     }
 
-    function openSyncSpawnGroupEntriesPreview(row) {
-        setShowSpawnGroupEntriesConfirm(true)
-        setSpawnGroupEntriesPreview(null)
-        setSpawnGroupEntriesError(null)
-        runSyncSpawnGroupEntries(row, true)
-            .then(setSpawnGroupEntriesPreview)
-            .catch(err => setSpawnGroupEntriesError(String(err)))
+    // Shared entry point for both trigger sites — coords identify the target spawngroup (see
+    // SyncSpawnGroup), pools feed the confirm modal's entry preview table, and source tags which
+    // tab's selection/diff-list executeSyncSpawnGroup() should refresh afterward.
+    function openSyncSpawnGroupPreview(coords, pools, source) {
+        setSpawnGroupSyncCoords(coords)
+        setSpawnGroupSyncPools(pools)
+        setSpawnGroupSyncSource(source)
+        setShowSpawnGroupSyncConfirm(true)
+        setSpawnGroupSyncPreview(null)
+        setSpawnGroupSyncError(null)
+        runSyncSpawnGroup(coords, true)
+            .then(setSpawnGroupSyncPreview)
+            .catch(err => setSpawnGroupSyncError(String(err)))
     }
 
-    function executeSyncSpawnGroupEntries() {
-        if (!selectedSpawnRow) return
-        setSyncingSpawnGroupEntries(true)
-        runSyncSpawnGroupEntries(selectedSpawnRow, false)
+    // Triggered from the Spawn Points detail panel's per-row action — wraps the shared opener with
+    // the coordinate/pool extraction specific to a SpawnDiffRow shape.
+    function openSyncSpawnGroupPreviewFromSpawn(row) {
+        openSyncSpawnGroupPreview(spawnCoords(row), {source: row.Source?.Pool, sink: row.Sink?.Pool}, 'spawns')
+    }
+
+    // Triggered from the Spawngroups tab's own row action — same shared opener, extraction
+    // specific to a SpawnGroupDiffRow shape (SampleCoord/SourcePool/SinkPool live directly on it).
+    function openSyncSpawnGroupPreviewFromSpawnGroup(row) {
+        openSyncSpawnGroupPreview(row.SampleCoord, {source: row.SourcePool, sink: row.SinkPool}, 'spawngroups')
+    }
+
+    function executeSyncSpawnGroup() {
+        setSyncingSpawnGroup(true)
+        runSyncSpawnGroup(spawnGroupSyncCoords, false)
             .then(() => {
-                setShowSpawnGroupEntriesConfirm(false)
-                setSpawnGroupEntriesPreview(null)
-                setSelectedSpawnRow(null)
-                loadSpawnDiffs()
+                setShowSpawnGroupSyncConfirm(false)
+                setSpawnGroupSyncPreview(null)
+                if (spawnGroupSyncSource === 'spawns') {
+                    setSelectedSpawnRow(null)
+                    loadSpawnDiffs()
+                } else {
+                    setSelectedSpawnGroupRow(null)
+                    loadSpawnGroupDiffs()
+                }
             })
-            .catch(err => setSpawnGroupEntriesError(String(err)))
-            .finally(() => setSyncingSpawnGroupEntries(false))
+            .catch(err => setSpawnGroupSyncError(String(err)))
+            .finally(() => setSyncingSpawnGroup(false))
     }
 
     function runGridSync(dryRun) {
@@ -264,6 +300,16 @@ function App() {
             .then(setGridDiffRows)
             .catch(err => console.error("compare grids failed:", err))
             .finally(() => setGridDiffLoading(false))
+    }
+
+    function loadSpawnGroupDiffs() {
+        if (!selectedZoneShortName) return
+        setSpawnGroupDiffLoading(true)
+        setSpawnGroupDiffRows([])
+        CompareSpawnGroups(selectedZoneShortName, selectedZoneVersion)
+            .then(setSpawnGroupDiffRows)
+            .catch(err => console.error("compare spawngroups failed:", err))
+            .finally(() => setSpawnGroupDiffLoading(false))
     }
 
     // Resets both the NPC and spawn selection/preview state and kicks off both diffs — kept as
@@ -304,6 +350,13 @@ function App() {
             .then(setGridDiffRows)
             .catch(err => console.error("compare grids failed:", err))
             .finally(() => setGridDiffLoading(false))
+        setSelectedSpawnGroupRow(null)
+        setSpawnGroupDiffRows([])
+        setSpawnGroupDiffLoading(true)
+        CompareSpawnGroups(zone.ShortName, zone.Version)
+            .then(setSpawnGroupDiffRows)
+            .catch(err => console.error("compare spawngroups failed:", err))
+            .finally(() => setSpawnGroupDiffLoading(false))
     }
 
     // Persists the current layout prefs (or an override taken mid-drag, before its setState has
@@ -440,6 +493,16 @@ function App() {
     const gridModifiedCount = gridDiffRows.filter(r => r.Status === 'modified').length
     const gridRemovedCount = gridDiffRows.filter(r => r.Status === 'removed').length
     const selectableGridRows = gridDiffRows.filter(gridRowSelectable)
+    const spawnGroupNewCount = spawnGroupDiffRows.filter(r => r.Status === 'new').length
+    const spawnGroupModifiedCount = spawnGroupDiffRows.filter(r => r.Status === 'modified').length
+    const spawnGroupRemovedCount = spawnGroupDiffRows.filter(r => r.Status === 'removed').length
+    const spawnGroupAmbiguousCount = spawnGroupDiffRows.filter(r => r.Status === 'ambiguous').length
+    // "new"/"removed" spawngroup rows are display-only (see spawnGroupRowSelectable — a "new"
+    // spawngroup has no sink spawn2 location to attach to yet, same reason "new" spawn2 rows in
+    // the Spawn Points tab work the other way instead), so this badge counts anything worth a
+    // look (new/modified/ambiguous), not just what's currently syncable — same "actionable, not
+    // auto-syncable" semantics as npcActionableCount/spawnNeedsAttentionCount above.
+    const spawnGroupNeedsAttentionCount = spawnGroupDiffRows.filter(r => r.Status !== 'match' && r.Status !== 'removed').length
     // Variables for npc_types detail view
     const [expandedSections, setExpandedSections] = useState({
         identity: true,
@@ -477,14 +540,14 @@ function App() {
                 dbSinkName={dbSinkName} spawnSyncPreview={spawnSyncPreview} executeSpawnSync={executeSpawnSync}
             />
             <SpawnHelpDrawer showSpawnHelp={showSpawnHelp} setShowSpawnHelp={setShowSpawnHelp}/>
-            <ConfirmSpawnGroupEntriesModal
-                showSpawnGroupEntriesConfirm={showSpawnGroupEntriesConfirm}
-                setShowSpawnGroupEntriesConfirm={setShowSpawnGroupEntriesConfirm}
-                spawnGroupEntriesError={spawnGroupEntriesError}
-                spawnGroupEntriesPreview={spawnGroupEntriesPreview}
-                selectedSpawnRow={selectedSpawnRow}
-                syncingSpawnGroupEntries={syncingSpawnGroupEntries}
-                executeSyncSpawnGroupEntries={executeSyncSpawnGroupEntries}
+            <ConfirmSpawnGroupSyncModal
+                showSpawnGroupSyncConfirm={showSpawnGroupSyncConfirm}
+                setShowSpawnGroupSyncConfirm={setShowSpawnGroupSyncConfirm}
+                spawnGroupSyncError={spawnGroupSyncError}
+                spawnGroupSyncPreview={spawnGroupSyncPreview}
+                sourcePool={spawnGroupSyncPools.source} sinkPool={spawnGroupSyncPools.sink}
+                syncingSpawnGroup={syncingSpawnGroup}
+                executeSyncSpawnGroup={executeSyncSpawnGroup}
                 dbSinkName={dbSinkName}
             />
             <ConfirmGridSyncModal
@@ -588,6 +651,17 @@ function App() {
                             <span className="px-2 py-0.5 rounded bg-yellow-950 text-yellow-400">~{gridModifiedCount}</span>
                             <span className="px-2 py-0.5 rounded bg-red-950 text-red-400">-{gridRemovedCount}</span>
                         </>}
+                        {activeView === 'spawngroups' && spawnGroupDiffRows.length > 0 && <>
+                            <span className="px-2 py-0.5 rounded bg-green-950 text-green-400">+{spawnGroupNewCount}</span>
+                            <span className="px-2 py-0.5 rounded bg-yellow-950 text-yellow-400">~{spawnGroupModifiedCount}</span>
+                            <span className="px-2 py-0.5 rounded bg-red-950 text-red-400">-{spawnGroupRemovedCount}</span>
+                            {spawnGroupAmbiguousCount > 0 && (
+                                <span className="px-2 py-0.5 rounded bg-amber-950 text-amber-400"
+                                      title="Source spawngroup's member locations resolved to more than one sink spawngroup — flagged for manual review, not guessed">
+                                    ⚠{spawnGroupAmbiguousCount}
+                                </span>
+                            )}
+                        </>}
                         {activeView === 'npcs' && (
                             <>
                                 <label className={`flex items-center gap-1 text-xs ${showSyncPreview ? 'text-gray-600 cursor-not-allowed' : 'text-gray-400 cursor-pointer'}`}>
@@ -665,6 +739,11 @@ function App() {
                                 Spawn Points{spawnNeedsAttentionCount > 0 && ` (${spawnNeedsAttentionCount})`}
                             </button>
                             <button
+                                onClick={() => setActiveView('spawngroups')}
+                                className={`px-2 py-1 rounded text-xs border ${activeView === 'spawngroups' ? 'border-yellow-400 text-yellow-400' : 'border-gray-600 text-gray-400 hover:border-gray-400'}`}>
+                                Spawngroups{spawnGroupNeedsAttentionCount > 0 && ` (${spawnGroupNeedsAttentionCount})`}
+                            </button>
+                            <button
                                 onClick={() => setActiveView('grids')}
                                 className={`px-2 py-1 rounded text-xs border ${activeView === 'grids' ? 'border-yellow-400 text-yellow-400' : 'border-gray-600 text-gray-400 hover:border-gray-400'}`}>
                                 Grids{selectableGridRows.length > 0 && ` (${selectableGridRows.length})`}
@@ -738,6 +817,16 @@ function App() {
                             setShowGridSyncConfirm={setShowGridSyncConfirm}
                         />
                     )}
+
+                    {/* Spawngroups view */}
+                    {activeView === 'spawngroups' && (
+                        <SpawngroupsTab
+                            spawnGroupDiffRows={spawnGroupDiffRows} spawnGroupDiffLoading={spawnGroupDiffLoading}
+                            spawnGroupDiffFilter={spawnGroupDiffFilter} setSpawnGroupDiffFilter={setSpawnGroupDiffFilter}
+                            selectedSpawnGroupRow={selectedSpawnGroupRow} setSelectedSpawnGroupRow={setSelectedSpawnGroupRow}
+                            selectedZoneShortName={selectedZoneShortName}
+                        />
+                    )}
                 </div>
                 {/* Drag handle + detail panel are omitted entirely on the TODO tab — it has no
                     corresponding detail content (see DetailPanel), so hiding both lets the TODO
@@ -771,8 +860,10 @@ function App() {
                             selectedNpc={selectedNpc}
                             selectedSpawnRow={selectedSpawnRow}
                             selectAllSharingSpawngroup={selectAllSharingSpawngroup}
-                            openSyncSpawnGroupEntriesPreview={openSyncSpawnGroupEntriesPreview}
+                            openSyncSpawnGroupPreview={openSyncSpawnGroupPreviewFromSpawn}
                             selectedGridRow={selectedGridRow}
+                            selectedSpawnGroupRow={selectedSpawnGroupRow}
+                            openSyncSpawnGroupPreviewFromSpawnGroup={openSyncSpawnGroupPreviewFromSpawnGroup}
                             expandedSections={expandedSections} setExpandedSections={setExpandedSections}
                         />
                     </>

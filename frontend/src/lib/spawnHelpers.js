@@ -66,15 +66,16 @@ export function spawnRowLabel(point) {
     return `(${fmtCoord(Number(point.Fields.x))}, ${fmtCoord(Number(point.Fields.y))}, ${fmtCoord(Number(point.Fields.z))}) · spawngroup: ${spawnPoolSummary(point)}`
 }
 
-// Merges source/sink spawn entries by NPCID so the detail panel can show a single table with
-// both sides' chance side by side, the same shape as the field-level source→sink comparisons
-// elsewhere in the detail panel.
-export function spawnEntryRows(row) {
+// Merges source/sink spawn entries by NPCID so a detail panel can show a single table with both
+// sides' chance side by side, the same shape as the field-level source→sink comparisons elsewhere.
+// Takes the two Pool arrays directly (not a row object) so it works the same whether the caller is
+// a SpawnDiffRow (Source.Pool/Sink.Pool) or a SpawnGroupDiffRow (SourcePool/SinkPool directly).
+export function spawnEntryRows(sourcePool, sinkPool) {
     const byId = new Map()
-    for (const pe of row.Source?.Pool ?? []) {
+    for (const pe of sourcePool ?? []) {
         byId.set(pe.NPCID, {npcId: pe.NPCID, name: pe.NPCName || `NPC ${pe.NPCID}`, srcChance: pe.Chance})
     }
-    for (const pe of row.Sink?.Pool ?? []) {
+    for (const pe of sinkPool ?? []) {
         const existing = byId.get(pe.NPCID) ?? {npcId: pe.NPCID, name: pe.NPCName || `NPC ${pe.NPCID}`}
         existing.sinkChance = pe.Chance
         byId.set(pe.NPCID, existing)

@@ -389,6 +389,62 @@ export namespace main {
 		    return a;
 		}
 	}
+	export class SpawnGroupDiffRow {
+	    Status: string;
+	    SourceGroupId: number;
+	    SinkGroupId: number;
+	    Name: string;
+	    SourceFields: Record<string, any>;
+	    SinkFields: Record<string, any>;
+	    SourcePool: PoolEntry[];
+	    SinkPool: PoolEntry[];
+	    SourceLocationCount: number;
+	    SinkLocationCount: number;
+	    FieldsDiffer: boolean;
+	    PoolDiffers: boolean;
+	    AmbiguousSinkGroupIds: number[];
+	    SampleCoord: number[];
+	
+	    static createFrom(source: any = {}) {
+	        return new SpawnGroupDiffRow(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.Status = source["Status"];
+	        this.SourceGroupId = source["SourceGroupId"];
+	        this.SinkGroupId = source["SinkGroupId"];
+	        this.Name = source["Name"];
+	        this.SourceFields = source["SourceFields"];
+	        this.SinkFields = source["SinkFields"];
+	        this.SourcePool = this.convertValues(source["SourcePool"], PoolEntry);
+	        this.SinkPool = this.convertValues(source["SinkPool"], PoolEntry);
+	        this.SourceLocationCount = source["SourceLocationCount"];
+	        this.SinkLocationCount = source["SinkLocationCount"];
+	        this.FieldsDiffer = source["FieldsDiffer"];
+	        this.PoolDiffers = source["PoolDiffers"];
+	        this.AmbiguousSinkGroupIds = source["AmbiguousSinkGroupIds"];
+	        this.SampleCoord = source["SampleCoord"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class SpawnGroupZoneUsage {
 	    Zone: string;
 	    Version: number;
@@ -405,22 +461,24 @@ export namespace main {
 	        this.Count = source["Count"];
 	    }
 	}
-	export class SpawnGroupEntriesSyncResult {
+	export class SpawnGroupSyncResult {
 	    DryRun: boolean;
 	    SpawnGroupName: string;
+	    FieldsChanged: boolean;
 	    EntriesBefore: number;
 	    EntriesAfter: number;
 	    OtherZoneUsage: SpawnGroupZoneUsage[];
 	    NotFound: boolean;
 	
 	    static createFrom(source: any = {}) {
-	        return new SpawnGroupEntriesSyncResult(source);
+	        return new SpawnGroupSyncResult(source);
 	    }
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.DryRun = source["DryRun"];
 	        this.SpawnGroupName = source["SpawnGroupName"];
+	        this.FieldsChanged = source["FieldsChanged"];
 	        this.EntriesBefore = source["EntriesBefore"];
 	        this.EntriesAfter = source["EntriesAfter"];
 	        this.OtherZoneUsage = this.convertValues(source["OtherZoneUsage"], SpawnGroupZoneUsage);
@@ -636,7 +694,7 @@ export namespace main {
 		    return a;
 		}
 	}
-	export class SyncSpawnGroupEntriesOptions {
+	export class SyncSpawnGroupOptions {
 	    ZoneShortName: string;
 	    ZoneVersion: number;
 	    X: number;
@@ -645,7 +703,7 @@ export namespace main {
 	    DryRun: boolean;
 	
 	    static createFrom(source: any = {}) {
-	        return new SyncSpawnGroupEntriesOptions(source);
+	        return new SyncSpawnGroupOptions(source);
 	    }
 	
 	    constructor(source: any = {}) {

@@ -193,27 +193,60 @@ type SpawnSyncResult struct {
 
 // SpawnGroupZoneUsage is one (zone, version) pair whose spawn2 rows reference a spawngroupID —
 // spawngroup has no zone column of its own, so this is the only way to discover what a group is
-// actually "used for" before touching its shared spawnentry rows. See SyncSpawnGroupEntries.
+// actually "used for" before touching its shared spawnentry/field data. See SyncSpawnGroup.
 type SpawnGroupZoneUsage struct {
 	Zone    string
 	Version int8
 	Count   int
 }
 
-type SyncSpawnGroupEntriesOptions struct {
+type SyncSpawnGroupOptions struct {
 	ZoneShortName string
 	ZoneVersion   int8
-	X, Y, Z       float64 // identifies the spawn2 location whose spawngroup's entries are being synced
+	X, Y, Z       float64 // identifies the spawn2 location whose spawngroup is being synced
 	DryRun        bool
 }
 
-type SpawnGroupEntriesSyncResult struct {
+// SpawnGroupSyncResult covers both halves of what SyncSpawnGroup writes — a spawngroup's own
+// fields and its full spawnentry roster — since they're synced together as one action.
+type SpawnGroupSyncResult struct {
 	DryRun         bool
 	SpawnGroupName string
+	FieldsChanged  bool // whether the spawngroup's own columns (spawn_limit, wander box, etc.) differed and were (or would be) updated
 	EntriesBefore  int
 	EntriesAfter   int
 	OtherZoneUsage []SpawnGroupZoneUsage // non-empty means blocked — nothing was changed
 	NotFound       bool                  // true if no sink spawn2 exists at this location yet
+}
+
+// SpawnGroupDiffRow is the row shape for the Spawngroups zone-view — one spawngroup per row,
+// unlike SpawnDiffRow's one-row-per-spawn2-location. Spawngroup has no zone column and its own id
+// isn't portable across databases (same reasoning as spawn2 — see CLAUDE.md's "Spawn point
+// identity" notes), so a source spawngroup is matched to a sink one indirectly: by checking which
+// sink spawngroup(s) are referenced at the source spawngroup's own member spawn2 coordinates in
+// this zone, the same coordinate-identity mechanism every other spawngroup lookup in this app
+// already relies on.
+type SpawnGroupDiffRow struct {
+	Status              string // "new" | "modified" | "removed" | "match" | "ambiguous"
+	SourceGroupId       int64
+	SinkGroupId         int64
+	Name                string                 // source's name if this spawngroup exists there, else sink's — cosmetic/local, never diffed (see FieldsDiffer)
+	SourceFields        map[string]interface{} // spawngroup columns, minus id — includes name
+	SinkFields          map[string]interface{}
+	SourcePool          []PoolEntry
+	SinkPool            []PoolEntry
+	SourceLocationCount int // spawn2 rows in this zone/version referencing SourceGroupId — informational only, doesn't drive Status
+	SinkLocationCount   int
+	FieldsDiffer        bool // spawngroup's own columns differ, "name" excluded — see updateSpawnGroupFields
+	PoolDiffers         bool
+	// Populated only when Status == "ambiguous": every distinct sink spawngroupID the source
+	// spawngroup's member locations resolved to. Flagged rather than guessed at, same "shared data
+	// gets flagged, not silently resolved" rule used everywhere else spawngroup data is involved.
+	AmbiguousSinkGroupIds []int64
+	// One matched member coordinate (only set when Status is "modified" or "match") — the same
+	// X/Y/Z SyncSpawnGroup already uses to identify a spawngroup indirectly, so a row from this
+	// tab can drive the exact same sync action the Spawn Points detail panel already triggers.
+	SampleCoord [3]float64
 }
 
 // GridEntry is one waypoint in a patrol grid — a grid_entries row, matched within a grid by
@@ -348,8 +381,8 @@ func toFloat64(v interface{}) float64 {
 }
 
 // spawnCoordKey is the shared coordinate-matching key for a SpawnPoint — extracted so
-// CompareSpawns, SyncSpawnPoints, and SyncSpawnGroupEntries don't each redefine the same
-// closure. See toFloat64's float32 case for why correct handling here specifically matters.
+// CompareSpawns, SyncSpawnPoints, CompareSpawnGroups, and SyncSpawnGroup don't each redefine the
+// same closure. See toFloat64's float32 case for why correct handling here specifically matters.
 func spawnCoordKey(p SpawnPoint) [3]float64 {
 	return [3]float64{toFloat64(p.Fields["x"]), toFloat64(p.Fields["y"]), toFloat64(p.Fields["z"])}
 }
@@ -635,6 +668,150 @@ func (a *App) CompareSpawns(shortName string, version int8) ([]SpawnDiffRow, err
 	}
 
 	return diff, nil
+}
+
+// withoutField returns a shallow copy of m with one key removed — used to exclude "name" from
+// spawngroup field comparisons/updates without touching mapsEqual itself, since "name" is
+// meaningfully comparable content on other tables mapsEqual is used for (e.g. npc_types.name)
+// and only cosmetic/local on spawngroup specifically (see EQEmu Schema Notes).
+func withoutField(m map[string]interface{}, field string) map[string]interface{} {
+	if _, ok := m[field]; !ok {
+		return m
+	}
+	out := make(map[string]interface{}, len(m))
+	for k, v := range m {
+		if k == field {
+			continue
+		}
+		out[k] = v
+	}
+	return out
+}
+
+// CompareSpawnGroups diffs spawngroups for a zone/version, one row per spawngroup rather than per
+// spawn2 location (see SpawnGroupDiffRow). Reuses getSpawnPointsForZone's existing zone-scoped
+// fetch — this view is just a different grouping of the same spawn2/spawngroup/spawnentry data
+// CompareSpawns already pulls, not a second dedicated query.
+func (a *App) CompareSpawnGroups(shortName string, version int8) ([]SpawnGroupDiffRow, error) {
+	sourcePoints, err := getSpawnPointsForZone(a.ctx, a.sourceDB, shortName, version)
+	if err != nil {
+		return nil, err
+	}
+	sinkPoints, err := getSpawnPointsForZone(a.ctx, a.sinkDB, shortName, version)
+	if err != nil {
+		return nil, err
+	}
+	if err := resolveOrphanedPoolNames(a.ctx, sinkPoints, a.sourceDB); err != nil {
+		return nil, err
+	}
+	if err := resolveOrphanedPoolNames(a.ctx, sourcePoints, a.sinkDB); err != nil {
+		return nil, err
+	}
+
+	sinkByCoord := make(map[[3]float64]SpawnPoint, len(sinkPoints))
+	for _, p := range sinkPoints {
+		sinkByCoord[spawnCoordKey(p)] = p
+	}
+
+	// A group's representative point (Fields/Pool/Name are identical across every spawn2 row
+	// sharing a spawngroupID by construction — spawngroup is one row shared by many locations,
+	// not one per location — so any member works) plus how many locations in this zone use it.
+	type groupInfo struct {
+		rep   SpawnPoint
+		count int
+	}
+	sourceGroups := make(map[int64]*groupInfo)
+	for _, p := range sourcePoints {
+		g, ok := sourceGroups[p.SpawnGroupId]
+		if !ok {
+			g = &groupInfo{rep: p}
+			sourceGroups[p.SpawnGroupId] = g
+		}
+		g.count++
+	}
+	sinkGroups := make(map[int64]*groupInfo)
+	for _, p := range sinkPoints {
+		g, ok := sinkGroups[p.SpawnGroupId]
+		if !ok {
+			g = &groupInfo{rep: p}
+			sinkGroups[p.SpawnGroupId] = g
+		}
+		g.count++
+	}
+
+	// Tracks every sink group a source group resolved to (cleanly matched or ambiguous) so the
+	// leftover pass below only reports genuinely source-less sink groups as "removed".
+	claimedSinkGroups := make(map[int64]bool)
+
+	var rows []SpawnGroupDiffRow
+	for sourceGroupId, sg := range sourceGroups {
+		// sink spawngroupID -> one source coordinate that resolved to it, kept for SampleCoord
+		matched := make(map[int64][3]float64)
+		for _, p := range sourcePoints {
+			if p.SpawnGroupId != sourceGroupId {
+				continue
+			}
+			coord := spawnCoordKey(p)
+			if sinkP, ok := sinkByCoord[coord]; ok {
+				if _, exists := matched[sinkP.SpawnGroupId]; !exists {
+					matched[sinkP.SpawnGroupId] = coord
+				}
+			}
+		}
+
+		row := SpawnGroupDiffRow{
+			SourceGroupId:       sourceGroupId,
+			Name:                fmt.Sprintf("%v", sg.rep.SpawnGroupFields["name"]),
+			SourceFields:        sg.rep.SpawnGroupFields,
+			SourcePool:          sg.rep.Pool,
+			SourceLocationCount: sg.count,
+		}
+
+		switch len(matched) {
+		case 0:
+			row.Status = "new"
+		case 1:
+			for sinkGroupId, coord := range matched {
+				row.SinkGroupId = sinkGroupId
+				row.SampleCoord = coord
+			}
+			claimedSinkGroups[row.SinkGroupId] = true
+			skg := sinkGroups[row.SinkGroupId]
+			row.SinkFields = skg.rep.SpawnGroupFields
+			row.SinkPool = skg.rep.Pool
+			row.SinkLocationCount = skg.count
+			row.FieldsDiffer = !mapsEqual(withoutField(row.SourceFields, "name"), withoutField(row.SinkFields, "name"))
+			row.PoolDiffers = !poolsEqual(row.SourcePool, row.SinkPool)
+			if row.FieldsDiffer || row.PoolDiffers {
+				row.Status = "modified"
+			} else {
+				row.Status = "match"
+			}
+		default:
+			row.Status = "ambiguous"
+			for sinkGroupId := range matched {
+				row.AmbiguousSinkGroupIds = append(row.AmbiguousSinkGroupIds, sinkGroupId)
+				claimedSinkGroups[sinkGroupId] = true
+			}
+		}
+		rows = append(rows, row)
+	}
+
+	for sinkGroupId, skg := range sinkGroups {
+		if claimedSinkGroups[sinkGroupId] {
+			continue
+		}
+		rows = append(rows, SpawnGroupDiffRow{
+			Status:            "removed",
+			SinkGroupId:       sinkGroupId,
+			Name:              fmt.Sprintf("%v", skg.rep.SpawnGroupFields["name"]),
+			SinkFields:        skg.rep.SpawnGroupFields,
+			SinkPool:          skg.rep.Pool,
+			SinkLocationCount: skg.count,
+		})
+	}
+
+	return rows, nil
 }
 
 func getSinkColumns(ctx context.Context, db *sql.DB, table string) (map[string]bool, error) {
@@ -1262,6 +1439,37 @@ func updateSpawn2(ctx context.Context, tx *sql.Tx, sinkId int64, sourceFields ma
 	return err
 }
 
+// updateSpawnGroupFields updates a spawngroup's own row on the sink to match source, excluding
+// "name" — two independently-evolved databases can each have their own local label for the same
+// logical group (see EQEmu Schema Notes on spawngroup.name), so overwriting it here would discard
+// that the same way Sync()'s per-NPC spawn creation deliberately never renames an existing sink
+// spawngroup either. Mirrors updateSpawn2's shape (sorted columns so the ? placeholders and their
+// values can't get mismatched by Go's randomized map iteration order).
+func updateSpawnGroupFields(ctx context.Context, tx *sql.Tx, sinkGroupId int64, sourceFields map[string]interface{}, sinkColumns map[string]bool) error {
+	var columns []string
+	for col := range sourceFields {
+		if col == "name" {
+			continue
+		}
+		if sinkColumns[col] {
+			columns = append(columns, col)
+		}
+	}
+	sort.Strings(columns)
+
+	setClauses := make([]string, len(columns))
+	values := make([]interface{}, len(columns)+1)
+	for i, col := range columns {
+		setClauses[i] = col + " = ?"
+		values[i] = sourceFields[col]
+	}
+	values[len(columns)] = sinkGroupId
+
+	query := fmt.Sprintf("UPDATE spawngroup SET %s WHERE id = ?", strings.Join(setClauses, ", "))
+	_, err := tx.ExecContext(ctx, query, values...)
+	return err
+}
+
 func (a *App) Sync(options SyncOptions) (SyncResult, error) {
 	result := SyncResult{DryRun: options.DryRun}
 
@@ -1587,20 +1795,27 @@ func (a *App) SyncSpawnPoints(options SpawnSyncOptions) (SpawnSyncResult, error)
 	return result, nil
 }
 
-// SyncSpawnGroupEntries replaces one spawngroup's spawnentry rows on the sink with source's,
-// identified by the spawn2 location whose spawngroup the caller wants reconciled. Deliberately
-// separate from SyncSpawnPoints — spawn entries are shared data (see PoolDiffers), and unlike a
-// spawn2's own fields, blindly syncing them can affect every OTHER location sharing the same
-// spawngroupID, possibly in a zone the caller never reviewed, since spawngroup has no zone column
-// of its own. Blocked outright (not just warned) if the sink's spawngroupID is referenced by any
-// spawn2 row outside options.ZoneShortName/ZoneVersion — see CLAUDE.md's "Spawn point identity"
-// notes for why this app treats shared data as something to flag, never silently resolve.
+// SyncSpawnGroup brings a spawngroup fully in line with source: both its own fields (spawn_limit,
+// wander box, timing, etc.) and its full spawnentry roster, together in one transaction. This is a
+// generalization of what was originally an entries-only sync — syncing a spawngroup's fields
+// without its entries (or vice versa) doesn't correspond to anything a user actually wants;
+// "bring this spawngroup in line with source" is one action, not two competing ones with the same
+// safety check duplicated between them.
 //
-// npcID values need no translation between databases — npc_types.id is the portable identity
-// this whole app is built on — so this is a plain delete-and-reinsert of source's entries, once
-// the safety check above has cleared it.
-func (a *App) SyncSpawnGroupEntries(options SyncSpawnGroupEntriesOptions) (SpawnGroupEntriesSyncResult, error) {
-	result := SpawnGroupEntriesSyncResult{DryRun: options.DryRun}
+// Identified by the spawn2 location whose spawngroup the caller wants reconciled — spawngroupID
+// isn't portable across databases (see CLAUDE.md's "Spawn point identity" notes), so, like every
+// other spawngroup lookup in this app, identity has to be derived through spawn2's coordinates
+// rather than trusting an ID directly. Deliberately separate from SyncSpawnPoints, which only ever
+// touches a spawn2 row's own columns: a spawngroup can be shared by other spawn2 rows this call
+// knows nothing about, possibly in a zone the caller never reviewed, since spawngroup has no zone
+// column of its own — so this is blocked outright (not just warned) if the sink's spawngroupID is
+// referenced by any spawn2 row outside options.ZoneShortName/ZoneVersion.
+//
+// npcID values in spawnentry need no translation between databases — npc_types.id is the portable
+// identity this whole app is built on — so entries are a plain delete-and-reinsert once the safety
+// check above has cleared it; "name" is excluded from the fields update (see updateSpawnGroupFields).
+func (a *App) SyncSpawnGroup(options SyncSpawnGroupOptions) (SpawnGroupSyncResult, error) {
+	result := SpawnGroupSyncResult{DryRun: options.DryRun}
 
 	if a.sourceDB == nil {
 		return result, fmt.Errorf("source database not connected")
@@ -1643,6 +1858,10 @@ func (a *App) SyncSpawnGroupEntries(options SyncSpawnGroupEntriesOptions) (Spawn
 	result.SpawnGroupName = fmt.Sprintf("%v", sourcePoint.SpawnGroupFields["name"])
 	result.EntriesBefore = len(sinkPoint.Pool)
 	result.EntriesAfter = len(sourcePoint.Pool)
+	result.FieldsChanged = !mapsEqual(
+		withoutField(sourcePoint.SpawnGroupFields, "name"),
+		withoutField(sinkPoint.SpawnGroupFields, "name"),
+	)
 
 	rows, err := a.sinkDB.QueryContext(a.ctx,
 		"SELECT zone, version, COUNT(*) FROM spawn2 WHERE spawngroupID = ? GROUP BY zone, version",
@@ -1672,9 +1891,18 @@ func (a *App) SyncSpawnGroupEntries(options SyncSpawnGroupEntriesOptions) (Spawn
 		return result, nil
 	}
 
+	sinkColumns, err := getSinkColumns(a.ctx, a.sinkDB, "spawngroup")
+	if err != nil {
+		return result, err
+	}
+
 	tx, err := a.sinkDB.BeginTx(a.ctx, nil)
 	if err != nil {
 		return result, err
+	}
+	if err := updateSpawnGroupFields(a.ctx, tx, sinkPoint.SpawnGroupId, sourcePoint.SpawnGroupFields, sinkColumns); err != nil {
+		_ = tx.Rollback()
+		return result, fmt.Errorf("updating spawngroup fields: %w", err)
 	}
 	if _, err := tx.ExecContext(a.ctx, "DELETE FROM spawnentry WHERE spawngroupID = ?", sinkPoint.SpawnGroupId); err != nil {
 		_ = tx.Rollback()
@@ -1856,7 +2084,7 @@ func createGrid(ctx context.Context, tx *sql.Tx, zoneIdNumber int64, source Grid
 
 // updateGrid replaces an existing sink grid's own fields and its entire waypoint list to match
 // source — grid_entries is deleted and reinserted rather than diffed row-by-row, the same
-// delete-and-reinsert shape SyncSpawnGroupEntries already uses for spawnentry.
+// delete-and-reinsert shape SyncSpawnGroup already uses for spawnentry.
 func updateGrid(ctx context.Context, tx *sql.Tx, zoneIdNumber int64, source GridPoint, gridColumns map[string]bool) error {
 	var columns []string
 	for col := range source.Fields {
@@ -1892,9 +2120,9 @@ func updateGrid(ctx context.Context, tx *sql.Tx, zoneIdNumber int64, source Grid
 
 // SyncGrids replaces sink grid rows (fields + full waypoint list) to match source, and creates
 // entirely new grid/grid_entries chains for grids that don't exist in the sink yet. Simpler than
-// SyncSpawnGroupEntries: grid.id is trustworthy within a zone (see GridPoint), and a grid isn't
-// shared data the way a spawngroup is, so both fields and entries can be synced together in one
-// action instead of needing the spawn2/spawngroup split.
+// SyncSpawnGroup: grid.id is trustworthy within a zone (see GridPoint) and doesn't need the
+// cross-zone-usage guard SyncSpawnGroup enforces, since a grid isn't shared data the way a
+// spawngroup is.
 func (a *App) SyncGrids(options SyncGridsOptions) (SyncGridsResult, error) {
 	result := SyncGridsResult{DryRun: options.DryRun}
 
