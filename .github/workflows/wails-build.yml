@@ -9,6 +9,11 @@ on:
   pull_request:
     branches:
       - main
+  workflow_dispatch: {} # lets you trigger a build manually from the Actions tab, no tag required —
+                        # useful for testing this workflow itself without cutting a real release
+
+permissions:
+  contents: write # required to create a release and upload assets to it (softprops/action-gh-release)
 
 env:
   NODE_OPTIONS: "--max-old-space-size=4096" # Prevents Out-Of-Memory errors during frontend bundling
@@ -25,6 +30,9 @@ jobs:
           - os: macos-latest
             platform: darwin/universal
             artifact_name: wails-app-macos
+          - os: ubuntu-22.04 # pinned, not ubuntu-latest — 24.04 renamed the webkit dev package
+            platform: linux/amd64 # (libwebkit2gtk-4.1-dev vs 4.0-dev below) and would silently
+            artifact_name: wails-app-linux # break this build whenever GitHub moves "latest" forward
 
     runs-on: ${{ matrix.os }}
 
@@ -35,13 +43,19 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: 'stable'
-          check-latest: true
+          go-version-file: go.mod # builds with the exact Go version declared in go.mod, not
+                                   # whatever "stable" happens to resolve to on the day CI runs
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 'lts/*'
+
+      - name: Install Linux build dependencies
+        if: matrix.os == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.0-dev build-essential pkg-config
 
       - name: Install Wails CLI
         run: go install github.com/wailsapp/wails/v2/cmd/wails@latest
@@ -54,6 +68,17 @@ jobs:
       - name: Build Wails App
         run: wails build -platform ${{ matrix.platform }}
 
+      - name: Package macOS app bundle
+        if: matrix.os == 'macos-latest'
+        # A GitHub release asset must be a single file, not a directory — the .app Wails produces
+        # is a directory tree, so it has to be zipped before either upload-artifact or the release
+        # step below can attach it sensibly. `ditto` (not `zip`) preserves the bundle's resource
+        # forks/metadata correctly, which is why it's the tool Apple's own docs recommend for this.
+        run: |
+          cd build/bin
+          ditto -c -k --sequesterRsrc --keepParent eqemu_dsynch_tool.app eqemu_dsynch_tool-macos.zip
+          rm -rf eqemu_dsynch_tool.app
+
       - name: Upload Build Artifacts
         uses: actions/upload-artifact@v4 # Maintained artifact upload utility
         with:
@@ -63,8 +88,7 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')   # Ensures this only runs when you push a tag
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.ref_name }}        # Automatically matches 'v1.0.0a' or any future tag
+          tag_name: ${{ github.ref_name }}        # Automatically matches 'v1.0.0' or any future tag
           files: build/bin/*                       # Uploads all compiled binaries from the build folder
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # Built-in GitHub token with write access
-
