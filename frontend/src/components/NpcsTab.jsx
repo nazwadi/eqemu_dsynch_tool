@@ -1,4 +1,4 @@
-import {needsSpawnPoint} from '../lib/npcHelpers';
+import {needsSpawnPoint, npcRowMatchesSearch} from '../lib/npcHelpers';
 import {statusOrder} from '../lib/constants';
 
 // NPCs tab body: the diff list (Show All/Differences/sort, checkbox selection) sliding to a sync
@@ -7,7 +7,8 @@ import {statusOrder} from '../lib/constants';
 // Created/Updated/PoolDiffers) differ enough that a shared version would just be branching
 // internally — the same reasoning already used for the confirm modals.
 function NpcsTab({
-    diffRows, diffLoading, diffFilter, setDiffFilter, sortBy, setSortBy, sortDir, setSortDir,
+    diffRows, diffLoading, diffFilter, setDiffFilter, npcSearchFilter, setNpcSearchFilter,
+    sortBy, setSortBy, sortDir, setSortDir,
     selectableRows, selectedNPCs, setSelectedNPCs, selectedRowKey, setSelectedRowKey, setSelectedNpc,
     syncSpawns, dbSourceName, dbSinkName, selectedZoneShortName,
     showSyncPreview, setShowSyncPreview, syncPreview, syncing, syncOutcome, setShowSyncConfirm
@@ -20,7 +21,7 @@ function NpcsTab({
                 showSyncPreview ? '-translate-x-full' : 'translate-x-0'
             }`}>
 
-                <div className="flex gap-2 px-3 py-2 border-b border-gray-700">
+                <div className="flex items-center gap-2 px-3 py-2 border-b border-gray-700">
                     <button
                         onClick={() => setDiffFilter('all')}
                         className={`text-xs px-3 py-1 rounded border ${diffFilter === 'all' ? 'border-yellow-400 text-yellow-400' : 'border-gray-600 text-gray-400 hover:border-gray-400'}`}>
@@ -31,6 +32,12 @@ function NpcsTab({
                         className={`text-xs px-3 py-1 rounded border ${diffFilter === 'diff' ? 'border-yellow-400 text-yellow-400' : 'border-gray-600 text-gray-400 hover:border-gray-400'}`}>
                         Differences Only
                     </button>
+                    <input
+                        className="ml-auto w-48 text-xs border border-gray-600 bg-gray-700 rounded px-2 py-1 disabled:opacity-40 disabled:cursor-not-allowed"
+                        placeholder="Filter by NPC name..."
+                        value={npcSearchFilter}
+                        onChange={e => setNpcSearchFilter(e.target.value)}
+                        autoCapitalize="off" autoCorrect="off" spellCheck={false}/>
                 </div>
                 <div className="flex gap-2 px-3 py-1 border-b border-gray-700 bg-gray-850">
                     {[
@@ -56,7 +63,7 @@ function NpcsTab({
                 <div className="flex items-center border-b border-gray-700 bg-gray-800">
                     <input type="checkbox"
                            className="accent-yellow-400 cursor-pointer w-3 h-3 mx-2"
-                           title="NPCs that need a spawn point in the sink can't be synced yet — spawn placement isn't implemented"
+                           title="NPCs that need a spawn point in the sink can't be synced unless 'Create spawn points' (above) is checked"
                            checked={selectableRows.length > 0 && selectableRows.every(row => selectedNPCs.has(row.Source?.Id ?? row.Sink?.Id))}
                            onChange={(e) => {
                                if (e.target.checked) {
@@ -87,6 +94,7 @@ function NpcsTab({
                     <div className="flex flex-1 min-h-0 overflow-hidden flex-col overflow-y-auto">
                         {diffRows
                             .filter(row => diffFilter === 'all' || row.Status !== 'match')
+                            .filter(row => npcRowMatchesSearch(row, npcSearchFilter))
                             .sort((a, b) => {
                                 let result
                                 if (sortBy === 'status') {
@@ -122,7 +130,7 @@ function NpcsTab({
                                                className="accent-yellow-400 cursor-pointer w-3 h-3 mx-2 disabled:opacity-40 disabled:cursor-not-allowed"
                                                checked={selectedNPCs.has(npcId)}
                                                disabled={needsSpawnPoint(row, syncSpawns)}
-                                               title={needsSpawnPoint(row, syncSpawns) ? "This NPC needs a spawn point in the sink first — spawn placement isn't implemented yet" : undefined}
+                                               title={needsSpawnPoint(row, syncSpawns) ? "This NPC needs a spawn point in the sink — enable 'Create spawn points' above to sync it" : undefined}
                                                onChange={(e) => {
                                                    e.stopPropagation()
                                                    const newSet = new Set(selectedNPCs)

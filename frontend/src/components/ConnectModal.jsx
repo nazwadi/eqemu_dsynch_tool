@@ -30,6 +30,15 @@ function ConnectModal({
                     setConnectError(null)
                 }
             }}
+            onClick={e => {
+                // Only the backdrop itself, not a click that bubbled up from the modal box —
+                // this isn't a destructive action (unlike the Confirm modals, which deliberately
+                // don't offer this), so dismissing on an outside click is a safe convenience.
+                if (e.target === e.currentTarget) {
+                    setActiveModal(null)
+                    setConnectError(null)
+                }
+            }}
             className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 outline-none">
             <div className="bg-gray-800 p-6 rounded-lg w-96 flex flex-col gap-3">
                 <div className="flex justify-between items-center mb-4">
@@ -37,7 +46,7 @@ function ConnectModal({
                     <button onClick={() => {
                         setActiveModal(null)
                         setConnectError(null)
-                    }}>✕</button>
+                    }} className="text-gray-400 hover:text-white cursor-pointer">✕</button>
                 </div>
                 <label>Host</label>
                 <input className="border border-gray-600 bg-gray-700 rounded px-2 py-1"
@@ -68,7 +77,8 @@ function ConnectModal({
                         {connectError}
                     </div>
                 )}
-                <button onClick={connect} disabled={connecting}>
+                <button onClick={connect} disabled={connecting}
+                        className="text-sm px-3 py-2 rounded font-medium bg-yellow-400 text-gray-900 hover:bg-yellow-300 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer">
                     {connecting ? 'Connecting…' : (activeModal === 'source' ? 'Connect Source' : 'Connect Sink')}
                 </button>
             </div>

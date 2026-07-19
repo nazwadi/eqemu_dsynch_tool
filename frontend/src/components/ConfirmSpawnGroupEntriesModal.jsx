@@ -30,7 +30,7 @@ function ConfirmSpawnGroupEntriesModal({
             <div className="bg-gray-800 p-6 rounded-lg w-[28rem] flex flex-col gap-3 max-h-[80vh] overflow-y-auto">
                 <div className="flex justify-between items-center mb-2">
                     <h2 className="text-lg font-medium">Sync Spawn Entries</h2>
-                    <button onClick={() => setShowSpawnGroupEntriesConfirm(false)}>✕</button>
+                    <button onClick={() => setShowSpawnGroupEntriesConfirm(false)} className="text-gray-400 hover:text-white cursor-pointer">✕</button>
                 </div>
                 {spawnGroupEntriesError ? (
                     <div className="text-sm text-red-400">{spawnGroupEntriesError}</div>

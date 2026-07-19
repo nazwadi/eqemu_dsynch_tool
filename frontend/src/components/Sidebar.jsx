@@ -6,11 +6,12 @@
 function Sidebar({
     sourceConnected, sourceHost, sinkConnected, sinkHost, setActiveModal, setConnectError,
     searchFilter, setSearchFilter, showSyncPreview, showSpawnSyncPreview,
-    zones, selectedZoneId, onSelectZone
+    zones, selectedZoneId, onSelectZone, width
 }) {
     const locked = showSyncPreview || showSpawnSyncPreview
     return (
-        <div className="w-64 bg-gray-900 border-b border-gray-700 flex flex-col h-full min-h-0">
+        <div style={{width, minWidth: width}}
+             className="bg-gray-900 border-b border-gray-700 flex flex-col h-full min-h-0">
             <div
                 className="px-3 py-2 text-xs font-medium text-gray-400 uppercase tracking-wider border-b border-gray-700">
                 Connections
@@ -64,7 +65,7 @@ function Sidebar({
                        disabled={locked}
                        autoCapitalize="off" autoCorrect="off" spellCheck={false}/>
             </div>
-            <div className="overflow-y-auto flex-1 pl-4 pt-2">
+            <div className="overflow-y-auto flex-1 pl-2 pt-2">
                 <div className="overflow-y-auto">
                     <ul>
                         {zones
@@ -79,9 +80,9 @@ function Sidebar({
                                         onSelectZone(zone)
                                     }}
                                     key={zone.Id}
-                                    className={`truncate ${
-                                        locked ? 'opacity-40 cursor-not-allowed' :
-                                            selectedZoneId === zone.Id ? 'text-yellow-400 cursor-pointer' : 'cursor-pointer'
+                                    className={`truncate px-2 py-1 border-l-2 ${
+                                        locked ? 'opacity-40 cursor-not-allowed border-l-transparent' :
+                                            selectedZoneId === zone.Id ? 'bg-blue-900/40 border-l-yellow-400 text-yellow-400 cursor-pointer' : 'border-l-transparent cursor-pointer hover:bg-gray-800'
                                     }`}
                                 >
                                     {zone.LongName} <span className="text-gray-500 text-xs">({zone.ShortName} v{zone.Version})</span>

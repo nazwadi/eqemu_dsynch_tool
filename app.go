@@ -33,6 +33,19 @@ type SshConfig struct {
 type Config struct {
 	Source ConnectionConfig
 	Sink   ConnectionConfig
+	UI     UIPrefs
+}
+
+// UIPrefs persists layout preferences (sidebar/detail panel width, sidebar collapsed state)
+// alongside the connection config, so "reclaim screen space to your preference" (see the sidebar
+// resize/collapse feature) survives an app restart instead of resetting to defaults every launch.
+// Zero values (an old config.json predating this field, or a value never explicitly set) are
+// treated as "unset" by the frontend, which falls back to its own defaults — nothing here needs
+// its own sentinel/omitempty handling.
+type UIPrefs struct {
+	SidebarWidth     int
+	SidebarCollapsed bool
+	DetailWidth      int
 }
 type ConnectionConfig struct {
 	DbName    string

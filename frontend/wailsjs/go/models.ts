@@ -1,5 +1,21 @@
 export namespace main {
 	
+	export class UIPrefs {
+	    SidebarWidth: number;
+	    SidebarCollapsed: boolean;
+	    DetailWidth: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new UIPrefs(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.SidebarWidth = source["SidebarWidth"];
+	        this.SidebarCollapsed = source["SidebarCollapsed"];
+	        this.DetailWidth = source["DetailWidth"];
+	    }
+	}
 	export class SshConfig {
 	    Host: string;
 	    Port: string;
@@ -63,6 +79,7 @@ export namespace main {
 	export class Config {
 	    Source: ConnectionConfig;
 	    Sink: ConnectionConfig;
+	    UI: UIPrefs;
 	
 	    static createFrom(source: any = {}) {
 	        return new Config(source);
@@ -72,6 +89,7 @@ export namespace main {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.Source = this.convertValues(source["Source"], ConnectionConfig);
 	        this.Sink = this.convertValues(source["Sink"], ConnectionConfig);
+	        this.UI = this.convertValues(source["UI"], UIPrefs);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -640,6 +658,7 @@ export namespace main {
 	        this.DryRun = source["DryRun"];
 	    }
 	}
+	
 	
 	export class Zone {
 	    Id: number;

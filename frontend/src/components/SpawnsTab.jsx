@@ -131,7 +131,7 @@ function SpawnsTab({
                                              selectedSpawnRow && spawnKey(selectedSpawnRow) === rowKey ? 'bg-blue-900/40 border-l-2 border-l-yellow-400' :
                                                  row.Status === 'new' ? 'bg-green-950 border-l-2 border-l-transparent' :
                                                      row.Status === 'removed' ? 'bg-red-950 border-l-2 border-l-transparent' :
-                                                         row.Status === 'modified' ? (entriesOnly ? 'bg-amber-950/40 border-l-2 border-l-transparent' : 'bg-yellow-950 border-l-2 border-l-transparent') :
+                                                         row.Status === 'modified' ? (entriesOnly ? 'bg-orange-950/60 border-l-2 border-l-transparent' : 'bg-yellow-950 border-l-2 border-l-transparent') :
                                                              'bg-transparent border-l-2 border-l-transparent'
                                          }`}
                                          onClick={() => setSelectedSpawnRow(row)}

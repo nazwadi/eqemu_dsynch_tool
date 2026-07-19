@@ -275,11 +275,6 @@ function DetailPanel({
                             })()}
                         </>
                     )}
-                    {activeView === 'todo' && (
-                        <div className="flex-1 flex items-center justify-center text-gray-600 text-sm">
-                            NPC and spawn point details are hidden while viewing TODO items
-                        </div>
-                    )}
                 </div>
             </div>
         </div>

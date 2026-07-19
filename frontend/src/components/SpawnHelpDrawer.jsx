@@ -28,7 +28,7 @@ function SpawnHelpDrawer({showSpawnHelp, setShowSpawnHelp}) {
                 <div className="flex items-center justify-between px-4 py-3 border-b border-gray-700">
                     <h2 className="text-sm font-medium text-gray-200">How spawn points fit together</h2>
                     <button onClick={() => setShowSpawnHelp(false)}
-                            className="text-gray-400 hover:text-white">✕</button>
+                            className="text-gray-400 hover:text-white cursor-pointer">✕</button>
                 </div>
                 <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-4 text-sm text-gray-300">
                     <p>

@@ -16,3 +16,12 @@ export const fieldGroups = {
 export function needsSpawnPoint(row, syncSpawns) {
     return row.Status === 'new' && row.Source?.HasSpawnPoint && !syncSpawns
 }
+
+// Mirrors spawnRowMatchesSearch's shape for the NPCs tab — matches either side's name, since a
+// "removed" row only has a Sink name and a "new" row only has a Source one.
+export function npcRowMatchesSearch(row, query) {
+    if (!query.trim()) return true
+    const q = query.trim().toLowerCase()
+    return (row.Source?.Fields?.name ?? '').toLowerCase().includes(q) ||
+        (row.Sink?.Fields?.name ?? '').toLowerCase().includes(q)
+}

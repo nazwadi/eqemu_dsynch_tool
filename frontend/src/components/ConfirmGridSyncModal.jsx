@@ -24,7 +24,7 @@ function ConfirmGridSyncModal({showGridSyncConfirm, setShowGridSyncConfirm, dbSi
             <div className="bg-gray-800 p-6 rounded-lg w-96 flex flex-col gap-3">
                 <div className="flex justify-between items-center mb-2">
                     <h2 className="text-lg font-medium">Confirm Sync</h2>
-                    <button onClick={() => setShowGridSyncConfirm(false)}>✕</button>
+                    <button onClick={() => setShowGridSyncConfirm(false)} className="text-gray-400 hover:text-white cursor-pointer">✕</button>
                 </div>
                 <div className="text-sm text-gray-300">
                     You are about to write to:
