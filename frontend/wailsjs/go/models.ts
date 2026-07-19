@@ -20,7 +20,10 @@ export namespace main {
 	    Host: string;
 	    Port: string;
 	    Username: string;
-	    PrivateKey: string;
+	    AuthMethod: string;
+	    Password: string;
+	    PrivateKeyPath: string;
+	    Passphrase: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new SshConfig(source);
@@ -31,7 +34,10 @@ export namespace main {
 	        this.Host = source["Host"];
 	        this.Port = source["Port"];
 	        this.Username = source["Username"];
-	        this.PrivateKey = source["PrivateKey"];
+	        this.AuthMethod = source["AuthMethod"];
+	        this.Password = source["Password"];
+	        this.PrivateKeyPath = source["PrivateKeyPath"];
+	        this.Passphrase = source["Passphrase"];
 	    }
 	}
 	export class ConnectionConfig {

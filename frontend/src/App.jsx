@@ -33,6 +33,34 @@ import {needsSpawnPoint} from './lib/npcHelpers';
 import {keysSharingSpawngroup, spawnCoords, spawnKey, spawnRowSelectable} from './lib/spawnHelpers';
 import {gridId, gridRowSelectable} from './lib/gridHelpers';
 
+// A fresh, independent SSH sub-config object per call — used for both sourceSsh/sinkSsh's initial
+// state and for hydrating from a loaded Config that predates this field (see the LoadConfig
+// useEffect below), so an old config.json with no Source.SshConfig still gets sane defaults
+// instead of undefined fields the ConnectModal inputs would choke on.
+function defaultSshConfig() {
+    return {
+        enabled: false,
+        host: '', port: '22', username: '',
+        authMethod: 'privateKey',
+        password: '', privateKeyPath: '', passphrase: ''
+    }
+}
+
+// Converts a loaded Go ConnectionConfig's UseSSH/SshConfig fields into the flat `ssh` object
+// shape ConnectModal reads — the inverse of connectionConfigFor() below. Spread onto
+// defaultSshConfig() at the call site (not here) so a config.json predating this feature, or one
+// with a partially-empty SshConfig, still ends up with every field defined.
+function hydrateSshConfig(connectionConfig) {
+    const ssh = connectionConfig?.SshConfig
+    if (!ssh) return {}
+    return {
+        enabled: !!connectionConfig.UseSSH,
+        host: ssh.Host ?? '', port: ssh.Port || '22', username: ssh.Username ?? '',
+        authMethod: ssh.AuthMethod || 'privateKey',
+        password: ssh.Password ?? '', privateKeyPath: ssh.PrivateKeyPath ?? '', passphrase: ssh.Passphrase ?? ''
+    }
+}
+
 function App() {
     const [zones, setZones] = useState([])
     const [sourceHost, setSourceHost] = useState('')
@@ -45,6 +73,11 @@ function App() {
     const [sinkUsername, setSinkUsername] = useState('')
     const [sinkPassword, setSinkPassword] = useState('')
     const [dbSinkName, setDbSinkName] = useState('')
+    // One object per side (not 7 more value+setter pairs) — see ConnectModal's header comment.
+    // authMethod defaults to 'privateKey' since that's the more common bastion-host setup; port
+    // defaults to '22' the way desktop DB clients pre-fill it rather than leaving it blank.
+    const [sourceSsh, setSourceSsh] = useState(() => defaultSshConfig())
+    const [sinkSsh, setSinkSsh] = useState(() => defaultSshConfig())
     const [activeModal, setActiveModal] = useState(null)
     const [connectError, setConnectError] = useState(null)
     const [connecting, setConnecting] = useState(false)
@@ -359,40 +392,52 @@ function App() {
             .finally(() => setSpawnGroupDiffLoading(false))
     }
 
-    // Persists the current layout prefs (or an override taken mid-drag, before its setState has
-    // committed) alongside the connection config that's already threaded through App.jsx state —
-    // SaveConfig always writes the whole Config, so this reads the same Source/Sink state the
-    // connect() flow already saves rather than introducing a second source of truth for it.
-    function persistUIPrefs(overrides = {}) {
-        SaveConfig({
-            Source: {
-                Host: sourceHost, Port: sourcePort, Username: sourceUsername,
-                Password: sourcePassword, DbName: dbSourceName
-            },
-            Sink: {
-                Host: sinkHost, Port: sinkPort, Username: sinkUsername,
-                Password: sinkPassword, DbName: dbSinkName
-            },
+    // Builds one side's full ConnectionConfig (DB fields + SSH tunnel sub-config) from App.jsx
+    // state — shared by connect() and persistUIPrefs() so there's exactly one place that knows
+    // how a `ssh` object (see defaultSshConfig) maps onto the Go SshConfig shape.
+    function connectionConfigFor(host, port, username, password, dbName, ssh) {
+        return {
+            Host: host, Port: port, Username: username, Password: password, DbName: dbName,
+            UseSSH: ssh.enabled,
+            SshConfig: {
+                Host: ssh.host, Port: ssh.port, Username: ssh.username,
+                AuthMethod: ssh.authMethod, Password: ssh.password,
+                PrivateKeyPath: ssh.privateKeyPath, Passphrase: ssh.passphrase
+            }
+        }
+    }
+
+    function currentFullConfig(overrides = {}) {
+        return {
+            Source: connectionConfigFor(sourceHost, sourcePort, sourceUsername, sourcePassword, dbSourceName, sourceSsh),
+            Sink: connectionConfigFor(sinkHost, sinkPort, sinkUsername, sinkPassword, dbSinkName, sinkSsh),
             UI: {
                 SidebarWidth: sidebarWidth,
                 SidebarCollapsed: sidebarCollapsed,
                 DetailWidth: detailWidth,
                 ...overrides
             }
-        }).catch(err => console.error("save UI prefs failed:", err))
+        }
+    }
+
+    // Persists the current layout prefs (or an override taken mid-drag, before its setState has
+    // committed) alongside the connection config that's already threaded through App.jsx state —
+    // SaveConfig always writes the whole Config, so this reads the same state connect() saves
+    // rather than introducing a second source of truth for it. Both this and connect() route
+    // through currentFullConfig() so neither call can accidentally overwrite the other's half of
+    // the file with zero values (a real, if minor, bug this replaced — connect()'s own SaveConfig
+    // used to omit UI entirely, silently resetting sidebar/detail width on every reconnect).
+    function persistUIPrefs(overrides = {}) {
+        SaveConfig(currentFullConfig(overrides)).catch(err => console.error("save UI prefs failed:", err))
     }
 
     function connect() {
         setConnectError(null)
         setConnecting(true)
-        const config = {
-            Host: activeModal === 'source' ? sourceHost : sinkHost,
-            Port: activeModal === 'source' ? sourcePort : sinkPort,
-            Username: activeModal === 'source' ? sourceUsername : sinkUsername,
-            Password: activeModal === 'source' ? sourcePassword : sinkPassword,
-            DbName: activeModal === 'source' ? dbSourceName : dbSinkName
-        }
         const isSource = activeModal === 'source'
+        const config = isSource
+            ? connectionConfigFor(sourceHost, sourcePort, sourceUsername, sourcePassword, dbSourceName, sourceSsh)
+            : connectionConfigFor(sinkHost, sinkPort, sinkUsername, sinkPassword, dbSinkName, sinkSsh)
         Connect(config, isSource)
             .then(() => isSource ? GetZones() : Promise.resolve())
             .then(zones => {
@@ -403,22 +448,7 @@ function App() {
                     setSinkConnected(true)
                 }
                 setActiveModal(null)
-                SaveConfig({
-                    Source: {
-                        Host: sourceHost,
-                        Port: sourcePort,
-                        Username: sourceUsername,
-                        Password: sourcePassword,
-                        DbName: dbSourceName
-                    },
-                    Sink: {
-                        Host: sinkHost,
-                        Port: sinkPort,
-                        Username: sinkUsername,
-                        Password: sinkPassword,
-                        DbName: dbSinkName
-                    }
-                }).catch(err => console.error("save config failed:", err))
+                SaveConfig(currentFullConfig()).catch(err => console.error("save config failed:", err))
             })
             .catch(err => setConnectError(String(err)))
             .finally(() => setConnecting(false))
@@ -437,6 +467,8 @@ function App() {
                 setSinkUsername(config.Sink.Username)
                 setSinkPassword(config.Sink.Password)
                 setDbSinkName(config.Sink.DbName)
+                setSourceSsh({...defaultSshConfig(), ...hydrateSshConfig(config.Source)})
+                setSinkSsh({...defaultSshConfig(), ...hydrateSshConfig(config.Sink)})
 
                 // A config.json written before this field existed has no UI key at all; a zero
                 // value here (SidebarWidth: 0, etc.) means "never explicitly set" either way, so
@@ -530,6 +562,8 @@ function App() {
                 sinkUsername={sinkUsername} setSinkUsername={setSinkUsername}
                 sinkPassword={sinkPassword} setSinkPassword={setSinkPassword}
                 dbSinkName={dbSinkName} setDbSinkName={setDbSinkName}
+                ssh={activeModal === 'source' ? sourceSsh : sinkSsh}
+                setSsh={activeModal === 'source' ? setSourceSsh : setSinkSsh}
             />
             <ConfirmSyncModal
                 showSyncConfirm={showSyncConfirm} setShowSyncConfirm={setShowSyncConfirm}

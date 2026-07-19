@@ -38,6 +38,10 @@ export function LoadTODOItems() {
   return window['go']['main']['App']['LoadTODOItems']();
 }
 
+export function PickPrivateKeyFile() {
+  return window['go']['main']['App']['PickPrivateKeyFile']();
+}
+
 export function SaveConfig(arg1) {
   return window['go']['main']['App']['SaveConfig'](arg1);
 }

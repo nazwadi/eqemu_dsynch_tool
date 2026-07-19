@@ -32,9 +32,9 @@ If you run an EQEmu server, you've lived this: you build and test content — NP
 - **Grids tab** — a fourth tab diffing `grid`/`grid_entries` (patrol pathing), zone-scoped. Simpler than the Spawn Points tab: `grid.id` is scoped to one zone and isn't auto-generated, so it's trusted as identity directly — no coordinate matching needed — and a grid isn't shared across unrelated things the way a spawngroup is, so both its fields and its full waypoint list sync together in one action
 - **Spawngroups tab** — a fifth tab, a zone-scoped, spawngroup-first view (source vs sink side by side) answering the workflow gap the other tabs work around: knowing which spawngroups belong to the zone you're revamping, and what their own settings (`spawn_limit`, wander box, timing) look like — not just their entries. Matched indirectly, since a spawngroup has no zone column and its ID isn't portable across databases; if a source spawngroup's locations resolve to more than one sink spawngroup, it's flagged for manual review instead of guessed. Syncing a spawngroup always brings both its fields and its entries in line together — never one without the other
 - **Resizable, collapsible sidebar and detail panel** — drag either edge to resize, or collapse the sidebar to a thin rail when you're not actively switching zones; both preferences (plus width) persist across restarts
+- **SSH tunnel support** — connect to a source/sink that's only reachable through a bastion host. Supports both private-key (with optional passphrase, browsable via a native file picker) and password auth, and verifies the SSH server's host key against your own `~/.ssh/known_hosts` rather than trusting it blindly — the same check `ssh`/`git` already do on your machine
 
 ### In progress
-- **SSH tunneling** — for connecting to databases that aren't exposed directly (config fields exist; not wired up yet)
 - **Per-item deselection in the sync preview** — the preview currently syncs exactly what you checked in the diff view; there's no way to uncheck an individual NPC once you're on the preview screen
 - **Safely syncing shared reference tables** (loot, faction, spells, merchant inventory, alternate currency) instead of only flagging them for manual follow-up — deferred because these tables are shared across many NPCs, so a naive overwrite risks corrupting loot/faction/spells for every other NPC referencing the same row
 
@@ -94,7 +94,7 @@ Source/sink connection settings are saved automatically after your first success
 - [x] Sync Spawn Group Entries: dedicated action to bring a spawngroup's NPC roster in line with source, blocked outright if the spawngroup is shared outside the current zone
 - [x] Grids tab: zone-scoped diffing and syncing for `grid`/`grid_entries` (patrol pathing)
 - [x] Spawngroups tab: zone-scoped, spawngroup-first diffing (source vs sink side by side), matched by looking up the sink spawngroup(s) at a source spawngroup's member spawn2 coordinates, with ambiguous matches flagged rather than guessed. Diffs a spawngroup's own fields (`spawn_limit`, wander settings, etc.) for the first time, and syncs them together with entries as one action
-- [ ] SSH tunnel support for remote database connections
+- [x] SSH tunnel support for remote database connections, with private-key or password auth and `~/.ssh/known_hosts` verification
 - [ ] Per-item deselection within the sync preview
 - [ ] Safely sync shared reference tables (loot, faction, spells, merchant inventory, alternate currency) instead of only flagging them as manual TODO items
 
