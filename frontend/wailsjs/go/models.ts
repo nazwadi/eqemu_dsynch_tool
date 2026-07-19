@@ -93,6 +93,104 @@ export namespace main {
 		}
 	}
 	
+	export class GridEntry {
+	    Number: number;
+	    X: number;
+	    Y: number;
+	    Z: number;
+	    Heading: number;
+	    Pause: number;
+	    Centerpoint: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new GridEntry(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.Number = source["Number"];
+	        this.X = source["X"];
+	        this.Y = source["Y"];
+	        this.Z = source["Z"];
+	        this.Heading = source["Heading"];
+	        this.Pause = source["Pause"];
+	        this.Centerpoint = source["Centerpoint"];
+	    }
+	}
+	export class GridPoint {
+	    Id: number;
+	    Fields: Record<string, any>;
+	    Entries: GridEntry[];
+	
+	    static createFrom(source: any = {}) {
+	        return new GridPoint(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.Id = source["Id"];
+	        this.Fields = source["Fields"];
+	        this.Entries = this.convertValues(source["Entries"], GridEntry);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class GridDiffRow {
+	    Status: string;
+	    Source?: GridPoint;
+	    Sink?: GridPoint;
+	    FieldsDiffer: boolean;
+	    EntriesDiffer: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new GridDiffRow(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.Status = source["Status"];
+	        this.Source = this.convertValues(source["Source"], GridPoint);
+	        this.Sink = this.convertValues(source["Sink"], GridPoint);
+	        this.FieldsDiffer = source["FieldsDiffer"];
+	        this.EntriesDiffer = source["EntriesDiffer"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
+	
 	export class NPC {
 	    Id: number;
 	    HasSpawnPoint: boolean;
@@ -390,6 +488,42 @@ export namespace main {
 		}
 	}
 	
+	export class SyncGridsOptions {
+	    ZoneIdNumber: number;
+	    DryRun: boolean;
+	    GridIds: number[];
+	    NewGridIds: number[];
+	
+	    static createFrom(source: any = {}) {
+	        return new SyncGridsOptions(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.ZoneIdNumber = source["ZoneIdNumber"];
+	        this.DryRun = source["DryRun"];
+	        this.GridIds = source["GridIds"];
+	        this.NewGridIds = source["NewGridIds"];
+	    }
+	}
+	export class SyncGridsResult {
+	    DryRun: boolean;
+	    Created: number;
+	    Updated: number;
+	    Errors: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new SyncGridsResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.DryRun = source["DryRun"];
+	        this.Created = source["Created"];
+	        this.Updated = source["Updated"];
+	        this.Errors = source["Errors"];
+	    }
+	}
 	export class SyncOptions {
 	    ZoneShortName: string;
 	    ZoneVersion: number;

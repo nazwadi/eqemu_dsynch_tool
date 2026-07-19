@@ -1,6 +1,7 @@
 import {useEffect, useState} from 'react';
 import './App.css';
 import {
+    CompareGrids,
     CompareSpawns,
     CompareZones,
     Connect,
@@ -10,6 +11,7 @@ import {
     SaveConfig,
     SetTODOItemDismissed,
     Sync,
+    SyncGrids,
     SyncSpawnGroupEntries,
     SyncSpawnPoints
 } from "../wailsjs/go/main/App";
@@ -18,13 +20,16 @@ import ConfirmSyncModal from './components/ConfirmSyncModal';
 import ConfirmSpawnSyncModal from './components/ConfirmSpawnSyncModal';
 import SpawnHelpDrawer from './components/SpawnHelpDrawer';
 import ConfirmSpawnGroupEntriesModal from './components/ConfirmSpawnGroupEntriesModal';
+import ConfirmGridSyncModal from './components/ConfirmGridSyncModal';
 import Sidebar from './components/Sidebar';
 import NpcsTab from './components/NpcsTab';
 import SpawnsTab from './components/SpawnsTab';
 import TodoTab from './components/TodoTab';
+import GridsTab from './components/GridsTab';
 import DetailPanel from './components/DetailPanel';
 import {needsSpawnPoint} from './lib/npcHelpers';
 import {keysSharingSpawngroup, spawnCoords, spawnKey, spawnRowSelectable} from './lib/spawnHelpers';
+import {gridId, gridRowSelectable} from './lib/gridHelpers';
 
 function App() {
     const [zones, setZones] = useState([])
@@ -64,7 +69,7 @@ function App() {
     const [syncOutcome, setSyncOutcome] = useState(null)
     const [showSyncConfirm, setShowSyncConfirm] = useState(false)
     const [syncSpawns, setSyncSpawns] = useState(false)
-    const [activeView, setActiveView] = useState('npcs') // 'npcs' | 'todo' | 'spawns'
+    const [activeView, setActiveView] = useState('npcs') // 'npcs' | 'todo' | 'spawns' | 'grids'
     const [todoItems, setTodoItems] = useState([])
     const [showDismissedTodos, setShowDismissedTodos] = useState(false)
 
@@ -87,6 +92,18 @@ function App() {
     const [spawnGroupEntriesPreview, setSpawnGroupEntriesPreview] = useState(null)  // dry-run SpawnGroupEntriesSyncResult, null while loading
     const [spawnGroupEntriesError, setSpawnGroupEntriesError] = useState(null)  // unexpected Go-level error, separate from the "blocked"/"not found" outcomes the result itself carries
     const [syncingSpawnGroupEntries, setSyncingSpawnGroupEntries] = useState(false)
+
+    // Grids tab
+    const [gridDiffRows, setGridDiffRows] = useState([])
+    const [gridDiffLoading, setGridDiffLoading] = useState(false)
+    const [gridDiffFilter, setGridDiffFilter] = useState('all')
+    const [selectedGridIds, setSelectedGridIds] = useState(new Set())
+    const [selectedGridRow, setSelectedGridRow] = useState(null)
+    const [showGridSyncPreview, setShowGridSyncPreview] = useState(false)
+    const [gridSyncPreview, setGridSyncPreview] = useState(null)
+    const [gridSyncing, setGridSyncing] = useState(false)
+    const [gridSyncOutcome, setGridSyncOutcome] = useState(null)
+    const [showGridSyncConfirm, setShowGridSyncConfirm] = useState(false)
 
     function refreshTodoItems() {
         LoadTODOItems().then(items => setTodoItems(items ?? [])).catch(err => console.error("load todo items failed:", err))
@@ -213,6 +230,39 @@ function App() {
             .finally(() => setSyncingSpawnGroupEntries(false))
     }
 
+    function runGridSync(dryRun) {
+        const selectedRows = gridDiffRows.filter(row => selectedGridIds.has(gridId(row)))
+        return SyncGrids({
+            ZoneIdNumber: selectedZoneIdNumber,
+            DryRun: dryRun,
+            GridIds: selectedRows.filter(row => row.Status === 'modified').map(row => row.Sink.Id),
+            NewGridIds: selectedRows.filter(row => row.Status === 'new').map(row => row.Source.Id)
+        })
+    }
+
+    function executeGridSync() {
+        setGridSyncing(true)
+        runGridSync(false)
+            .then(result => {
+                setGridSyncOutcome(result)
+                setSelectedGridIds(new Set())
+                setSelectedGridRow(null)
+                loadGridDiffs()
+            })
+            .catch(err => setGridSyncOutcome({Errors: [String(err)]}))
+            .finally(() => setGridSyncing(false))
+    }
+
+    function loadGridDiffs() {
+        if (!selectedZoneIdNumber) return
+        setGridDiffLoading(true)
+        setGridDiffRows([])
+        CompareGrids(selectedZoneIdNumber)
+            .then(setGridDiffRows)
+            .catch(err => console.error("compare grids failed:", err))
+            .finally(() => setGridDiffLoading(false))
+    }
+
     // Resets both the NPC and spawn selection/preview state and kicks off both diffs — kept as
     // one function here (not in Sidebar) since it's genuine cross-cutting business logic touching
     // state from both tabs, not something a presentational sidebar component should own.
@@ -241,6 +291,16 @@ function App() {
             .then(setSpawnDiffRows)
             .catch(err => console.error("compare spawns failed:", err))
             .finally(() => setSpawnDiffLoading(false))
+        setSelectedGridIds(new Set())
+        setSelectedGridRow(null)
+        setGridSyncPreview(null)
+        setGridSyncOutcome(null)
+        setGridDiffRows([])
+        setGridDiffLoading(true)
+        CompareGrids(zone.ZoneIdNumber)
+            .then(setGridDiffRows)
+            .catch(err => console.error("compare grids failed:", err))
+            .finally(() => setGridDiffLoading(false))
     }
 
     function connect() {
@@ -333,6 +393,10 @@ function App() {
     const spawnModifiedCount = spawnDiffRows?.filter(r => r.Status === 'modified').length
     const spawnRemovedCount = spawnDiffRows?.filter(r => r.Status === 'removed').length
     const selectableSpawnRows = spawnDiffRows?.filter(spawnRowSelectable)
+    const gridNewCount = gridDiffRows.filter(r => r.Status === 'new').length
+    const gridModifiedCount = gridDiffRows.filter(r => r.Status === 'modified').length
+    const gridRemovedCount = gridDiffRows.filter(r => r.Status === 'removed').length
+    const selectableGridRows = gridDiffRows.filter(gridRowSelectable)
     // Variables for npc_types detail view
     const [expandedSections, setExpandedSections] = useState({
         identity: true,
@@ -380,6 +444,10 @@ function App() {
                 executeSyncSpawnGroupEntries={executeSyncSpawnGroupEntries}
                 dbSinkName={dbSinkName}
             />
+            <ConfirmGridSyncModal
+                showGridSyncConfirm={showGridSyncConfirm} setShowGridSyncConfirm={setShowGridSyncConfirm}
+                dbSinkName={dbSinkName} gridSyncPreview={gridSyncPreview} executeGridSync={executeGridSync}
+            />
             <div className="flex flex-1 min-h-0">
                 <Sidebar
                     sourceConnected={sourceConnected} sourceHost={sourceHost}
@@ -408,6 +476,11 @@ function App() {
                             <span className="px-2 py-0.5 rounded bg-green-950 text-green-400">+{spawnNewCount}</span>
                             <span className="px-2 py-0.5 rounded bg-yellow-950 text-yellow-400">~{spawnModifiedCount}</span>
                             <span className="px-2 py-0.5 rounded bg-red-950 text-red-400">-{spawnRemovedCount}</span>
+                        </>}
+                        {activeView === 'grids' && gridDiffRows.length > 0 && <>
+                            <span className="px-2 py-0.5 rounded bg-green-950 text-green-400">+{gridNewCount}</span>
+                            <span className="px-2 py-0.5 rounded bg-yellow-950 text-yellow-400">~{gridModifiedCount}</span>
+                            <span className="px-2 py-0.5 rounded bg-red-950 text-red-400">-{gridRemovedCount}</span>
                         </>}
                         {activeView === 'npcs' && (
                             <>
@@ -456,6 +529,24 @@ function App() {
                                 {selectedSpawnKeys.size > 0 ? `Sync ${selectedSpawnKeys.size} Spawn Points` : 'Sync Spawn Points'}
                             </button>
                         )}
+                        {activeView === 'grids' && (
+                            <button
+                                disabled={selectedGridIds.size === 0 || showGridSyncPreview}
+                                className={`px-3 py-1 rounded text-xs font-medium ${
+                                    selectedGridIds.size > 0 && !showGridSyncPreview
+                                        ? 'bg-yellow-400 text-gray-900 cursor-pointer hover:bg-yellow-300'
+                                        : 'bg-gray-700 text-gray-500 cursor-not-allowed'
+                                }`}
+                                onClick={() => {
+                                    setShowGridSyncPreview(true)
+                                    setGridSyncPreview(null)
+                                    setGridSyncOutcome(null)
+                                    runGridSync(true).then(setGridSyncPreview).catch(err => setGridSyncPreview({Errors: [String(err)]}))
+                                }}
+                            >
+                                {selectedGridIds.size > 0 ? `Sync ${selectedGridIds.size} Grids` : 'Sync Grids'}
+                            </button>
+                        )}
                         <div className="ml-auto flex items-center gap-2">
                             <button
                                 onClick={() => setActiveView('npcs')}
@@ -466,6 +557,11 @@ function App() {
                                 onClick={() => setActiveView('spawns')}
                                 className={`px-2 py-1 rounded text-xs border ${activeView === 'spawns' ? 'border-yellow-400 text-yellow-400' : 'border-gray-600 text-gray-400 hover:border-gray-400'}`}>
                                 Spawn Points{selectableSpawnRows?.length > 0 && ` (${selectableSpawnRows?.length})`}
+                            </button>
+                            <button
+                                onClick={() => setActiveView('grids')}
+                                className={`px-2 py-1 rounded text-xs border ${activeView === 'grids' ? 'border-yellow-400 text-yellow-400' : 'border-gray-600 text-gray-400 hover:border-gray-400'}`}>
+                                Grids{selectableGridRows.length > 0 && ` (${selectableGridRows.length})`}
                             </button>
                             <button
                                 onClick={() => setActiveView('todo')}
@@ -521,6 +617,20 @@ function App() {
                             setShowSpawnSyncConfirm={setShowSpawnSyncConfirm}
                         />
                     )}
+
+                    {/* Grids view */}
+                    {activeView === 'grids' && (
+                        <GridsTab
+                            gridDiffRows={gridDiffRows} gridDiffLoading={gridDiffLoading}
+                            gridDiffFilter={gridDiffFilter} setGridDiffFilter={setGridDiffFilter}
+                            selectedGridIds={selectedGridIds} setSelectedGridIds={setSelectedGridIds}
+                            selectedGridRow={selectedGridRow} setSelectedGridRow={setSelectedGridRow}
+                            selectedZoneShortName={selectedZoneShortName}
+                            showGridSyncPreview={showGridSyncPreview} setShowGridSyncPreview={setShowGridSyncPreview}
+                            gridSyncPreview={gridSyncPreview} gridSyncing={gridSyncing} gridSyncOutcome={gridSyncOutcome}
+                            setShowGridSyncConfirm={setShowGridSyncConfirm}
+                        />
+                    )}
                 </div>
                 {/* Drag handle */}
                 <div
@@ -548,6 +658,7 @@ function App() {
                     selectedSpawnRow={selectedSpawnRow}
                     selectAllSharingSpawngroup={selectAllSharingSpawngroup}
                     openSyncSpawnGroupEntriesPreview={openSyncSpawnGroupEntriesPreview}
+                    selectedGridRow={selectedGridRow}
                     expandedSections={expandedSections} setExpandedSections={setExpandedSections}
                 />
             </div>

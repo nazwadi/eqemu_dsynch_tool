@@ -29,14 +29,14 @@ If you run an EQEmu server, you've lived this: you build and test content — NP
 - **Spawn point creation for new NPCs** — opt-in ("Create spawn points" checkbox) creation of a `spawngroup`/`spawnentry`/`spawn2` chain for a new NPC that needs one, instead of leaving it permanently blocked. Scoped to just that NPC, not a zone-wide replace — and it won't touch anything if the source's spawn location already matches an existing sink spawn point, flagging that for manual review instead of guessing. Patrol pathing (`grid`) isn't synced yet, so spawned NPCs stand still rather than patrolling
 - **Spawn Points tab** — a third tab (next to NPCs/TODO) that diffs `spawn2` directly, zone-scoped, matched by coordinate since a `spawn2` row's own ID has no meaning across two diverged databases. Field-level changes (respawn time, variance, heading, enabled, etc.) sync with a plain update; a spawngroup's spawn entries are never bundled into that batch sync — shared spawngroups (one used at dozens of physical locations) are flagged with a "shared ×N" badge instead of being silently cloned, and if an entry's NPC no longer resolves on one side, its name is recovered from the other database instead of showing a bare "unknown"
 - **Sync Spawn Group Entries** — a dedicated, per-spawngroup action (separate from the batch spawn2 sync) for actually bringing a spawngroup's NPC roster in line with source, since a spawngroup has no zone column of its own and could theoretically be shared outside the zone you're working on. Before writing anything, it checks whether the sink's spawngroup is referenced by any `spawn2` row outside the current zone/version — if so, it refuses outright rather than risk silently changing spawns somewhere unreviewed. A companion "select all locations sharing this spawngroup" action makes it fast to gather every affected spawn2 row first
+- **Grids tab** — a fourth tab diffing `grid`/`grid_entries` (patrol pathing), zone-scoped. Simpler than the Spawn Points tab: `grid.id` is scoped to one zone and isn't auto-generated, so it's trusted as identity directly — no coordinate matching needed — and a grid isn't shared across unrelated things the way a spawngroup is, so both its fields and its full waypoint list sync together in one action
 
 ### In progress
 - **SSH tunneling** — for connecting to databases that aren't exposed directly (config fields exist; not wired up yet)
 - **Per-item deselection in the sync preview** — the preview currently syncs exactly what you checked in the diff view; there's no way to uncheck an individual NPC once you're on the preview screen
 - **Safely syncing shared reference tables** (loot, faction, spells, merchant inventory, alternate currency) instead of only flagging them for manual follow-up — deferred because these tables are shared across many NPCs, so a naive overwrite risks corrupting loot/faction/spells for every other NPC referencing the same row
-- **Grids tab** — zone-scoped diffing for `grid`/`grid_entries`, mirroring the Spawn Points tab, so patrol pathing can be reviewed and synced directly
 
-> This is an early-stage, actively-developed personal project. Diffing, `npc_types` sync, per-NPC spawn point creation, and the Spawn Points tab work today; patrol pathing (`grid`) sync does not yet. See [Roadmap](#roadmap).
+> This is an early-stage, actively-developed personal project. Diffing, `npc_types` sync, per-NPC spawn point creation, the Spawn Points tab, and the Grids tab all work today. See [Roadmap](#roadmap).
 
 ## Tech stack
 
@@ -90,7 +90,8 @@ Source/sink connection settings are saved automatically after your first success
 - [x] In-app TODO checklist tab, zone-scoped, dismissible (archive, not delete)
 - [x] Spawn Points tab: zone-scoped diffing for `spawn2`, with spawngroup/spawnentry composition always flagged for review
 - [x] Sync Spawn Group Entries: dedicated action to bring a spawngroup's NPC roster in line with source, blocked outright if the spawngroup is shared outside the current zone
-- [ ] Grids tab: zone-scoped diffing for `grid`/`grid_entries` (patrol pathing)
+- [x] Grids tab: zone-scoped diffing and syncing for `grid`/`grid_entries` (patrol pathing)
+- [ ] Spawngroups zone-view: a zone-scoped, spawngroup-first list (source vs sink side by side), matched by looking up the sink spawngroup at one of the source spawngroup's member spawn2 coordinates. Would also diff a spawngroup's own fields (`spawn_limit`, wander settings, etc.) for the first time — currently only spawn2 fields and entry composition are compared, never the spawngroup row itself. Design proposed, not yet built
 - [ ] SSH tunnel support for remote database connections
 - [ ] Per-item deselection within the sync preview
 - [ ] Safely sync shared reference tables (loot, faction, spells, merchant inventory, alternate currency) instead of only flagging them as manual TODO items
