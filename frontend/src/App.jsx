@@ -51,10 +51,15 @@ function App() {
         if (showSyncConfirm) syncConfirmModalRef.current?.focus()
     }, [showSyncConfirm])
 
+    function needsSpawnPoint(row) {
+        return row.Status === 'new' && row.Source?.HasSpawnPoint
+    }
+
     function runSync(dryRun) {
         return Sync({
             ZoneShortName: selectedZoneShortName,
             ZoneVersion: selectedZoneVersion,
+            ZoneIdNumber: selectedZoneIdNumber,
             SyncNPCTypes: true,
             SyncSpawns: false,
             DryRun: dryRun,
@@ -70,7 +75,7 @@ function App() {
                 setSelectedNPCs(new Set())
                 setSelectedNpc(null)
                 setSelectedRowKey(null)
-                return CompareZones(selectedZoneShortName, selectedZoneVersion).then(setDiffRows)
+                return CompareZones(selectedZoneShortName, selectedZoneVersion, selectedZoneIdNumber).then(setDiffRows)
             })
             .catch(err => setSyncOutcome({Errors: [String(err)]}))
             .finally(() => setSyncing(false))
@@ -155,6 +160,7 @@ function App() {
     const newCount = diffRows.filter(r => r.Status === 'new').length
     const removedCount = diffRows.filter(r => r.Status === 'removed').length
     const modifiedCount = diffRows.filter(r => r.Status === 'modified').length
+    const selectableRows = diffRows.filter(row => (diffFilter === 'all' || row.Status !== 'match') && !needsSpawnPoint(row))
     // Variables for npc_types detail view
     const [expandedSections, setExpandedSections] = useState({
         identity: true,
@@ -350,7 +356,7 @@ function App() {
                                                 setSelectedRowKey(null)
                                                 setDiffRows([])
                                                 setDiffLoading(true)
-                                                CompareZones(zone.ShortName, zone.Version)
+                                                CompareZones(zone.ShortName, zone.Version, zone.ZoneIdNumber)
                                                     .then(setDiffRows)
                                                     .catch(err => console.error("compare zones failed:", err))
                                                     .finally(() => setDiffLoading(false))
@@ -445,11 +451,11 @@ function App() {
                             <div className="flex items-center border-b border-gray-700 bg-gray-800">
                                 <input type="checkbox"
                                        className="accent-yellow-400 cursor-pointer w-3 h-3 mx-2"
-                                       checked={diffRows.filter(row => diffFilter === 'all' || row.Status !== 'match').every(row => selectedNPCs.has(row.Source?.Id ?? row.Sink?.Id))}
+                                       title="NPCs that need a spawn point in the sink can't be synced yet — spawn placement isn't implemented"
+                                       checked={selectableRows.length > 0 && selectableRows.every(row => selectedNPCs.has(row.Source?.Id ?? row.Sink?.Id))}
                                        onChange={(e) => {
-                                           const visibleRows = diffRows.filter(row => diffFilter === 'all' || row.Status !== 'match')
                                            if (e.target.checked) {
-                                               setSelectedNPCs(new Set(visibleRows.map(row => row.Source?.Id ?? row.Sink?.Id)))
+                                               setSelectedNPCs(new Set(selectableRows.map(row => row.Source?.Id ?? row.Sink?.Id)))
                                            } else {
                                                setSelectedNPCs(new Set())
                                            }
@@ -481,7 +487,9 @@ function App() {
                                             if (sortBy === 'status') {
                                                 result = statusOrder[a.Status] - statusOrder[b.Status]
                                             } else if (sortBy === 'name') {
-                                                result = a.Source?.Fields?.name.localeCompare(b.Source?.Fields?.name)
+                                                const aName = a.Source?.Fields?.name ?? a.Sink?.Fields?.name ?? ''
+                                                const bName = b.Source?.Fields?.name ?? b.Sink?.Fields?.name ?? ''
+                                                result = aName.localeCompare(bName)
                                             } else if (sortBy === 'id') {
                                                 result = (a.Source?.Id ?? a.Sink?.Id) - (b.Source?.Id ?? b.Sink?.Id)
                                             }
@@ -490,6 +498,7 @@ function App() {
                                         .map((row) => {
                                             const rowKey = `${row.Source?.Id ?? ''}-${row.Sink?.Id ?? ''}`
                                             const npcId = row.Source?.Id ?? row.Sink?.Id
+                                            const questSpawned = (row.Source ?? row.Sink)?.HasSpawnPoint === false
                                             return (
                                                 <div key={rowKey}
                                                      className={`flex items-center border-b border-gray-800 cursor-pointer ${
@@ -505,8 +514,10 @@ function App() {
                                                      }}
                                                 >
                                                     <input type="checkbox"
-                                                           className="accent-yellow-400 cursor-pointer w-3 h-3 mx-2"
+                                                           className="accent-yellow-400 cursor-pointer w-3 h-3 mx-2 disabled:opacity-40 disabled:cursor-not-allowed"
                                                            checked={selectedNPCs.has(npcId)}
+                                                           disabled={needsSpawnPoint(row)}
+                                                           title={needsSpawnPoint(row) ? "This NPC needs a spawn point in the sink first — spawn placement isn't implemented yet" : undefined}
                                                            onChange={(e) => {
                                                                e.stopPropagation()
                                                                const newSet = new Set(selectedNPCs)
@@ -519,6 +530,10 @@ function App() {
                                                            }}
                                                            onClick={e => e.stopPropagation()}
                                                     />
+                                                    {questSpawned && (
+                                                        <span className="text-purple-400 text-xs px-1"
+                                                              title="Quest-spawned — no static spawn point">⚡</span>
+                                                    )}
                                                     <div
                                                         className="flex-1 text-xs px-2 py-1">{row.Source?.Fields?.name ? `${row.Source.Fields.name} (${row.Source?.Id})` : '-'}</div>
                                                     <div
@@ -659,6 +674,11 @@ function App() {
                             {!selectedNpc && (
                                 <div className="flex-1 flex items-center justify-center text-gray-600 text-sm">
                                     Select an NPC to view details
+                                </div>
+                            )}
+                            {selectedNpc && (selectedNpc.Source ?? selectedNpc.Sink)?.HasSpawnPoint === false && (
+                                <div className="text-purple-400 px-2 py-1 flex items-center gap-1">
+                                    <span>⚡</span> Quest-spawned — no static spawn point
                                 </div>
                             )}
                             {selectedNpc && Object.entries(fieldGroups).map(([section, fields]) => (

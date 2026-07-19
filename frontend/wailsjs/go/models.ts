@@ -95,6 +95,7 @@ export namespace main {
 	
 	export class NPC {
 	    Id: number;
+	    HasSpawnPoint: boolean;
 	    Fields: Record<string, any>;
 	
 	    static createFrom(source: any = {}) {
@@ -104,6 +105,7 @@ export namespace main {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.Id = source["Id"];
+	        this.HasSpawnPoint = source["HasSpawnPoint"];
 	        this.Fields = source["Fields"];
 	    }
 	}
@@ -145,6 +147,7 @@ export namespace main {
 	export class SyncOptions {
 	    ZoneShortName: string;
 	    ZoneVersion: number;
+	    ZoneIdNumber: number;
 	    SyncNPCTypes: boolean;
 	    SyncSpawns: boolean;
 	    DryRun: boolean;
@@ -158,6 +161,7 @@ export namespace main {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.ZoneShortName = source["ZoneShortName"];
 	        this.ZoneVersion = source["ZoneVersion"];
+	        this.ZoneIdNumber = source["ZoneIdNumber"];
 	        this.SyncNPCTypes = source["SyncNPCTypes"];
 	        this.SyncSpawns = source["SyncSpawns"];
 	        this.DryRun = source["DryRun"];

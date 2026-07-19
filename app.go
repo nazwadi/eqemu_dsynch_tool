@@ -52,8 +52,9 @@ type Zone struct {
 }
 
 type NPC struct {
-	Id     int64
-	Fields map[string]interface{}
+	Id            int64
+	HasSpawnPoint bool // false = discovered via zone-ID-range fallback only (quest-spawned, no static spawn2 row)
+	Fields        map[string]interface{}
 }
 
 type NPCDiffRow struct {
@@ -65,6 +66,7 @@ type NPCDiffRow struct {
 type SyncOptions struct {
 	ZoneShortName string
 	ZoneVersion   int8
+	ZoneIdNumber  int64
 	SyncNPCTypes  bool
 	SyncSpawns    bool
 	DryRun        bool
@@ -231,21 +233,41 @@ func (a *App) GetZones() ([]Zone, error) {
 	return zones, nil
 }
 
-func (a *App) GetNPCsForZone(shortName string, version int8, isSource bool) ([]NPC, error) {
+func (a *App) GetNPCsForZone(shortName string, version int8, zoneIdNumber int64, isSource bool) ([]NPC, error) {
 	db := a.sourceDB
 	if !isSource {
 		db = a.sinkDB
 	}
+	idLow := zoneIdNumber * 1000
+	idHigh := idLow + 1000
+	// Two independently-cheap branches, combined with UNION ALL rather than one query with a
+	// LEFT JOIN + correlated NOT EXISTS: that shape forces MySQL to scan and subquery against
+	// every row of npc_types (the whole database's NPCs, not just this zone). Branch 1 mirrors
+	// the original query (starts from spawn2 filtered to this zone — a handful of rows — and
+	// joins up). Branch 2 starts from an indexed primary-key range scan on npc_types.id (at
+	// most 1000 candidate rows) before the NOT EXISTS check ever runs. The branches can never
+	// overlap by construction (branch 2 explicitly excludes anything with a spawn point
+	// anywhere), so UNION ALL is safe without a dedup pass.
 	rows, err := db.QueryContext(a.ctx, `
-		SELECT nt.*
-		FROM npc_types nt
-		    JOIN spawnentry se ON se.npcID = nt.id
-		    JOIN spawngroup sg ON sg.id = se.spawngroupID
-		    JOIN spawn2 s2 ON s2.spawngroupID = sg.id
-		WHERE s2.zone = ? AND s2.version = ?
-		GROUP BY nt.id
-		ORDER BY nt.Name
-		`, shortName, version)
+		(SELECT nt.*, 1 AS has_spawn_point
+		 FROM npc_types nt
+		     JOIN spawnentry se ON se.npcID = nt.id
+		     JOIN spawngroup sg ON sg.id = se.spawngroupID
+		     JOIN spawn2 s ON s.spawngroupID = sg.id
+		 WHERE s.zone = ? AND s.version = ?
+		 GROUP BY nt.id)
+		UNION ALL
+		(SELECT nt.*, 0 AS has_spawn_point
+		 FROM npc_types nt
+		 WHERE nt.id >= ? AND nt.id < ?
+		   AND NOT EXISTS (
+		       SELECT 1 FROM spawnentry se2
+		           JOIN spawngroup sg2 ON sg2.id = se2.spawngroupID
+		           JOIN spawn2 s2 ON s2.spawngroupID = sg2.id
+		       WHERE se2.npcID = nt.id
+		   ))
+		ORDER BY Name
+		`, shortName, version, idLow, idHigh)
 	if err != nil {
 		return nil, err
 	}
@@ -276,22 +298,26 @@ func (a *App) GetNPCsForZone(shortName string, version int8, isSource bool) ([]N
 			}
 		}
 
+		hasSpawnPoint := toInt64(fields["has_spawn_point"]) != 0
+		delete(fields, "has_spawn_point")
+
 		npc := NPC{
-			Id:     toInt64(fields["id"]),
-			Fields: fields,
+			Id:            toInt64(fields["id"]),
+			HasSpawnPoint: hasSpawnPoint,
+			Fields:        fields,
 		}
 		npcs = append(npcs, npc)
 	}
 	return npcs, nil
 }
 
-func (a *App) CompareZones(shortName string, version int8) ([]NPCDiffRow, error) {
+func (a *App) CompareZones(shortName string, version int8, zoneIdNumber int64) ([]NPCDiffRow, error) {
 	// Call GetNPCsForZone for source and sink
-	sourceNpcs, err := a.GetNPCsForZone(shortName, version, true)
+	sourceNpcs, err := a.GetNPCsForZone(shortName, version, zoneIdNumber, true)
 	if err != nil {
 		return nil, err
 	}
-	sinkNpcs, err := a.GetNPCsForZone(shortName, version, false)
+	sinkNpcs, err := a.GetNPCsForZone(shortName, version, zoneIdNumber, false)
 	if err != nil {
 		return nil, err
 	}
@@ -389,6 +415,8 @@ func buildTODOItems(sourceNpc NPC, sinkNpc *NPC, zoneShortName string) []TODOIte
 		{"loottable_id", "loottable"},
 		{"npc_spells_id", "spells"},
 		{"npc_faction_id", "faction"},
+		{"merchantid", "merchant"},
+		{"alt_currency_id", "alt_currency"},
 	}
 	name := fmt.Sprintf("%v", sourceNpc.Fields["name"])
 	var items []TODOItem
@@ -480,11 +508,11 @@ func (a *App) Sync(options SyncOptions) (SyncResult, error) {
 		return result, nil
 	}
 
-	sourceNpcs, err := a.GetNPCsForZone(options.ZoneShortName, options.ZoneVersion, true)
+	sourceNpcs, err := a.GetNPCsForZone(options.ZoneShortName, options.ZoneVersion, options.ZoneIdNumber, true)
 	if err != nil {
 		return result, err
 	}
-	sinkNpcs, err := a.GetNPCsForZone(options.ZoneShortName, options.ZoneVersion, false)
+	sinkNpcs, err := a.GetNPCsForZone(options.ZoneShortName, options.ZoneVersion, options.ZoneIdNumber, false)
 	if err != nil {
 		return result, err
 	}
@@ -519,6 +547,13 @@ func (a *App) Sync(options SyncOptions) (SyncResult, error) {
 		var sinkNpc *NPC
 		if npc, ok := sinkById[id]; ok {
 			sinkNpc = &npc
+		}
+
+		if sinkNpc == nil && sourceNpc.HasSpawnPoint {
+			result.Errors = append(result.Errors, fmt.Sprintf(
+				"NPC %d (%v): skipped — new NPCs need a spawn point in the sink first, and spawn sync isn't implemented yet",
+				id, sourceNpc.Fields["name"]))
+			continue
 		}
 
 		result.TODOItems = append(result.TODOItems, buildTODOItems(sourceNpc, sinkNpc, options.ZoneShortName)...)
