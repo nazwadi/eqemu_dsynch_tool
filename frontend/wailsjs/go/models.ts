@@ -143,6 +143,24 @@ export namespace main {
 		    return a;
 		}
 	}
+	export class PoolEntry {
+	    NPCID: number;
+	    NPCName: string;
+	    Chance: number;
+	    Orphaned: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new PoolEntry(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.NPCID = source["NPCID"];
+	        this.NPCName = source["NPCName"];
+	        this.Chance = source["Chance"];
+	        this.Orphaned = source["Orphaned"];
+	    }
+	}
 	export class SkippedNPC {
 	    NPCID: number;
 	    Name: string;
@@ -158,6 +176,159 @@ export namespace main {
 	        this.Name = source["Name"];
 	        this.Reason = source["Reason"];
 	    }
+	}
+	export class SkippedSpawn {
+	    X: number;
+	    Y: number;
+	    Z: number;
+	    Reason: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new SkippedSpawn(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.X = source["X"];
+	        this.Y = source["Y"];
+	        this.Z = source["Z"];
+	        this.Reason = source["Reason"];
+	    }
+	}
+	export class SpawnPoint {
+	    Id: number;
+	    SpawnGroupId: number;
+	    SpawnGroupFields: Record<string, any>;
+	    LocationSharedCount: number;
+	    Fields: Record<string, any>;
+	    Pool: PoolEntry[];
+	
+	    static createFrom(source: any = {}) {
+	        return new SpawnPoint(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.Id = source["Id"];
+	        this.SpawnGroupId = source["SpawnGroupId"];
+	        this.SpawnGroupFields = source["SpawnGroupFields"];
+	        this.LocationSharedCount = source["LocationSharedCount"];
+	        this.Fields = source["Fields"];
+	        this.Pool = this.convertValues(source["Pool"], PoolEntry);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class SpawnDiffRow {
+	    Status: string;
+	    Source?: SpawnPoint;
+	    Sink?: SpawnPoint;
+	    PoolDiffers: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new SpawnDiffRow(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.Status = source["Status"];
+	        this.Source = this.convertValues(source["Source"], SpawnPoint);
+	        this.Sink = this.convertValues(source["Sink"], SpawnPoint);
+	        this.PoolDiffers = source["PoolDiffers"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
+	export class SpawnSyncOptions {
+	    ZoneShortName: string;
+	    ZoneVersion: number;
+	    DryRun: boolean;
+	    SpawnIds: number[];
+	    NewSpawnCoords: number[][];
+	
+	    static createFrom(source: any = {}) {
+	        return new SpawnSyncOptions(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.ZoneShortName = source["ZoneShortName"];
+	        this.ZoneVersion = source["ZoneVersion"];
+	        this.DryRun = source["DryRun"];
+	        this.SpawnIds = source["SpawnIds"];
+	        this.NewSpawnCoords = source["NewSpawnCoords"];
+	    }
+	}
+	export class SpawnSyncResult {
+	    DryRun: boolean;
+	    Created: number;
+	    Updated: number;
+	    Skipped: SkippedSpawn[];
+	    Errors: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new SpawnSyncResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.DryRun = source["DryRun"];
+	        this.Created = source["Created"];
+	        this.Updated = source["Updated"];
+	        this.Skipped = this.convertValues(source["Skipped"], SkippedSpawn);
+	        this.Errors = source["Errors"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 	
 	export class SyncOptions {
@@ -185,12 +356,15 @@ export namespace main {
 	    }
 	}
 	export class TODOItem {
+	    ID: number;
+	    Dismissed: boolean;
 	    Type: string;
 	    SourceID: number;
 	    SinkID: number;
 	    NPCID: number;
 	    NPCName: string;
 	    ZoneName: string;
+	    ZoneVersion: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new TODOItem(source);
@@ -198,12 +372,15 @@ export namespace main {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.ID = source["ID"];
+	        this.Dismissed = source["Dismissed"];
 	        this.Type = source["Type"];
 	        this.SourceID = source["SourceID"];
 	        this.SinkID = source["SinkID"];
 	        this.NPCID = source["NPCID"];
 	        this.NPCName = source["NPCName"];
 	        this.ZoneName = source["ZoneName"];
+	        this.ZoneVersion = source["ZoneVersion"];
 	    }
 	}
 	export class SyncResult {
