@@ -24,7 +24,9 @@ export function spawnGroupRowSelectable(row) {
 // a SpawnGroupDiffRow's own Source/SinkPool rather than a SpawnPoint's nested one.
 export function spawnGroupPoolSummary(pool) {
     if (!pool || pool.length === 0) return '(no spawn entries)'
-    if (pool.length === 1) return pool[0].NPCName || `NPC ${pool[0].NPCID}`
+    // NPCID always shown alongside the name, never hidden behind it — see spawnPoolSummary's
+    // matching comment in spawnHelpers.js.
+    if (pool.length === 1) return `${pool[0].NPCName || 'Unknown NPC'} (${pool[0].NPCID})`
     return `${pool.length} NPCs`
 }
 

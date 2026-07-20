@@ -10,6 +10,10 @@ export function CompareNPCFaction(arg1, arg2) {
   return window['go']['main']['App']['CompareNPCFaction'](arg1, arg2);
 }
 
+export function CompareNPCSpells(arg1, arg2) {
+  return window['go']['main']['App']['CompareNPCSpells'](arg1, arg2);
+}
+
 export function CompareSpawnGroups(arg1, arg2) {
   return window['go']['main']['App']['CompareSpawnGroups'](arg1, arg2);
 }

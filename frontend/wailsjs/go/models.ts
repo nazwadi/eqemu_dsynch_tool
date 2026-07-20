@@ -336,6 +336,69 @@ export namespace main {
 		}
 	}
 	
+	export class NPCSpellsEntryDiff {
+	    SpellID: number;
+	    SpellName: string;
+	    SourceExists: boolean;
+	    SourceFields: Record<string, any>;
+	    SinkExists: boolean;
+	    SinkFields: Record<string, any>;
+	    Differs: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new NPCSpellsEntryDiff(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.SpellID = source["SpellID"];
+	        this.SpellName = source["SpellName"];
+	        this.SourceExists = source["SourceExists"];
+	        this.SourceFields = source["SourceFields"];
+	        this.SinkExists = source["SinkExists"];
+	        this.SinkFields = source["SinkFields"];
+	        this.Differs = source["Differs"];
+	    }
+	}
+	export class NPCSpellsComparison {
+	    SourceId: number;
+	    SinkId: number;
+	    SourceFields: Record<string, any>;
+	    SinkFields: Record<string, any>;
+	    Entries: NPCSpellsEntryDiff[];
+	
+	    static createFrom(source: any = {}) {
+	        return new NPCSpellsComparison(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.SourceId = source["SourceId"];
+	        this.SinkId = source["SinkId"];
+	        this.SourceFields = source["SourceFields"];
+	        this.SinkFields = source["SinkFields"];
+	        this.Entries = this.convertValues(source["Entries"], NPCSpellsEntryDiff);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
 	export class PoolEntry {
 	    NPCID: number;
 	    NPCName: string;

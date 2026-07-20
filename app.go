@@ -172,6 +172,39 @@ type NPCFactionComparison struct {
 	Entries      []NPCFactionEntryDiff
 }
 
+// NPCSpellsEntryDiff is one spellid row from npc_spells_entries, merged across source and sink by
+// spellid — portable shared content from spells_new (spells_new.id has no AUTO_INCREMENT,
+// confirmed via SHOW CREATE TABLE, same trust category as faction_id/npc_types.id). Unlike
+// NPCFactionEntryDiff, entry fields are a dynamic map rather than hardcoded struct fields:
+// npc_spells_entries has 16 columns (several with real type drift between source and sink already
+// found — see EQEmu Schema Notes) and no single "the important column" the way faction's
+// value/npc_value/temp are, so this follows spawn2's Behavior-section approach instead —
+// drift-tolerant, not a rigid allowlist.
+type NPCSpellsEntryDiff struct {
+	SpellID      int64
+	SpellName    string
+	SourceExists bool
+	SourceFields map[string]interface{} // npc_spells_entries columns, minus id/npc_spells_id/spellid
+	SinkExists   bool
+	SinkFields   map[string]interface{}
+	Differs      bool
+}
+
+// NPCSpellsComparison is the read-only source-vs-sink view behind the References section's
+// "npc_spells_id" reference — see NPCFactionComparison for why each reference type gets its own
+// concrete type instead of a shared generic shape. SourceFields/SinkFields include parent_list —
+// deliberately shown as a plain field, not resolved or walked: an NPC's spell list can chain to a
+// parent (sometimes a generic per-class default, sometimes raid-specific), and auto-following that
+// risks pulling in spells that aren't really this encounter's own. Seeing the parent_list value is
+// enough to know there's more to look at, without this tool guessing how far to follow it.
+type NPCSpellsComparison struct {
+	SourceId     int64
+	SinkId       int64
+	SourceFields map[string]interface{} // npc_spells header row, minus id
+	SinkFields   map[string]interface{}
+	Entries      []NPCSpellsEntryDiff
+}
+
 // SkippedNPC is an NPC Sync() deliberately declined to touch — not a failure, the safety
 // mechanism doing its job. Structured (not a formatted string) so the frontend can render it
 // inline next to the NPC it applies to instead of a disconnected wall of text.
@@ -896,20 +929,20 @@ func (a *App) CompareSpawns(shortName string, version int8) ([]SpawnDiffRow, err
 	return diff, nil
 }
 
-// withoutField returns a shallow copy of m with one key removed — used to exclude "name" from
-// spawngroup field comparisons/updates without touching mapsEqual itself, since "name" is
-// meaningfully comparable content on other tables mapsEqual is used for (e.g. npc_types.name)
-// and only cosmetic/local on spawngroup specifically (see EQEmu Schema Notes).
-func withoutField(m map[string]interface{}, field string) map[string]interface{} {
-	if _, ok := m[field]; !ok {
-		return m
-	}
+// withoutFields returns a shallow copy of m with the given keys removed — used to exclude "name"
+// from spawngroup field comparisons/updates without touching mapsEqual itself (since "name" is
+// meaningfully comparable content on other tables mapsEqual is used for, e.g. npc_types.name, and
+// only cosmetic/local on spawngroup specifically — see EQEmu Schema Notes), and to strip
+// id/npc_spells_id/spellid from npc_spells_entries rows before diffing them (see
+// NPCSpellsEntryDiff). Variadic rather than one-field-at-a-time since that second case needs three
+// keys stripped, not one.
+func withoutFields(m map[string]interface{}, fields ...string) map[string]interface{} {
 	out := make(map[string]interface{}, len(m))
 	for k, v := range m {
-		if k == field {
-			continue
-		}
 		out[k] = v
+	}
+	for _, f := range fields {
+		delete(out, f)
 	}
 	return out
 }
@@ -1006,7 +1039,7 @@ func (a *App) CompareSpawnGroups(shortName string, version int8) ([]SpawnGroupDi
 			row.SinkFields = skg.rep.SpawnGroupFields
 			row.SinkPool = skg.rep.Pool
 			row.SinkLocationCount = skg.count
-			row.FieldsDiffer = !mapsEqual(withoutField(row.SourceFields, "name"), withoutField(row.SinkFields, "name"))
+			row.FieldsDiffer = !mapsEqual(withoutFields(row.SourceFields, "name"), withoutFields(row.SinkFields, "name"))
 			row.PoolDiffers = !poolsEqual(row.SourcePool, row.SinkPool)
 			if row.FieldsDiffer || row.PoolDiffers {
 				row.Status = "modified"
@@ -1262,6 +1295,157 @@ func resolveFactionNames(ctx context.Context, db *sql.DB, entries []map[string]i
 			return nil, err
 		}
 		names[id] = name
+	}
+	return names, rows.Err()
+}
+
+// CompareNPCSpells fetches the npc_spells header + npc_spells_entries a specific NPC links to on
+// each side, by that side's own raw npc_spells_id — same reasoning as CompareNPCFaction: the NPC
+// itself (already resolved via the portable npc_types.id this whole app is built on) is the
+// anchor, so there's no cross-database ID to match, just each side's own linked row fetched and
+// diffed by content. Entries are merged by spellid (portable, via spells_new — see
+// NPCSpellsEntryDiff for why entry fields stay a dynamic map instead of typed struct fields).
+func (a *App) CompareNPCSpells(sourceSpellsId, sinkSpellsId int64) (NPCSpellsComparison, error) {
+	result := NPCSpellsComparison{SourceId: sourceSpellsId, SinkId: sinkSpellsId}
+
+	if a.sourceDB == nil {
+		return result, fmt.Errorf("source database not connected")
+	}
+	if a.sinkDB == nil {
+		return result, fmt.Errorf("sink database not connected")
+	}
+
+	if sourceSpellsId != 0 {
+		fields, err := fetchNPCSpellsHeader(a.ctx, a.sourceDB, sourceSpellsId)
+		if err != nil {
+			return result, err
+		}
+		result.SourceFields = fields
+	}
+	if sinkSpellsId != 0 {
+		fields, err := fetchNPCSpellsHeader(a.ctx, a.sinkDB, sinkSpellsId)
+		if err != nil {
+			return result, err
+		}
+		result.SinkFields = fields
+	}
+
+	var sourceEntries, sinkEntries []map[string]interface{}
+	if sourceSpellsId != 0 {
+		entries, err := fetchNPCSpellsEntries(a.ctx, a.sourceDB, sourceSpellsId)
+		if err != nil {
+			return result, err
+		}
+		sourceEntries = entries
+	}
+	if sinkSpellsId != 0 {
+		entries, err := fetchNPCSpellsEntries(a.ctx, a.sinkDB, sinkSpellsId)
+		if err != nil {
+			return result, err
+		}
+		sinkEntries = entries
+	}
+
+	sourceNames, err := resolveSpellNames(a.ctx, a.sourceDB, sourceEntries)
+	if err != nil {
+		return result, err
+	}
+	sinkNames, err := resolveSpellNames(a.ctx, a.sinkDB, sinkEntries)
+	if err != nil {
+		return result, err
+	}
+
+	byId := make(map[int64]*NPCSpellsEntryDiff)
+	for _, e := range sourceEntries {
+		id := toInt64(e["spellid"])
+		byId[id] = &NPCSpellsEntryDiff{
+			SpellID:      id,
+			SpellName:    sourceNames[id],
+			SourceExists: true,
+			SourceFields: withoutFields(e, "id", "npc_spells_id", "spellid"),
+		}
+	}
+	for _, e := range sinkEntries {
+		id := toInt64(e["spellid"])
+		diff, ok := byId[id]
+		if !ok {
+			diff = &NPCSpellsEntryDiff{SpellID: id}
+			byId[id] = diff
+		}
+		if diff.SpellName == "" {
+			diff.SpellName = sinkNames[id]
+		}
+		diff.SinkExists = true
+		diff.SinkFields = withoutFields(e, "id", "npc_spells_id", "spellid")
+	}
+	for _, diff := range byId {
+		diff.Differs = diff.SourceExists != diff.SinkExists || !mapsEqual(diff.SourceFields, diff.SinkFields)
+		result.Entries = append(result.Entries, *diff)
+	}
+	sort.Slice(result.Entries, func(i, j int) bool {
+		return result.Entries[i].SpellID < result.Entries[j].SpellID
+	})
+
+	return result, nil
+}
+
+func fetchNPCSpellsHeader(ctx context.Context, db *sql.DB, id int64) (map[string]interface{}, error) {
+	rows, err := db.QueryContext(ctx, "SELECT * FROM npc_spells WHERE id = ?", id)
+	if err != nil {
+		return nil, err
+	}
+	result, err := scanDynamicRows(rows)
+	_ = rows.Close()
+	if err != nil {
+		return nil, err
+	}
+	if len(result) == 0 {
+		return nil, nil
+	}
+	delete(result[0], "id")
+	return result[0], nil
+}
+
+func fetchNPCSpellsEntries(ctx context.Context, db *sql.DB, npcSpellsId int64) ([]map[string]interface{}, error) {
+	rows, err := db.QueryContext(ctx, "SELECT * FROM npc_spells_entries WHERE npc_spells_id = ?", npcSpellsId)
+	if err != nil {
+		return nil, err
+	}
+	result, err := scanDynamicRows(rows)
+	_ = rows.Close()
+	return result, err
+}
+
+// resolveSpellNames looks up spells_new.name for every spellid referenced in entries, against the
+// same database the entries came from — same reasoning as resolveFactionNames. Scanned as
+// sql.NullString, unlike faction_list.name: spells_new.name is nullable, and a spell that happens
+// to have a NULL name shouldn't fail the whole lookup.
+func resolveSpellNames(ctx context.Context, db *sql.DB, entries []map[string]interface{}) (map[int64]string, error) {
+	names := make(map[int64]string)
+	if len(entries) == 0 {
+		return names, nil
+	}
+	idSet := make(map[int64]bool, len(entries))
+	for _, e := range entries {
+		idSet[toInt64(e["spellid"])] = true
+	}
+	ids := make([]int64, 0, len(idSet))
+	for id := range idSet {
+		ids = append(ids, id)
+	}
+	placeholders, args := inClausePlaceholders(ids)
+	rows, err := db.QueryContext(ctx, "SELECT id, name FROM spells_new WHERE id IN ("+placeholders+")", args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id int64
+		var name sql.NullString
+		if err := rows.Scan(&id, &name); err != nil {
+			return nil, err
+		}
+		names[id] = name.String
 	}
 	return names, rows.Err()
 }
@@ -2246,8 +2430,8 @@ func (a *App) SyncSpawnGroup(options SyncSpawnGroupOptions) (SpawnGroupSyncResul
 	result.EntriesBefore = len(sinkPoint.Pool)
 	result.EntriesAfter = len(sourcePoint.Pool)
 	result.FieldsChanged = !mapsEqual(
-		withoutField(sourcePoint.SpawnGroupFields, "name"),
-		withoutField(sinkPoint.SpawnGroupFields, "name"),
+		withoutFields(sourcePoint.SpawnGroupFields, "name"),
+		withoutFields(sinkPoint.SpawnGroupFields, "name"),
 	)
 
 	rows, err := a.sinkDB.QueryContext(a.ctx,

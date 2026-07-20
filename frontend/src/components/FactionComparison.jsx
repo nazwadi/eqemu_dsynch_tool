@@ -33,6 +33,16 @@ function FactionComparison({comparison}) {
             {(sourceFields || sinkFields) && (
                 <div className="flex flex-col gap-1">
                     <div className="text-xs text-gray-400 uppercase tracking-wider">Profile</div>
+                    {/* Devs working this tool are often cross-referencing raw SQL, so npc_faction_id
+                        is always shown — never hidden behind the name, even though it can't be
+                        diffed meaningfully (it's a local surrogate key, not portable — see
+                        CompareNPCFaction's comment on why source/sink IDs aren't expected to match). */}
+                    <div className="flex justify-between px-2 py-0.5 text-xs">
+                        <span className="w-32 shrink-0 text-gray-500">npc_faction_id</span>
+                        <span className="flex-1 text-gray-500">{comparison.SourceId || '—'}</span>
+                        <span className="px-1 text-gray-600">→</span>
+                        <span className="flex-1 text-right text-gray-500">{comparison.SinkId || '—'}</span>
+                    </div>
                     {/* name is a display label (same category as spawngroup.name), not diffed */}
                     <div className="flex justify-between px-2 py-0.5 text-xs">
                         <span className="w-32 shrink-0 text-gray-500">name</span>
@@ -71,7 +81,12 @@ function FactionComparison({comparison}) {
                         {entries.map(entry => (
                             <div key={entry.FactionID}
                                  className={`flex px-2 text-xs ${entry.Differs ? 'text-yellow-400' : 'text-gray-400'}`}>
-                                <span className="flex-1">{entry.FactionName || `Faction ${entry.FactionID}`}</span>
+                                {/* faction_id shown next to the name always, faded, never only as
+                                    a no-name fallback — this tool is for devs cross-referencing
+                                    raw SQL, the id is always useful even when a name resolves */}
+                                <span className="flex-1">
+                                    {entry.FactionName || 'Unknown Faction'} <span className="text-gray-600">({entry.FactionID})</span>
+                                </span>
                                 <span className="w-28 text-right">{fmtEntry(entry.SourceExists, entry.SourceValue, entry.SourceNPCValue, entry.SourceTemp)}</span>
                                 <span className="w-28 text-right">{fmtEntry(entry.SinkExists, entry.SinkValue, entry.SinkNPCValue, entry.SinkTemp)}</span>
                             </div>

@@ -54,7 +54,9 @@ export function spawnRowMatchesSearch(row, query) {
 // own identity (the row is a spawn2 location; see the diff list's explanatory caption).
 export function spawnPoolSummary(point) {
     if (!point || !point.Pool || point.Pool.length === 0) return '(no spawn entries)'
-    if (point.Pool.length === 1) return point.Pool[0].NPCName || `NPC ${point.Pool[0].NPCID}`
+    // NPCID always shown alongside the name, never hidden behind it — this tool is for devs
+    // cross-referencing raw SQL, where the id is what you actually search/join on.
+    if (point.Pool.length === 1) return `${point.Pool[0].NPCName || 'Unknown NPC'} (${point.Pool[0].NPCID})`
     return `${point.Pool.length} NPCs`
 }
 

@@ -16,7 +16,8 @@ export const fieldGroups = {
 // deliberately absent since it's unused (0 count) on every server checked so far, not just
 // "not built yet" — see CLAUDE.md's roadmap notes on the shared reference table comparison work.
 export const referenceComparisonTypes = {
-    npc_faction_id: 'faction'
+    npc_faction_id: 'faction',
+    npc_spells_id: 'spells'
 }
 
 // A "new" NPC that needs a real spawn point can't sync unless the "Create spawn points" checkbox

@@ -3,6 +3,7 @@ import './App.css';
 import {
     CompareGrids,
     CompareNPCFaction,
+    CompareNPCSpells,
     CompareSpawnGroups,
     CompareSpawns,
     CompareZones,
@@ -23,6 +24,7 @@ import ConfirmSpawnSyncModal from './components/ConfirmSpawnSyncModal';
 import SpawnHelpDrawer from './components/SpawnHelpDrawer';
 import ReferenceDrawer from './components/ReferenceDrawer';
 import FactionComparison from './components/FactionComparison';
+import SpellsComparison from './components/SpellsComparison';
 import ConfirmSpawnGroupSyncModal from './components/ConfirmSpawnGroupSyncModal';
 import ConfirmGridSyncModal from './components/ConfirmGridSyncModal';
 import Sidebar from './components/Sidebar';
@@ -62,6 +64,13 @@ function hydrateSshConfig(connectionConfig) {
         authMethod: ssh.AuthMethod || 'privateKey',
         password: ssh.Password ?? '', privateKeyPath: ssh.PrivateKeyPath ?? '', passphrase: ssh.Passphrase ?? ''
     }
+}
+
+// Title shown in the shared ReferenceDrawer — one more entry per reference type as they're built,
+// mirroring detailPanelTitles' shape in DetailPanel.jsx.
+const referenceDrawerTitles = {
+    faction: 'Faction Reference',
+    spells: 'Spells Reference'
 }
 
 function App() {
@@ -307,6 +316,9 @@ function App() {
         if (field === 'npc_faction_id') {
             setReferenceDrawerType('faction')
             CompareNPCFaction(sourceVal ?? 0, sinkVal ?? 0).then(setReferenceDrawerData)
+        } else if (field === 'npc_spells_id') {
+            setReferenceDrawerType('spells')
+            CompareNPCSpells(sourceVal ?? 0, sinkVal ?? 0).then(setReferenceDrawerData)
         }
     }
 
@@ -606,8 +618,9 @@ function App() {
             <ReferenceDrawer
                 open={showReferenceDrawer}
                 onClose={() => setShowReferenceDrawer(false)}
-                title={referenceDrawerType === 'faction' ? 'Faction Reference' : 'Reference'}>
+                title={referenceDrawerTitles[referenceDrawerType] ?? 'Reference'}>
                 {referenceDrawerType === 'faction' && <FactionComparison comparison={referenceDrawerData}/>}
+                {referenceDrawerType === 'spells' && <SpellsComparison comparison={referenceDrawerData}/>}
             </ReferenceDrawer>
             <ConfirmSpawnGroupSyncModal
                 showSpawnGroupSyncConfirm={showSpawnGroupSyncConfirm}
