@@ -35,8 +35,7 @@ If you run an EQEmu server, you've lived this: you build and test content — NP
 - **SSH tunnel support** — connect to a source/sink that's only reachable through a bastion host. Supports both private-key (with optional passphrase, browsable via a native file picker) and password auth, and verifies the SSH server's host key against your own `~/.ssh/known_hosts` rather than trusting it blindly — the same check `ssh`/`git` already do on your machine
 
 ### In progress
-- **Per-item deselection in the sync preview** — the preview currently syncs exactly what you checked in the diff view; there's no way to uncheck an individual NPC once you're on the preview screen
-- **Safely syncing shared reference tables** (loot, faction, spells, merchant inventory, alternate currency) instead of only flagging them for manual follow-up — deferred because these tables are shared across many NPCs, so a naive overwrite risks corrupting loot/faction/spells for every other NPC referencing the same row
+- **Shared reference table visibility** — clicking a loot table/faction/spells/merchant/alt-currency reference in the NPC detail panel's References section will open a read-only source-vs-sink comparison of what's actually in that table, so you can see what a sync would be walking into before deciding anything. The same "see it before you can touch it" step the Spawn Points and Spawngroups tabs both went through before either gained a sync action. Actually syncing these tables stays a separate, later phase — they're shared across many NPCs, so a naive overwrite risks corrupting loot/faction/spells for every other NPC referencing the same row, and that needs its own design once the visibility layer proves out the pattern
 
 > This is an early-stage, actively-developed project. Diffing, `npc_types` sync, per-NPC spawn point creation, the Spawn Points tab, the Grids tab, and the Spawngroups tab all work today. See [Roadmap](#roadmap).
 
@@ -95,8 +94,8 @@ Source/sink connection settings are saved automatically after your first success
 - [x] Grids tab: zone-scoped diffing and syncing for `grid`/`grid_entries` (patrol pathing)
 - [x] Spawngroups tab: zone-scoped, spawngroup-first diffing (source vs sink side by side), matched by looking up the sink spawngroup(s) at a source spawngroup's member spawn2 coordinates, with ambiguous matches flagged rather than guessed. Diffs a spawngroup's own fields (`spawn_limit`, wander settings, etc.) for the first time, and syncs them together with entries as one action
 - [x] SSH tunnel support for remote database connections, with private-key or password auth and `~/.ssh/known_hosts` verification
-- [ ] Per-item deselection within the sync preview
-- [ ] Safely sync shared reference tables (loot, faction, spells, merchant inventory, alternate currency) instead of only flagging them as manual TODO items
+- [ ] Shared reference table comparison, phase 1: a read-only source-vs-sink view of a reference entry's actual contents, opened by clicking it in the NPC detail panel — visibility before any sync capability. `npc_faction` done (profile fields + per-faction entries, merged by the portable `faction_id`); `npc_spells`, `merchantlist`, and `loottable` remain — loot in particular may need its own design given its two-level `loottable`→`lootdrop` nesting. `alt_currency` dropped from scope entirely (confirmed unused, 0 count on both databases)
+- [ ] Shared reference table sync, phase 2: actually writing these tables instead of only flagging them as manual TODO items — blocked on phase 1 proving out the comparison shape, and needs its own "is this shared row safe to touch" design given they're referenced by many NPCs at once
 
 ## Contributing
 

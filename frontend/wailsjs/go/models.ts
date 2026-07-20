@@ -265,6 +265,77 @@ export namespace main {
 		    return a;
 		}
 	}
+	export class NPCFactionEntryDiff {
+	    FactionID: number;
+	    FactionName: string;
+	    SourceExists: boolean;
+	    SourceValue: number;
+	    SourceNPCValue: number;
+	    SourceTemp: number;
+	    SinkExists: boolean;
+	    SinkValue: number;
+	    SinkNPCValue: number;
+	    SinkTemp: number;
+	    Differs: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new NPCFactionEntryDiff(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.FactionID = source["FactionID"];
+	        this.FactionName = source["FactionName"];
+	        this.SourceExists = source["SourceExists"];
+	        this.SourceValue = source["SourceValue"];
+	        this.SourceNPCValue = source["SourceNPCValue"];
+	        this.SourceTemp = source["SourceTemp"];
+	        this.SinkExists = source["SinkExists"];
+	        this.SinkValue = source["SinkValue"];
+	        this.SinkNPCValue = source["SinkNPCValue"];
+	        this.SinkTemp = source["SinkTemp"];
+	        this.Differs = source["Differs"];
+	    }
+	}
+	export class NPCFactionComparison {
+	    SourceId: number;
+	    SinkId: number;
+	    SourceFields: Record<string, any>;
+	    SinkFields: Record<string, any>;
+	    Entries: NPCFactionEntryDiff[];
+	
+	    static createFrom(source: any = {}) {
+	        return new NPCFactionComparison(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.SourceId = source["SourceId"];
+	        this.SinkId = source["SinkId"];
+	        this.SourceFields = source["SourceFields"];
+	        this.SinkFields = source["SinkFields"];
+	        this.Entries = this.convertValues(source["Entries"], NPCFactionEntryDiff);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
 	export class PoolEntry {
 	    NPCID: number;
 	    NPCName: string;

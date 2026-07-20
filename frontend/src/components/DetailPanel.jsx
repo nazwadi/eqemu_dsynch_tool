@@ -1,4 +1,4 @@
-import {fieldGroups} from '../lib/npcHelpers';
+import {fieldGroups, referenceComparisonTypes} from '../lib/npcHelpers';
 import {fmtCoord, spawnBehaviorFields, spawnEntryRows} from '../lib/spawnHelpers';
 import {gridEntryRows} from '../lib/gridHelpers';
 import {spawnGroupRowSelectable} from '../lib/spawnGroupHelpers';
@@ -18,7 +18,7 @@ const detailPanelTitles = {
 // separate state objects, which would lose that.
 function DetailPanel({
     activeView, setShowSpawnHelp, detailWidth,
-    selectedNpc,
+    selectedNpc, openReferenceComparison,
     selectedSpawnRow, selectAllSharingSpawngroup, openSyncSpawnGroupPreview,
     selectedGridRow,
     selectedSpawnGroupRow, openSyncSpawnGroupPreviewFromSpawnGroup,
@@ -70,9 +70,20 @@ function DetailPanel({
                                         const srcVal = selectedNpc.Source?.Fields?.[field]
                                         const sinkVal = selectedNpc.Sink?.Fields?.[field]
                                         const differs = srcVal !== sinkVal
+                                        // References fields with a working comparison (see
+                                        // lib/npcHelpers.js's referenceComparisonTypes) become
+                                        // clickable once at least one side actually points at
+                                        // something — a reference that's 0 on both sides has
+                                        // nothing to compare, so it stays a plain row like any
+                                        // other field.
+                                        const comparable = section === 'references' &&
+                                            referenceComparisonTypes[field] && (srcVal || sinkVal)
                                         return (
-                                            <div key={field} className="flex justify-between px-2 py-0.5">
-                                                <span className="text-gray-500 w-24 shrink-0">{field}</span>
+                                            <div key={field}
+                                                 className={`flex justify-between px-2 py-0.5 ${comparable ? 'cursor-pointer hover:bg-gray-700 rounded' : ''}`}
+                                                 onClick={comparable ? () => openReferenceComparison(field, srcVal, sinkVal) : undefined}
+                                                 title={comparable ? 'View source vs sink comparison' : undefined}>
+                                                <span className={`w-24 shrink-0 ${comparable ? 'text-cyan-400 underline decoration-dotted' : 'text-gray-500'}`}>{field}</span>
                                                 <span
                                                     className={differs ? 'text-yellow-400' : 'text-gray-400'}>{srcVal ?? '—'}</span>
                                                 <span className="text-gray-600 px-1">→</span>

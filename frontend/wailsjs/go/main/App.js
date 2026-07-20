@@ -6,6 +6,10 @@ export function CompareGrids(arg1) {
   return window['go']['main']['App']['CompareGrids'](arg1);
 }
 
+export function CompareNPCFaction(arg1, arg2) {
+  return window['go']['main']['App']['CompareNPCFaction'](arg1, arg2);
+}
+
 export function CompareSpawnGroups(arg1, arg2) {
   return window['go']['main']['App']['CompareSpawnGroups'](arg1, arg2);
 }

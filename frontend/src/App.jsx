@@ -2,6 +2,7 @@ import {useEffect, useState} from 'react';
 import './App.css';
 import {
     CompareGrids,
+    CompareNPCFaction,
     CompareSpawnGroups,
     CompareSpawns,
     CompareZones,
@@ -20,6 +21,8 @@ import ConnectModal from './components/ConnectModal';
 import ConfirmSyncModal from './components/ConfirmSyncModal';
 import ConfirmSpawnSyncModal from './components/ConfirmSpawnSyncModal';
 import SpawnHelpDrawer from './components/SpawnHelpDrawer';
+import ReferenceDrawer from './components/ReferenceDrawer';
+import FactionComparison from './components/FactionComparison';
 import ConfirmSpawnGroupSyncModal from './components/ConfirmSpawnGroupSyncModal';
 import ConfirmGridSyncModal from './components/ConfirmGridSyncModal';
 import Sidebar from './components/Sidebar';
@@ -126,6 +129,15 @@ function App() {
     const [spawnSortDir, setSpawnSortDir] = useState('asc')
     const [spawnSearchFilter, setSpawnSearchFilter] = useState('')  // matches spawngroup name or any spawn entry's NPC name
     const [showSpawnHelp, setShowSpawnHelp] = useState(false)  // right-edge drawer explaining spawn2→spawngroup→spawn entries; see the Spawn Point Detail panel's "?" button
+
+    // Shared reference comparison drawer (ReferenceDrawer) — one bit of open/close state and one
+    // slot for whichever type's data is currently loaded, reused across reference types rather
+    // than one showXConfirm/xComparison pair per type. referenceDrawerType picks which content
+    // component App.jsx renders inside the drawer; referenceDrawerData is that type's own shape
+    // (currently only ever an NPCFactionComparison, since faction is the only type built so far).
+    const [showReferenceDrawer, setShowReferenceDrawer] = useState(false)
+    const [referenceDrawerType, setReferenceDrawerType] = useState(null) // 'faction' | (future: 'spells' | 'merchant' | 'loot')
+    const [referenceDrawerData, setReferenceDrawerData] = useState(null) // null while loading
 
     // SyncSpawnGroup confirm modal — shared by two trigger points: the Spawn Points detail panel's
     // per-row action and the Spawngroups tab's own row action (see openSyncSpawnGroupPreview below).
@@ -282,6 +294,20 @@ function App() {
     // specific to a SpawnGroupDiffRow shape (SampleCoord/SourcePool/SinkPool live directly on it).
     function openSyncSpawnGroupPreviewFromSpawnGroup(row) {
         openSyncSpawnGroupPreview(row.SampleCoord, {source: row.SourcePool, sink: row.SinkPool}, 'spawngroups')
+    }
+
+    // Single entry point for every reference-comparison drawer trigger, dispatched by field name
+    // (see lib/npcHelpers.js's referenceComparisonTypes, which is what actually decides whether a
+    // References row is clickable in the first place). Only 'faction' exists today; adding
+    // 'spells'/'merchant'/'loot' later means one more branch here plus that type's own Compare*
+    // call, not a rework of this function's shape.
+    function openReferenceComparison(field, sourceVal, sinkVal) {
+        setShowReferenceDrawer(true)
+        setReferenceDrawerData(null)
+        if (field === 'npc_faction_id') {
+            setReferenceDrawerType('faction')
+            CompareNPCFaction(sourceVal ?? 0, sinkVal ?? 0).then(setReferenceDrawerData)
+        }
     }
 
     function executeSyncSpawnGroup() {
@@ -574,6 +600,15 @@ function App() {
                 dbSinkName={dbSinkName} spawnSyncPreview={spawnSyncPreview} executeSpawnSync={executeSpawnSync}
             />
             <SpawnHelpDrawer showSpawnHelp={showSpawnHelp} setShowSpawnHelp={setShowSpawnHelp}/>
+            {/* Shared reference comparison drawer — title/content dispatch on referenceDrawerType.
+                Only 'faction' exists yet; adding a type here means one more branch, not a new
+                drawer component (see ReferenceDrawer.jsx for why the chrome itself is shared). */}
+            <ReferenceDrawer
+                open={showReferenceDrawer}
+                onClose={() => setShowReferenceDrawer(false)}
+                title={referenceDrawerType === 'faction' ? 'Faction Reference' : 'Reference'}>
+                {referenceDrawerType === 'faction' && <FactionComparison comparison={referenceDrawerData}/>}
+            </ReferenceDrawer>
             <ConfirmSpawnGroupSyncModal
                 showSpawnGroupSyncConfirm={showSpawnGroupSyncConfirm}
                 setShowSpawnGroupSyncConfirm={setShowSpawnGroupSyncConfirm}
@@ -910,6 +945,7 @@ function App() {
                                 selectedGridRow={selectedGridRow}
                                 selectedSpawnGroupRow={selectedSpawnGroupRow}
                                 openSyncSpawnGroupPreviewFromSpawnGroup={openSyncSpawnGroupPreviewFromSpawnGroup}
+                                openReferenceComparison={openReferenceComparison}
                                 expandedSections={expandedSections} setExpandedSections={setExpandedSections}
                             />
                         </>

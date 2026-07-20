@@ -10,6 +10,15 @@ export const fieldGroups = {
     references: ['loottable_id', 'npc_spells_id', 'npc_faction_id', 'merchantid', 'alt_currency_id']
 }
 
+// Which References fields currently have a working source-vs-sink comparison drawer — extend this
+// as more reference types (spells/merchant/loot) gain their own. A field not listed here renders
+// as a plain, non-interactive row, exactly like before this existed; alt_currency_id is
+// deliberately absent since it's unused (0 count) on every server checked so far, not just
+// "not built yet" — see CLAUDE.md's roadmap notes on the shared reference table comparison work.
+export const referenceComparisonTypes = {
+    npc_faction_id: 'faction'
+}
+
 // A "new" NPC that needs a real spawn point can't sync unless the "Create spawn points" checkbox
 // (syncSpawns) is on — takes syncSpawns as a parameter rather than closing over it so this stays
 // a pure function testable/movable independent of component state.
