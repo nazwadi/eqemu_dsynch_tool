@@ -6,6 +6,8 @@ export function CompareGrids(arg1:number):Promise<Array<main.GridDiffRow>>;
 
 export function CompareNPCFaction(arg1:number,arg2:number):Promise<main.NPCFactionComparison>;
 
+export function CompareNPCMerchant(arg1:number,arg2:number):Promise<main.NPCMerchantComparison>;
+
 export function CompareNPCSpells(arg1:number,arg2:number):Promise<main.NPCSpellsComparison>;
 
 export function CompareSpawnGroups(arg1:string,arg2:number):Promise<Array<main.SpawnGroupDiffRow>>;

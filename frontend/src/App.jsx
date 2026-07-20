@@ -3,6 +3,7 @@ import './App.css';
 import {
     CompareGrids,
     CompareNPCFaction,
+    CompareNPCMerchant,
     CompareNPCSpells,
     CompareSpawnGroups,
     CompareSpawns,
@@ -25,6 +26,7 @@ import SpawnHelpDrawer from './components/SpawnHelpDrawer';
 import ReferenceDrawer from './components/ReferenceDrawer';
 import FactionComparison from './components/FactionComparison';
 import SpellsComparison from './components/SpellsComparison';
+import MerchantComparison from './components/MerchantComparison';
 import ConfirmSpawnGroupSyncModal from './components/ConfirmSpawnGroupSyncModal';
 import ConfirmGridSyncModal from './components/ConfirmGridSyncModal';
 import Sidebar from './components/Sidebar';
@@ -70,7 +72,8 @@ function hydrateSshConfig(connectionConfig) {
 // mirroring detailPanelTitles' shape in DetailPanel.jsx.
 const referenceDrawerTitles = {
     faction: 'Faction Reference',
-    spells: 'Spells Reference'
+    spells: 'Spells Reference',
+    merchant: 'Merchant Reference'
 }
 
 function App() {
@@ -319,6 +322,9 @@ function App() {
         } else if (field === 'npc_spells_id') {
             setReferenceDrawerType('spells')
             CompareNPCSpells(sourceVal ?? 0, sinkVal ?? 0).then(setReferenceDrawerData)
+        } else if (field === 'merchantid') {
+            setReferenceDrawerType('merchant')
+            CompareNPCMerchant(sourceVal ?? 0, sinkVal ?? 0).then(setReferenceDrawerData)
         }
     }
 
@@ -621,6 +627,7 @@ function App() {
                 title={referenceDrawerTitles[referenceDrawerType] ?? 'Reference'}>
                 {referenceDrawerType === 'faction' && <FactionComparison comparison={referenceDrawerData}/>}
                 {referenceDrawerType === 'spells' && <SpellsComparison comparison={referenceDrawerData}/>}
+                {referenceDrawerType === 'merchant' && <MerchantComparison comparison={referenceDrawerData}/>}
             </ReferenceDrawer>
             <ConfirmSpawnGroupSyncModal
                 showSpawnGroupSyncConfirm={showSpawnGroupSyncConfirm}

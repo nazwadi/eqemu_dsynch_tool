@@ -205,6 +205,33 @@ type NPCSpellsComparison struct {
 	Entries      []NPCSpellsEntryDiff
 }
 
+// NPCMerchantEntryDiff is one item row from merchantlist, merged across source and sink by item —
+// portable shared content from items (items.id has no AUTO_INCREMENT, confirmed via SHOW CREATE
+// TABLE, same trust category as faction_id/spellid). Not slot: merchantlist's primary key is
+// (merchantid, slot), but its UNIQUE KEY is (merchantid, item) — the database itself treats item
+// as "this merchant can't sell the same item twice," the real identity, while slot reads more like
+// a display-order value. slot stays as an ordinary comparable field within SourceFields/SinkFields
+// rather than becoming the merge key.
+type NPCMerchantEntryDiff struct {
+	ItemID       int64
+	ItemName     string
+	SourceExists bool
+	SourceFields map[string]interface{} // merchantlist columns, minus merchantid/item
+	SinkExists   bool
+	SinkFields   map[string]interface{}
+	Differs      bool
+}
+
+// NPCMerchantComparison is the read-only source-vs-sink view behind the References section's
+// "merchantid" reference. Unlike npc_faction/npc_spells, merchantlist has no separate header/
+// parent row — npc_types.merchantid points straight at merchantlist rows, so there's no "profile"
+// to fetch, just each side's rows by merchantid, diffed directly.
+type NPCMerchantComparison struct {
+	SourceId int64 // this NPC's merchantid on source; 0 if it has no merchant link there
+	SinkId   int64
+	Entries  []NPCMerchantEntryDiff
+}
+
 // SkippedNPC is an NPC Sync() deliberately declined to touch — not a failure, the safety
 // mechanism doing its job. Structured (not a formatted string) so the frontend can render it
 // inline next to the NPC it applies to instead of a disconnected wall of text.
@@ -1446,6 +1473,121 @@ func resolveSpellNames(ctx context.Context, db *sql.DB, entries []map[string]int
 			return nil, err
 		}
 		names[id] = name.String
+	}
+	return names, rows.Err()
+}
+
+// CompareNPCMerchant fetches the merchantlist rows a specific NPC links to on each side, by that
+// side's own raw merchantid — same anchor-via-NPC reasoning as CompareNPCFaction/CompareNPCSpells,
+// except there's no header row to fetch first (see NPCMerchantComparison). Entries are merged by
+// item (portable, via items — see NPCMerchantEntryDiff for why item, not slot).
+func (a *App) CompareNPCMerchant(sourceMerchantId, sinkMerchantId int64) (NPCMerchantComparison, error) {
+	result := NPCMerchantComparison{SourceId: sourceMerchantId, SinkId: sinkMerchantId}
+
+	if a.sourceDB == nil {
+		return result, fmt.Errorf("source database not connected")
+	}
+	if a.sinkDB == nil {
+		return result, fmt.Errorf("sink database not connected")
+	}
+
+	var sourceEntries, sinkEntries []map[string]interface{}
+	if sourceMerchantId != 0 {
+		entries, err := fetchMerchantEntries(a.ctx, a.sourceDB, sourceMerchantId)
+		if err != nil {
+			return result, err
+		}
+		sourceEntries = entries
+	}
+	if sinkMerchantId != 0 {
+		entries, err := fetchMerchantEntries(a.ctx, a.sinkDB, sinkMerchantId)
+		if err != nil {
+			return result, err
+		}
+		sinkEntries = entries
+	}
+
+	sourceNames, err := resolveItemNames(a.ctx, a.sourceDB, sourceEntries)
+	if err != nil {
+		return result, err
+	}
+	sinkNames, err := resolveItemNames(a.ctx, a.sinkDB, sinkEntries)
+	if err != nil {
+		return result, err
+	}
+
+	byItem := make(map[int64]*NPCMerchantEntryDiff)
+	for _, e := range sourceEntries {
+		id := toInt64(e["item"])
+		byItem[id] = &NPCMerchantEntryDiff{
+			ItemID:       id,
+			ItemName:     sourceNames[id],
+			SourceExists: true,
+			SourceFields: withoutFields(e, "merchantid", "item"),
+		}
+	}
+	for _, e := range sinkEntries {
+		id := toInt64(e["item"])
+		diff, ok := byItem[id]
+		if !ok {
+			diff = &NPCMerchantEntryDiff{ItemID: id}
+			byItem[id] = diff
+		}
+		if diff.ItemName == "" {
+			diff.ItemName = sinkNames[id]
+		}
+		diff.SinkExists = true
+		diff.SinkFields = withoutFields(e, "merchantid", "item")
+	}
+	for _, diff := range byItem {
+		diff.Differs = diff.SourceExists != diff.SinkExists || !mapsEqual(diff.SourceFields, diff.SinkFields)
+		result.Entries = append(result.Entries, *diff)
+	}
+	sort.Slice(result.Entries, func(i, j int) bool {
+		return result.Entries[i].ItemID < result.Entries[j].ItemID
+	})
+
+	return result, nil
+}
+
+func fetchMerchantEntries(ctx context.Context, db *sql.DB, merchantId int64) ([]map[string]interface{}, error) {
+	rows, err := db.QueryContext(ctx, "SELECT * FROM merchantlist WHERE merchantid = ?", merchantId)
+	if err != nil {
+		return nil, err
+	}
+	result, err := scanDynamicRows(rows)
+	_ = rows.Close()
+	return result, err
+}
+
+// resolveItemNames looks up items.Name for every item referenced in entries, against the same
+// database the entries came from — same reasoning as resolveFactionNames/resolveSpellNames.
+func resolveItemNames(ctx context.Context, db *sql.DB, entries []map[string]interface{}) (map[int64]string, error) {
+	names := make(map[int64]string)
+	if len(entries) == 0 {
+		return names, nil
+	}
+	idSet := make(map[int64]bool, len(entries))
+	for _, e := range entries {
+		idSet[toInt64(e["item"])] = true
+	}
+	ids := make([]int64, 0, len(idSet))
+	for id := range idSet {
+		ids = append(ids, id)
+	}
+	placeholders, args := inClausePlaceholders(ids)
+	rows, err := db.QueryContext(ctx, "SELECT id, Name FROM items WHERE id IN ("+placeholders+")", args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id int64
+		var name string
+		if err := rows.Scan(&id, &name); err != nil {
+			return nil, err
+		}
+		names[id] = name
 	}
 	return names, rows.Err()
 }

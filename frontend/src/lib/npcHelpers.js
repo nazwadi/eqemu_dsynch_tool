@@ -17,7 +17,8 @@ export const fieldGroups = {
 // "not built yet" — see CLAUDE.md's roadmap notes on the shared reference table comparison work.
 export const referenceComparisonTypes = {
     npc_faction_id: 'faction',
-    npc_spells_id: 'spells'
+    npc_spells_id: 'spells',
+    merchantid: 'merchant'
 }
 
 // A "new" NPC that needs a real spawn point can't sync unless the "Create spawn points" checkbox
