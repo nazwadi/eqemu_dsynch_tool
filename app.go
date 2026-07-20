@@ -294,6 +294,7 @@ type SpawnDiffRow struct {
 type SpawnSyncOptions struct {
 	ZoneShortName  string
 	ZoneVersion    int8
+	ZoneIdNumber   int64 // zone.zoneidnumber — used to check which grids already exist on the sink, see fetchSinkGridIds/pathgrid handling in updateSpawn2/createSpawnPoint
 	DryRun         bool
 	SpawnIds       []int64      // sink spawn2.id — "modified" rows being synced (UPDATE spawn2's own columns only, spawngroupID untouched)
 	NewSpawnCoords [][3]float64 // source (x,y,z) — "new" rows being synced (CREATE spawngroup+spawnentry+spawn2, same machinery as per-NPC creation)
@@ -2084,7 +2085,9 @@ func insertRow(ctx context.Context, tx *sql.Tx, table string, fields map[string]
 // one spawn candidate — the machinery shared by Sync()'s per-NPC creation path and
 // SyncSpawnPoints' "new" path. Caller must have already confirmed !SharedPool and that no
 // conflicting sink spawn2 exists at these coordinates; this function doesn't re-check either.
-func createSpawnPoint(ctx context.Context, tx *sql.Tx, zone string, version int8, c spawnCandidate, spawnGroupColumns, spawn2Columns map[string]bool) error {
+// sinkGridIds is the sink's own grid IDs for this zone (see fetchSinkGridIds) — used to decide
+// whether pathgrid is safe to copy; see the comment where it's applied below.
+func createSpawnPoint(ctx context.Context, tx *sql.Tx, zone string, version int8, c spawnCandidate, spawnGroupColumns, spawn2Columns map[string]bool, sinkGridIds map[int64]bool) error {
 	// spawngroup.name is UNIQUE on both databases, but source's own name is never guaranteed to
 	// be free in the sink — it's an auto-generated "Nth group created for this zone" label, local
 	// creation history, not shared content identity (same trap as spawngroup.id/spawn2.id). Try
@@ -2105,14 +2108,21 @@ func createSpawnPoint(ctx context.Context, tx *sql.Tx, zone string, version int8
 	); err != nil {
 		return fmt.Errorf("creating spawnentry: %w", err)
 	}
-	// pathgrid forced to 0 rather than copying source's value — grid/grid_entries aren't synced,
-	// so a copied pathgrid would be a dangling reference to a grid row that doesn't exist in the
-	// sink. NPC spawns, just doesn't patrol.
+	// pathgrid copies verbatim only when it's safe to: source says "no patrol" (0, always safe),
+	// or the grid it references actually exists on the sink for this zone (checked via
+	// sinkGridIds, now that the Grids tab makes grid.id trustworthy within a zone — see
+	// updateSpawn2's matching comment for the fuller history). Falls back to 0 otherwise, same as
+	// before this check existed — still avoids a dangling reference to a grid row that doesn't
+	// exist in the sink, just no longer forces that outcome unconditionally.
+	pathgrid := int64(0)
+	if pg := toInt64(c.Spawn2Fields["pathgrid"]); pg != 0 && sinkGridIds[pg] {
+		pathgrid = pg
+	}
 	if _, err := insertRow(ctx, tx, "spawn2", c.Spawn2Fields, spawn2Columns, map[string]interface{}{
 		"spawngroupID": newSpawnGroupId,
 		"zone":         zone,
 		"version":      version,
-		"pathgrid":     0,
+		"pathgrid":     pathgrid,
 	}); err != nil {
 		return fmt.Errorf("creating spawn2: %w", err)
 	}
@@ -2122,12 +2132,13 @@ func createSpawnPoint(ctx context.Context, tx *sql.Tx, zone string, version int8
 // updateSpawn2 updates an existing sink spawn2 row's own columns to match source. Never touches
 // spawngroupID — pool composition differences are always flagged (see CompareSpawns'
 // PoolDiffers), never applied by this function, since a spawngroup can be shared by other spawn2
-// rows this call knows nothing about. pathgrid is excluded for the same reason: grid/grid_entries
-// aren't synced by anything yet, and unlike spawngroupID (a global auto-increment we already know
-// not to trust), grid.id is scoped per zone but still locally assigned — blindly copying source's
-// raw pathgrid could point the sink row at the wrong patrol path, or one that doesn't exist there
-// at all. Once a Grids tab makes grid.id trustworthy within a zone, this can be reconsidered.
-func updateSpawn2(ctx context.Context, tx *sql.Tx, sinkId int64, sourceFields map[string]interface{}, sinkColumns map[string]bool) error {
+// rows this call knows nothing about. pathgrid was unconditionally excluded until the Grids tab
+// shipped (2026-07-19) and made grid.id trustworthy within a zone — now it's copied whenever
+// source says "no patrol" (0, always safe) or the grid it references actually exists on the sink
+// for this zone (sinkGridIds, see fetchSinkGridIds); otherwise it's left out of the update
+// entirely, same as before this check existed, so a still-missing grid doesn't get pointed at a
+// patrol path that doesn't exist there.
+func updateSpawn2(ctx context.Context, tx *sql.Tx, sinkId int64, sourceFields map[string]interface{}, sinkColumns map[string]bool, sinkGridIds map[int64]bool) error {
 	var columns []string
 	for col := range sourceFields {
 		if col == "pathgrid" {
@@ -2137,8 +2148,17 @@ func updateSpawn2(ctx context.Context, tx *sql.Tx, sinkId int64, sourceFields ma
 			columns = append(columns, col)
 		}
 	}
+	if sinkColumns["pathgrid"] {
+		pathgrid := toInt64(sourceFields["pathgrid"])
+		if pathgrid == 0 || sinkGridIds[pathgrid] {
+			columns = append(columns, "pathgrid")
+		}
+	}
 	sort.Strings(columns)
 
+	if len(columns) == 0 {
+		return nil
+	}
 	setClauses := make([]string, len(columns))
 	values := make([]interface{}, len(columns)+1)
 	for i, col := range columns {
@@ -2214,6 +2234,7 @@ func (a *App) Sync(options SyncOptions) (SyncResult, error) {
 	}
 
 	var sinkColumns, spawnGroupColumns, spawn2Columns map[string]bool
+	var sinkGridIds map[int64]bool
 	var tx *sql.Tx
 	// claimedThisSync tracks spawn2 coordinates already committed to being created earlier in
 	// this same Sync() call — necessary because sinkSpawnPointExists() queries a.sinkDB (the
@@ -2233,6 +2254,10 @@ func (a *App) Sync(options SyncOptions) (SyncResult, error) {
 				return result, err
 			}
 			spawn2Columns, err = getSinkColumns(a.ctx, a.sinkDB, "spawn2")
+			if err != nil {
+				return result, err
+			}
+			sinkGridIds, err = fetchSinkGridIds(a.ctx, a.sinkDB, options.ZoneIdNumber)
 			if err != nil {
 				return result, err
 			}
@@ -2346,7 +2371,7 @@ func (a *App) Sync(options SyncOptions) (SyncResult, error) {
 		}
 
 		for _, c := range spawnCandidates {
-			if err := createSpawnPoint(a.ctx, tx, options.ZoneShortName, options.ZoneVersion, c, spawnGroupColumns, spawn2Columns); err != nil {
+			if err := createSpawnPoint(a.ctx, tx, options.ZoneShortName, options.ZoneVersion, c, spawnGroupColumns, spawn2Columns, sinkGridIds); err != nil {
 				_ = tx.Rollback()
 				return result, fmt.Errorf("NPC %d: %w", id, err)
 			}
@@ -2407,6 +2432,7 @@ func (a *App) SyncSpawnPoints(options SpawnSyncOptions) (SpawnSyncResult, error)
 	}
 
 	var spawn2Columns, spawnGroupColumns map[string]bool
+	var sinkGridIds map[int64]bool
 	var tx *sql.Tx
 	if !options.DryRun {
 		spawn2Columns, err = getSinkColumns(a.ctx, a.sinkDB, "spawn2")
@@ -2414,6 +2440,10 @@ func (a *App) SyncSpawnPoints(options SpawnSyncOptions) (SpawnSyncResult, error)
 			return result, err
 		}
 		spawnGroupColumns, err = getSinkColumns(a.ctx, a.sinkDB, "spawngroup")
+		if err != nil {
+			return result, err
+		}
+		sinkGridIds, err = fetchSinkGridIds(a.ctx, a.sinkDB, options.ZoneIdNumber)
 		if err != nil {
 			return result, err
 		}
@@ -2438,7 +2468,7 @@ func (a *App) SyncSpawnPoints(options SpawnSyncOptions) (SpawnSyncResult, error)
 			result.Updated++
 			continue
 		}
-		if err := updateSpawn2(a.ctx, tx, sinkId, sourcePoint.Fields, spawn2Columns); err != nil {
+		if err := updateSpawn2(a.ctx, tx, sinkId, sourcePoint.Fields, spawn2Columns, sinkGridIds); err != nil {
 			_ = tx.Rollback()
 			return result, fmt.Errorf("spawn2 #%d: %w", sinkId, err)
 		}
@@ -2492,7 +2522,7 @@ func (a *App) SyncSpawnPoints(options SpawnSyncOptions) (SpawnSyncResult, error)
 			Spawn2Fields:     sourcePoint.Fields,
 			SpawnGroupFields: sourcePoint.SpawnGroupFields,
 		}
-		if err := createSpawnPoint(a.ctx, tx, options.ZoneShortName, options.ZoneVersion, candidate, spawnGroupColumns, spawn2Columns); err != nil {
+		if err := createSpawnPoint(a.ctx, tx, options.ZoneShortName, options.ZoneVersion, candidate, spawnGroupColumns, spawn2Columns, sinkGridIds); err != nil {
 			_ = tx.Rollback()
 			return result, fmt.Errorf("spawn point at (%.2f, %.2f, %.2f): %w", coord[0], coord[1], coord[2], err)
 		}
@@ -2634,6 +2664,28 @@ func (a *App) SyncSpawnGroup(options SyncSpawnGroupOptions) (SpawnGroupSyncResul
 		return result, err
 	}
 	return result, nil
+}
+
+// fetchSinkGridIds returns the set of grid IDs that already exist on the sink for a zone — used to
+// decide whether copying a spawn2's pathgrid would create a dangling reference to a patrol path
+// that doesn't exist there (see updateSpawn2/createSpawnPoint). Deliberately just IDs, not the
+// full getGridsForZone fetch (fields + every waypoint) — that's much more data than this check
+// needs.
+func fetchSinkGridIds(ctx context.Context, db *sql.DB, zoneIdNumber int64) (map[int64]bool, error) {
+	rows, err := db.QueryContext(ctx, "SELECT id FROM grid WHERE zoneid = ?", zoneIdNumber)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	ids := make(map[int64]bool)
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids[id] = true
+	}
+	return ids, rows.Err()
 }
 
 // getGridsForZone fetches every grid + its ordered grid_entries for one zone from one database,

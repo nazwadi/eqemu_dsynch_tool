@@ -109,9 +109,25 @@ function DetailPanel({
                                 const behaviorFields = spawnBehaviorFields(selectedSpawnRow)
                                 return (
                                     <>
+                                        {/* The warning and the fix for it live together — previously the ⚠ banner
+                                            was the first thing shown here, but the actual action was buried
+                                            several sections down inside a collapsed "Spawn Entries" panel,
+                                            with no visible connection between "something's wrong" and "here's
+                                            what to do about it." This is also the only sync trigger in the
+                                            app that doesn't have a persistent header button, so keeping it
+                                            unmissable the moment a differing row is selected matters more
+                                            here than it would elsewhere. */}
                                         {selectedSpawnRow.PoolDiffers && (
-                                            <div className="text-amber-400 px-2 py-1 flex items-center gap-1">
-                                                <span>⚠</span> Spawn entries differ from source — needs manual reconciliation
+                                            <div className="flex flex-col gap-1 px-2 py-1">
+                                                <div className="text-amber-400 flex items-center gap-1">
+                                                    <span>⚠</span> Spawn entries differ from source — needs manual reconciliation
+                                                </div>
+                                                <button
+                                                    onClick={() => openSyncSpawnGroupPreview(selectedSpawnRow)}
+                                                    className="text-xs text-amber-400 hover:text-amber-300 underline text-left"
+                                                    title="Replace this spawngroup's entries on the sink to match source — its own fields (spawn_limit, wander box, etc.) are brought in line too if they differ. For a fuller field-level view, see the Spawngroups tab.">
+                                                    Sync spawngroup from source →
+                                                </button>
                                             </div>
                                         )}
                                         {/* Static identity — not a diffable field group. Coordinates are the matching key
@@ -190,14 +206,9 @@ function DetailPanel({
                                                             </button>
                                                         </div>
                                                     )}
-                                                    {selectedSpawnRow.PoolDiffers && (
-                                                        <button
-                                                            onClick={() => openSyncSpawnGroupPreview(selectedSpawnRow)}
-                                                            className="text-xs text-amber-400 hover:text-amber-300 underline text-left pb-1"
-                                                            title="Replace this spawngroup's entries on the sink to match source — its own fields (spawn_limit, wander box, etc.) are brought in line too if they differ. For a fuller field-level view, see the Spawngroups tab.">
-                                                            Sync spawngroup from source →
-                                                        </button>
-                                                    )}
+                                                    {/* The sync trigger now lives in the top banner (see above),
+                                                        not here — one obvious place to click instead of two
+                                                        doing the same thing. */}
                                                     <div className="flex text-gray-500 text-xs">
                                                         <span className="flex-1">NPC</span>
                                                         <span className="w-14 text-right">Src %</span>
@@ -326,6 +337,27 @@ function DetailPanel({
                                                 Exists on the sink only — no matching source spawngroup found at any of its locations.
                                             </div>
                                         )}
+                                        {/* Warning and fix live together, same as the Spawn Points detail panel's
+                                            top banner — this is the only sync trigger in the app without a
+                                            persistent header button, so it needs to be the first thing visible
+                                            for a differing row, not buried inside a collapsed section below. */}
+                                        {spawnGroupRowSelectable(row) && (
+                                            <div className="flex flex-col gap-1 px-2 py-1">
+                                                <div className="text-amber-400 flex items-center gap-1">
+                                                    <span>⚠</span> {row.FieldsDiffer && row.PoolDiffers
+                                                        ? 'Fields and spawn entries differ from source'
+                                                        : row.FieldsDiffer
+                                                            ? 'Fields differ from source'
+                                                            : 'Spawn entries differ from source'} — needs manual reconciliation
+                                                </div>
+                                                <button
+                                                    onClick={() => openSyncSpawnGroupPreviewFromSpawnGroup(row)}
+                                                    className="text-xs text-amber-400 hover:text-amber-300 underline text-left"
+                                                    title="Replace this spawngroup's fields and entries on the sink to match source">
+                                                    Sync spawngroup from source →
+                                                </button>
+                                            </div>
+                                        )}
                                         <div className="flex justify-between px-2 py-0.5">
                                             <span className="text-gray-500 w-24 shrink-0">locations</span>
                                             <span className="text-gray-300">{row.SourceGroupId ? row.SourceLocationCount : '—'}</span>
@@ -376,14 +408,8 @@ function DetailPanel({
                                             </div>
                                             {(expandedSections.spawngroup_entries ?? true) && (
                                                 <div className="flex flex-col gap-0.5 px-2 py-1">
-                                                    {spawnGroupRowSelectable(row) && (
-                                                        <button
-                                                            onClick={() => openSyncSpawnGroupPreviewFromSpawnGroup(row)}
-                                                            className="text-xs text-amber-400 hover:text-amber-300 underline text-left pb-1"
-                                                            title="Replace this spawngroup's fields and entries on the sink to match source">
-                                                            Sync spawngroup from source →
-                                                        </button>
-                                                    )}
+                                                    {/* Sync trigger lives in the top banner now (see above) — one
+                                                        obvious place to click instead of two doing the same thing. */}
                                                     <div className="flex text-gray-500 text-xs">
                                                         <span className="flex-1">NPC</span>
                                                         <span className="w-14 text-right">Src %</span>

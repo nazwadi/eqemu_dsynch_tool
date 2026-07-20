@@ -707,6 +707,7 @@ export namespace main {
 	export class SpawnSyncOptions {
 	    ZoneShortName: string;
 	    ZoneVersion: number;
+	    ZoneIdNumber: number;
 	    DryRun: boolean;
 	    SpawnIds: number[];
 	    NewSpawnCoords: number[][];
@@ -719,6 +720,7 @@ export namespace main {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.ZoneShortName = source["ZoneShortName"];
 	        this.ZoneVersion = source["ZoneVersion"];
+	        this.ZoneIdNumber = source["ZoneIdNumber"];
 	        this.DryRun = source["DryRun"];
 	        this.SpawnIds = source["SpawnIds"];
 	        this.NewSpawnCoords = source["NewSpawnCoords"];

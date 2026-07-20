@@ -244,6 +244,7 @@ function App() {
         return SyncSpawnPoints({
             ZoneShortName: selectedZoneShortName,
             ZoneVersion: selectedZoneVersion,
+            ZoneIdNumber: selectedZoneIdNumber,
             DryRun: dryRun,
             SpawnIds: selectedRows.filter(row => row.Status === 'modified').map(row => row.Sink.Id),
             NewSpawnCoords: selectedRows.filter(row => row.Status === 'new').map(spawnCoords)
