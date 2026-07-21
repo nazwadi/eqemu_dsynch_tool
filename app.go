@@ -16,8 +16,8 @@ import (
 	"time"
 
 	"github.com/go-sql-driver/mysql"
+	"github.com/skeema/knownhosts"
 	"golang.org/x/crypto/ssh"
-	"golang.org/x/crypto/ssh/knownhosts"
 
 	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
@@ -455,23 +455,31 @@ func sshAuthMethods(cfg SshConfig) ([]ssh.AuthMethod, error) {
 	}
 }
 
-// sshHostKeyCallback verifies the SSH server's host key against the user's own ~/.ssh/known_hosts
-// — the same trust model the system `ssh`/`git` already use on this machine, deliberately not
+// sshHostKeyDB loads host key verification data from the user's own ~/.ssh/known_hosts — the same
+// trust model the system `ssh`/`git` already use on this machine, deliberately not
 // ssh.InsecureIgnoreHostKey(). If the host isn't already known, the callback (and therefore
 // ssh.Dial) fails with a knownhosts error rather than silently trusting whatever key the server
 // presents; the fix is the same one `ssh` itself would ask for — connect to the host once via a
 // terminal to add it, then retry here.
-func sshHostKeyCallback() (ssh.HostKeyCallback, error) {
+//
+// Returns *knownhosts.HostKeyDB (github.com/skeema/knownhosts, a thin wrapper around
+// x/crypto/ssh/knownhosts) rather than a bare ssh.HostKeyCallback, specifically for its
+// HostKeyAlgorithms() method — see openSSHTunnel's use of it for why a plain callback isn't
+// enough on its own (real, shipped bug: an ED25519-only known_hosts entry was being rejected as
+// "unknown" because x/crypto/ssh's default HostKeyAlgorithms order tries RSA-family algorithms
+// first, so a server with both key types configured presented its RSA key — one known_hosts had
+// no matching entry for — instead of the ED25519 one the user's own `ssh`/`git` already trust).
+func sshHostKeyDB() (*knownhosts.HostKeyDB, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return nil, err
 	}
 	knownHostsPath := filepath.Join(home, ".ssh", "known_hosts")
-	callback, err := knownhosts.New(knownHostsPath)
+	db, err := knownhosts.NewDB(knownHostsPath)
 	if err != nil {
 		return nil, fmt.Errorf("reading %s (run `ssh` to the SSH host once first to add it): %w", knownHostsPath, err)
 	}
-	return callback, nil
+	return db, nil
 }
 
 // forwardConn splices one accepted local connection through the SSH client to remoteAddr — the
@@ -509,19 +517,29 @@ func openSSHTunnel(cfg SshConfig, remoteHost, remotePort string) (*sshTunnel, st
 	if err != nil {
 		return nil, "", err
 	}
-	hostKeyCallback, err := sshHostKeyCallback()
+	hostKeyDB, err := sshHostKeyDB()
 	if err != nil {
 		return nil, "", err
 	}
 
+	sshAddr := net.JoinHostPort(cfg.Host, cfg.Port)
+
 	sshClientConfig := &ssh.ClientConfig{
 		User:            cfg.Username,
 		Auth:            authMethods,
-		HostKeyCallback: hostKeyCallback,
-		Timeout:         5 * time.Second,
+		HostKeyCallback: hostKeyDB.HostKeyCallback(),
+		// Pinned to whatever key type(s) known_hosts actually has recorded for this host, instead
+		// of left nil (x/crypto/ssh's own default order, RSA-family before ED25519 — see
+		// sshHostKeyDB's doc comment for the bug this caused). HostKeyAlgorithms() returns nil for
+		// a host with no known_hosts entry at all; ssh.ClientConfig treats a nil slice here the
+		// same as never setting the field (checked via `!= nil`, not len == 0 — see
+		// golang.org/x/crypto/ssh/handshake.go), so a genuinely unknown host still falls through to
+		// the library default order and fails the same "knownhosts: key is unknown" way it always
+		// did, rather than this pinning masking that case.
+		HostKeyAlgorithms: hostKeyDB.HostKeyAlgorithms(sshAddr),
+		Timeout:           5 * time.Second,
 	}
 
-	sshAddr := net.JoinHostPort(cfg.Host, cfg.Port)
 	client, err := ssh.Dial("tcp", sshAddr, sshClientConfig)
 	if err != nil {
 		return nil, "", fmt.Errorf("SSH connection to %s failed: %w", sshAddr, err)
