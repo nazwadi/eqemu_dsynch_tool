@@ -30,6 +30,15 @@ function FactionComparison({comparison}) {
             {comparison.SinkId === 0 && (
                 <div className="text-xs text-amber-400">This NPC has no faction link on sink.</div>
             )}
+            {/* npc_faction_id is a local surrogate key (not portable, see the id row's own comment
+                below) — a nonzero id with no matching row means it's dangling, not just "differs,"
+                the same distinction SpawnPoint.SpawnGroupMissing draws for spawn2.spawngroupID. */}
+            {comparison.SourceId !== 0 && !sourceFields && (
+                <div className="text-xs text-red-400">⚠ npc_faction_id {comparison.SourceId} doesn't exist in source's npc_faction table.</div>
+            )}
+            {comparison.SinkId !== 0 && !sinkFields && (
+                <div className="text-xs text-red-400">⚠ npc_faction_id {comparison.SinkId} doesn't exist in sink's npc_faction table — likely copied verbatim from source by npc_types sync.</div>
+            )}
             {(sourceFields || sinkFields) && (
                 <div className="flex flex-col gap-1">
                     <div className="text-xs text-gray-400 uppercase tracking-wider">Profile</div>

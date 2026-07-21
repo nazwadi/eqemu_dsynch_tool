@@ -218,6 +218,7 @@ export namespace main {
 	export class NPC {
 	    Id: number;
 	    HasSpawnPoint: boolean;
+	    MissingReferences: Record<string, boolean>;
 	    Fields: Record<string, any>;
 	
 	    static createFrom(source: any = {}) {
@@ -228,6 +229,7 @@ export namespace main {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.Id = source["Id"];
 	        this.HasSpawnPoint = source["HasSpawnPoint"];
+	        this.MissingReferences = source["MissingReferences"];
 	        this.Fields = source["Fields"];
 	    }
 	}
@@ -514,6 +516,8 @@ export namespace main {
 	    Id: number;
 	    SpawnGroupId: number;
 	    SpawnGroupFields: Record<string, any>;
+	    SpawnGroupMissing: boolean;
+	    PathgridMissing: boolean;
 	    LocationSharedCount: number;
 	    Fields: Record<string, any>;
 	    Pool: PoolEntry[];
@@ -527,6 +531,8 @@ export namespace main {
 	        this.Id = source["Id"];
 	        this.SpawnGroupId = source["SpawnGroupId"];
 	        this.SpawnGroupFields = source["SpawnGroupFields"];
+	        this.SpawnGroupMissing = source["SpawnGroupMissing"];
+	        this.PathgridMissing = source["PathgridMissing"];
 	        this.LocationSharedCount = source["LocationSharedCount"];
 	        this.Fields = source["Fields"];
 	        this.Pool = this.convertValues(source["Pool"], PoolEntry);
@@ -663,6 +669,7 @@ export namespace main {
 	export class SpawnGroupSyncResult {
 	    DryRun: boolean;
 	    SpawnGroupName: string;
+	    Created: boolean;
 	    FieldsChanged: boolean;
 	    EntriesBefore: number;
 	    EntriesAfter: number;
@@ -677,6 +684,7 @@ export namespace main {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.DryRun = source["DryRun"];
 	        this.SpawnGroupName = source["SpawnGroupName"];
+	        this.Created = source["Created"];
 	        this.FieldsChanged = source["FieldsChanged"];
 	        this.EntriesBefore = source["EntriesBefore"];
 	        this.EntriesAfter = source["EntriesAfter"];
@@ -806,7 +814,6 @@ export namespace main {
 	    ZoneVersion: number;
 	    ZoneIdNumber: number;
 	    SyncNPCTypes: boolean;
-	    SyncSpawns: boolean;
 	    DryRun: boolean;
 	    NPCIds: number[];
 	
@@ -820,7 +827,6 @@ export namespace main {
 	        this.ZoneVersion = source["ZoneVersion"];
 	        this.ZoneIdNumber = source["ZoneIdNumber"];
 	        this.SyncNPCTypes = source["SyncNPCTypes"];
-	        this.SyncSpawns = source["SyncSpawns"];
 	        this.DryRun = source["DryRun"];
 	        this.NPCIds = source["NPCIds"];
 	    }
@@ -856,8 +862,6 @@ export namespace main {
 	export class SyncResult {
 	    DryRun: boolean;
 	    NPCsSynced: number[];
-	    SpawnsSynced: number;
-	    SpawnsCreatedForNPCs: number[];
 	    Skipped: SkippedNPC[];
 	    TODOItems: TODOItem[];
 	    Errors: string[];
@@ -870,8 +874,6 @@ export namespace main {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.DryRun = source["DryRun"];
 	        this.NPCsSynced = source["NPCsSynced"];
-	        this.SpawnsSynced = source["SpawnsSynced"];
-	        this.SpawnsCreatedForNPCs = source["SpawnsCreatedForNPCs"];
 	        this.Skipped = this.convertValues(source["Skipped"], SkippedNPC);
 	        this.TODOItems = this.convertValues(source["TODOItems"], TODOItem);
 	        this.Errors = source["Errors"];

@@ -96,7 +96,13 @@ type Zone struct {
 type NPC struct {
 	Id            int64
 	HasSpawnPoint bool // false = discovered via zone-ID-range fallback only (quest-spawned, no static spawn2 row)
-	Fields        map[string]interface{}
+	// MissingReferences flags, by field name (npc_faction_id/npc_spells_id/merchant_id), any
+	// nonzero FK column that doesn't resolve to a real row in THIS NPC's own database — see
+	// annotateMissingReferences. Same "verbatim-copied local surrogate ID, likely dangling after
+	// a sync" situation as spawn2.spawngroupID (SpawnPoint.SpawnGroupMissing), just for npc_types'
+	// own reference columns. Only set (non-nil) when at least one field is actually missing.
+	MissingReferences map[string]bool
+	Fields            map[string]interface{}
 }
 
 type NPCDiffRow struct {
@@ -110,19 +116,20 @@ type SyncOptions struct {
 	ZoneVersion   int8
 	ZoneIdNumber  int64
 	SyncNPCTypes  bool
-	SyncSpawns    bool
 	DryRun        bool
 	NPCIds        []int64 // empty means all NPCs in zone
 }
 
+// SyncResult no longer carries any spawn-point-creation fields — Sync() only ever touches
+// npc_types now. Spawn point creation belongs exclusively to the Spawn Points tab
+// (SyncSpawnPoints), so an NPC's own row syncs regardless of whether it has a spawn point yet —
+// see the "Per-NPC spawn point creation" removal note in CLAUDE.md's Sync Design section.
 type SyncResult struct {
-	DryRun               bool
-	NPCsSynced           []int64
-	SpawnsSynced         int          // count of spawn2 rows created (or, on dry run, that would be created)
-	SpawnsCreatedForNPCs []int64      // subset of NPCsSynced that also got/will get a spawn point — drives the preview badge
-	Skipped              []SkippedNPC // NPCs deliberately not synced (not found, needs a spawn point, spawn conflict) — every NPCId ends up in exactly one of NPCsSynced or Skipped
-	TODOItems            []TODOItem
-	Errors               []string // genuine unexpected failures only — never used for a deliberate skip, see SkippedNPC
+	DryRun     bool
+	NPCsSynced []int64
+	Skipped    []SkippedNPC // NPCs deliberately not synced (not found in source) — every NPCId ends up in exactly one of NPCsSynced or Skipped
+	TODOItems  []TODOItem
+	Errors     []string // genuine unexpected failures only — never used for a deliberate skip, see SkippedNPC
 }
 
 type TODOItem struct {
@@ -223,11 +230,12 @@ type NPCMerchantEntryDiff struct {
 }
 
 // NPCMerchantComparison is the read-only source-vs-sink view behind the References section's
-// "merchantid" reference. Unlike npc_faction/npc_spells, merchantlist has no separate header/
-// parent row — npc_types.merchantid points straight at merchantlist rows, so there's no "profile"
-// to fetch, just each side's rows by merchantid, diffed directly.
+// "merchant_id" reference. Unlike npc_faction/npc_spells, merchantlist has no separate header/
+// parent row — npc_types.merchant_id points straight at merchantlist rows (by merchantlist's own
+// "merchantid" column — the two tables spell it differently, confirmed via SHOW COLUMNS on both),
+// so there's no "profile" to fetch, just each side's rows by merchantid, diffed directly.
 type NPCMerchantComparison struct {
-	SourceId int64 // this NPC's merchantid on source; 0 if it has no merchant link there
+	SourceId int64 // this NPC's merchant_id on source; 0 if it has no merchant link there
 	SinkId   int64
 	Entries  []NPCMerchantEntryDiff
 }
@@ -239,21 +247,6 @@ type SkippedNPC struct {
 	NPCID  int64
 	Name   string
 	Reason string
-}
-
-// spawnCandidate is one of a source NPC's real spawn2/spawngroup/spawnentry locations.
-// Unlike npc_types.id, a newly-added spawn2/spawngroup row's own ID has no meaning in the
-// sink — X/Y/Z is the only thing stable enough across two diverged databases to identify
-// "this spawn point," which is why the fields below carry the raw coordinates separately
-// from the dynamic column maps (which have their id/spawngroupID columns stripped, since
-// the sink will assign its own).
-type spawnCandidate struct {
-	X, Y, Z          float64
-	NPCID            int64 // the pool's sole NPC once SharedPool is confirmed false — self-contained so createSpawnPoint doesn't need a separate parameter
-	Chance           int64
-	SharedPool       bool // true if source's spawngroup has spawnentries for OTHER NPCs too — a weighted pool, not a single-NPC spawn point
-	Spawn2Fields     map[string]interface{}
-	SpawnGroupFields map[string]interface{}
 }
 
 // PoolEntry is one NPC in a spawn point's weighted pool (a spawngroup's spawnentry rows).
@@ -270,7 +263,9 @@ type PoolEntry struct {
 type SpawnPoint struct {
 	Id                  int64
 	SpawnGroupId        int64
-	SpawnGroupFields    map[string]interface{} // dynamic spawngroup columns, minus id — includes "name"
+	SpawnGroupFields    map[string]interface{} // dynamic spawngroup columns, minus id — includes "name"; nil if SpawnGroupMissing
+	SpawnGroupMissing   bool                   // true if SpawnGroupId doesn't correspond to any real spawngroup row — a dangling reference, see SyncSpawnPoints
+	PathgridMissing     bool                   // true if Fields["pathgrid"] is nonzero but doesn't correspond to any real grid row for this zone in this same database — see CompareSpawns
 	LocationSharedCount int                    // OTHER spawn2 rows (this zone/version) sharing this spawngroupID — drives the "shared ×N" badge
 	Fields              map[string]interface{} // dynamic spawn2 columns, minus id/spawngroupID
 	Pool                []PoolEntry
@@ -294,10 +289,10 @@ type SpawnDiffRow struct {
 type SpawnSyncOptions struct {
 	ZoneShortName  string
 	ZoneVersion    int8
-	ZoneIdNumber   int64 // zone.zoneidnumber — used to check which grids already exist on the sink, see fetchSinkGridIds/pathgrid handling in updateSpawn2/createSpawnPoint
+	ZoneIdNumber   int64 // zone.zoneidnumber — used to check which grids already exist on the sink, see fetchZoneGridIds/pathgrid handling in updateSpawn2/SyncSpawnPoints
 	DryRun         bool
 	SpawnIds       []int64      // sink spawn2.id — "modified" rows being synced (UPDATE spawn2's own columns only, spawngroupID untouched)
-	NewSpawnCoords [][3]float64 // source (x,y,z) — "new" rows being synced (CREATE spawngroup+spawnentry+spawn2, same machinery as per-NPC creation)
+	NewSpawnCoords [][3]float64 // source (x,y,z) — "new" rows being synced (plain INSERT of spawn2's own columns, spawngroupID copied verbatim from source — see SyncSpawnPoints)
 }
 
 // SkippedSpawn mirrors SkippedNPC's "declined, not failed" shape for the spawn-points tab —
@@ -336,7 +331,8 @@ type SyncSpawnGroupOptions struct {
 type SpawnGroupSyncResult struct {
 	DryRun         bool
 	SpawnGroupName string
-	FieldsChanged  bool // whether the spawngroup's own columns (spawn_limit, wander box, etc.) differed and were (or would be) updated
+	Created        bool // true if the sink's spawngroupID was dangling (no real spawngroup row) and a fresh one was created, repointing every sink spawn2 row that shared the dangling id — false means an existing sink spawngroup was updated in place
+	FieldsChanged  bool // whether the spawngroup's own columns (spawn_limit, wander box, etc.) differed and were (or would be) updated — always true when Created, since there was nothing on the sink to compare against
 	EntriesBefore  int
 	EntriesAfter   int
 	OtherZoneUsage []SpawnGroupZoneUsage // non-empty means blocked — nothing was changed
@@ -568,7 +564,19 @@ func (a *App) Connect(c *ConnectionConfig, isSource bool) error {
 		}
 	}
 
-	db, err := sql.Open("mysql", c.Username+":"+c.Password+"@tcp("+host+":"+port+")/"+c.DbName+"?timeout=5s")
+	// Built via mysql.Config/FormatDSN rather than raw string concatenation — a username or
+	// password containing '@', ':', '/', or '?' (all plausible in a real DB password) would
+	// otherwise be misparsed into the wrong host/db instead of just failing loudly. FormatDSN is
+	// the driver's own documented way to avoid exactly this.
+	dsnConfig := mysql.NewConfig()
+	dsnConfig.User = c.Username
+	dsnConfig.Passwd = c.Password
+	dsnConfig.Net = "tcp"
+	dsnConfig.Addr = net.JoinHostPort(host, port)
+	dsnConfig.DBName = c.DbName
+	dsnConfig.Timeout = 5 * time.Second
+
+	db, err := sql.Open("mysql", dsnConfig.FormatDSN())
 	if err != nil {
 		if tunnel != nil {
 			_ = tunnel.Close()
@@ -586,18 +594,28 @@ func (a *App) Connect(c *ConnectionConfig, isSource bool) error {
 	db.SetMaxOpenConns(10)
 	db.SetMaxIdleConns(10)
 
-	// Close out any tunnel from a previous connection on this same side before replacing it —
-	// unlike sourceDB/sinkDB (pooled, eventually GC'd), a stale tunnel is a live goroutine plus an
-	// open listener that would otherwise run forever, one more of each per reconnect.
+	// Close out any tunnel AND db pool from a previous connection on this same side before
+	// replacing them. Neither is cleaned up by Go's GC on its own: a stale tunnel is a live
+	// goroutine plus an open listener that would otherwise run forever, and sql.DB has no
+	// finalizer — dropping the reference without calling Close() leaves its pooled MySQL
+	// connections (up to MaxOpenConns) open for the rest of the process's life, one more leaked
+	// pool per reconnect. shutdown() closing sourceDB/sinkDB only handles the LAST one; every
+	// reconnect in between needs this same cleanup.
 	if isSource {
 		if a.sourceTunnel != nil {
 			_ = a.sourceTunnel.Close()
+		}
+		if a.sourceDB != nil {
+			_ = a.sourceDB.Close()
 		}
 		a.sourceDB = db
 		a.sourceTunnel = tunnel
 	} else {
 		if a.sinkTunnel != nil {
 			_ = a.sinkTunnel.Close()
+		}
+		if a.sinkDB != nil {
+			_ = a.sinkDB.Close()
 		}
 		a.sinkDB = db
 		a.sinkTunnel = tunnel
@@ -843,6 +861,12 @@ func (a *App) CompareZones(shortName string, version int8, zoneIdNumber int64) (
 	if err != nil {
 		return nil, err
 	}
+	if err := annotateMissingReferences(a.ctx, a.sourceDB, sourceNpcs); err != nil {
+		return nil, err
+	}
+	if err := annotateMissingReferences(a.ctx, a.sinkDB, sinkNpcs); err != nil {
+		return nil, err
+	}
 	// Build a map of sink NPCs by ID
 	m := make(map[int64]NPC)
 	for _, sinkNpc := range sinkNpcs {
@@ -899,13 +923,122 @@ func (a *App) CompareZones(shortName string, version int8, zoneIdNumber int64) (
 	return diff, nil
 }
 
+// referenceFKColumns lists the npc_types FK columns that have a working comparison drawer (see
+// lib/npcHelpers.js's referenceComparisonTypes) and the table/column each one's value is expected
+// to resolve against in the SAME database it was read from. loottable_id has no drawer yet (still
+// on the roadmap) and alt_currency_id is unused (0 rows) on every server checked so far, so
+// neither is checked here. merchantlist has no single-row "id" the way npc_faction/npc_spells do
+// — npc_types.merchant_id points straight at merchantlist rows (see NPCMerchantComparison) — so
+// its existence check is "does merchantlist have ANY row with this merchantid" via a DISTINCT
+// query, not a primary-key lookup. Note the two tables spell it differently: npc_types.merchant_id
+// (underscore) vs merchantlist.merchantid (no underscore) — confirmed via SHOW COLUMNS on both
+// after this mismatch caused a real, shipped bug (see Repo Meta): code had used "merchantid" for
+// the npc_types side too, so every npc_types.Fields["merchantid"] lookup silently returned nothing.
+var referenceFKColumns = map[string]struct{ table, column string }{
+	"npc_faction_id": {"npc_faction", "id"},
+	"npc_spells_id":  {"npc_spells", "id"},
+	"merchant_id":    {"merchantlist", "merchantid"},
+}
+
+// existingIds returns the subset of ids that actually exist as `column` values in `table` — used
+// to batch-check FK existence for every NPC in a zone with one query per reference type, instead
+// of one query per NPC. table/column are always one of the hardcoded pairs in referenceFKColumns,
+// never derived from user input.
+func existingIds(ctx context.Context, db *sql.DB, table, column string, ids map[int64]bool) (map[int64]bool, error) {
+	result := make(map[int64]bool, len(ids))
+	if len(ids) == 0 {
+		return result, nil
+	}
+	idList := make([]int64, 0, len(ids))
+	for id := range ids {
+		idList = append(idList, id)
+	}
+	placeholders, args := inClausePlaceholders(idList)
+	rows, err := db.QueryContext(ctx,
+		fmt.Sprintf("SELECT DISTINCT %s FROM %s WHERE %s IN (%s)", column, table, column, placeholders), args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		result[id] = true
+	}
+	return result, rows.Err()
+}
+
+// annotateMissingReferences flags, per NPC, any of referenceFKColumns whose nonzero value doesn't
+// resolve to a real row in THIS SAME database — these FK columns are local surrogate IDs (see
+// CLAUDE.md's identity trust model), copied verbatim by upsertNPC() same as every other npc_types
+// column, so after a sync a sink NPC's npc_faction_id/npc_spells_id/merchant_id is very likely
+// pointing at nothing (or the wrong row) in the sink's own reference tables. Batched into exactly
+// 3 queries regardless of zone size — mirrors getSpawnPointsForZone's IN-clause batching. Only
+// called from CompareZones (not GetNPCsForZone itself, which Sync() also uses and has no need for
+// this), so Sync() doesn't pay for checks it never displays.
+func annotateMissingReferences(ctx context.Context, db *sql.DB, npcs []NPC) error {
+	idSets := make(map[string]map[int64]bool, len(referenceFKColumns))
+	for field := range referenceFKColumns {
+		idSets[field] = make(map[int64]bool)
+	}
+	for _, npc := range npcs {
+		for field := range referenceFKColumns {
+			if id := toInt64(npc.Fields[field]); id != 0 {
+				idSets[field][id] = true
+			}
+		}
+	}
+
+	existing := make(map[string]map[int64]bool, len(referenceFKColumns))
+	for field, target := range referenceFKColumns {
+		found, err := existingIds(ctx, db, target.table, target.column, idSets[field])
+		if err != nil {
+			return err
+		}
+		existing[field] = found
+	}
+
+	for i := range npcs {
+		var missing map[string]bool
+		for field := range referenceFKColumns {
+			id := toInt64(npcs[i].Fields[field])
+			if id != 0 && !existing[field][id] {
+				if missing == nil {
+					missing = make(map[string]bool)
+				}
+				missing[field] = true
+			}
+		}
+		npcs[i].MissingReferences = missing
+	}
+	return nil
+}
+
+// annotatePathgridMissing flags each point's PathgridMissing — mirrors annotateMissingReferences'
+// shape for spawn2's own dangling-reference case. Purely a read-only diagnostic: unlike
+// spawngroupID, pathgrid is NOT copied verbatim on sync (updateSpawn2/SyncSpawnPoints still only
+// copy it when the target grid already exists on the sink, see their own comments) — this reports
+// on whatever pathgrid value is already sitting on the row, however it got there.
+func annotatePathgridMissing(points []SpawnPoint, gridIds map[int64]bool) {
+	for i := range points {
+		pg := toInt64(points[i].Fields["pathgrid"])
+		points[i].PathgridMissing = pg != 0 && !gridIds[pg]
+	}
+}
+
 // CompareSpawns diffs spawn2 rows for a zone/version, matched by exact (x,y,z) coordinate —
 // spawn2/spawngroup IDs aren't meaningful across databases (see Spawn point identity in
 // CLAUDE.md), the same reason per-NPC spawn creation matches by coordinate instead of ID.
 // Pool (spawngroup+spawnentry) differences never affect Status directly beyond "modified" —
 // they're surfaced via PoolDiffers instead, since pool composition is never auto-synced (see
 // SyncSpawnPoints) regardless of whether the row itself is new or modified.
-func (a *App) CompareSpawns(shortName string, version int8) ([]SpawnDiffRow, error) {
+//
+// zoneIdNumber (added alongside PathgridMissing) is only needed to check pathgrid against each
+// database's own `grid` rows — grid is keyed by zoneid, not zone.short_name, so it can't be
+// derived from shortName/version the way everything else here is.
+func (a *App) CompareSpawns(shortName string, version int8, zoneIdNumber int64) ([]SpawnDiffRow, error) {
 	sourcePoints, err := getSpawnPointsForZone(a.ctx, a.sourceDB, shortName, version)
 	if err != nil {
 		return nil, err
@@ -920,6 +1053,17 @@ func (a *App) CompareSpawns(shortName string, version int8) ([]SpawnDiffRow, err
 	if err := resolveOrphanedPoolNames(a.ctx, sourcePoints, a.sinkDB); err != nil {
 		return nil, err
 	}
+
+	sourceGridIds, err := fetchZoneGridIds(a.ctx, a.sourceDB, zoneIdNumber)
+	if err != nil {
+		return nil, err
+	}
+	sinkGridIds, err := fetchZoneGridIds(a.ctx, a.sinkDB, zoneIdNumber)
+	if err != nil {
+		return nil, err
+	}
+	annotatePathgridMissing(sourcePoints, sourceGridIds)
+	annotatePathgridMissing(sinkPoints, sinkGridIds)
 
 	sinkByCoord := make(map[[3]float64]SpawnPoint, len(sinkPoints))
 	for _, p := range sinkPoints {
@@ -1139,7 +1283,7 @@ func buildTODOItems(sourceNpc NPC, sinkNpc *NPC, zoneShortName string, zoneVersi
 		{"loottable_id", "loottable"},
 		{"npc_spells_id", "spells"},
 		{"npc_faction_id", "faction"},
-		{"merchantid", "merchant"},
+		{"merchant_id", "merchant"},
 		{"alt_currency_id", "alt_currency"},
 	}
 	name := fmt.Sprintf("%v", sourceNpc.Fields["name"])
@@ -1893,10 +2037,12 @@ func getSpawnPointsForZone(ctx context.Context, db *sql.DB, shortName string, ve
 			}
 			fields[k] = v
 		}
+		groupFields, groupExists := spawnGroupFieldsById[gid]
 		points = append(points, SpawnPoint{
 			Id:                  toInt64(s2["id"]),
 			SpawnGroupId:        gid,
-			SpawnGroupFields:    spawnGroupFieldsById[gid],
+			SpawnGroupFields:    groupFields,
+			SpawnGroupMissing:   !groupExists,
 			LocationSharedCount: sharedCount[gid] - 1, // "other" locations, not counting this one
 			Fields:              fields,
 			Pool:                poolByGroup[gid],
@@ -1978,40 +2124,6 @@ func poolsEqual(a, b []PoolEntry) bool {
 	return true
 }
 
-// spawnCandidatesForNPC filters an already-fetched zone's worth of spawn points down to the
-// ones containing npcId, in the spawnCandidate shape the creation path (used by both Sync()'s
-// per-NPC path and SyncSpawnPoints' "new" path) needs. Deliberately takes pre-fetched points
-// rather than querying itself — Sync() fetches the zone's spawn points once, not once per NPC
-// being synced, for the same reason getSpawnPointsForZone batches its own queries.
-func spawnCandidatesForNPC(points []SpawnPoint, npcId int64) []spawnCandidate {
-	var candidates []spawnCandidate
-	for _, p := range points {
-		var chance int64
-		found := false
-		for _, pe := range p.Pool {
-			if pe.NPCID == npcId {
-				chance = pe.Chance
-				found = true
-				break
-			}
-		}
-		if !found {
-			continue
-		}
-		candidates = append(candidates, spawnCandidate{
-			X:                toFloat64(p.Fields["x"]),
-			Y:                toFloat64(p.Fields["y"]),
-			Z:                toFloat64(p.Fields["z"]),
-			NPCID:            npcId,
-			Chance:           chance,
-			SharedPool:       len(p.Pool) > 1,
-			Spawn2Fields:     p.Fields,
-			SpawnGroupFields: p.SpawnGroupFields,
-		})
-	}
-	return candidates
-}
-
 // sinkSpawnPointExists reports whether the sink already has a spawn2 row at this exact
 // location in this zone/version — the signal used to detect "this spawn point already
 // exists, possibly serving a different NPC now" and skip rather than guess.
@@ -2081,61 +2193,13 @@ func insertRow(ctx context.Context, tx *sql.Tx, table string, fields map[string]
 	return result.LastInsertId()
 }
 
-// createSpawnPoint creates a fresh single-NPC spawngroup/spawnentry/spawn2 chain in the sink for
-// one spawn candidate — the machinery shared by Sync()'s per-NPC creation path and
-// SyncSpawnPoints' "new" path. Caller must have already confirmed !SharedPool and that no
-// conflicting sink spawn2 exists at these coordinates; this function doesn't re-check either.
-// sinkGridIds is the sink's own grid IDs for this zone (see fetchSinkGridIds) — used to decide
-// whether pathgrid is safe to copy; see the comment where it's applied below.
-func createSpawnPoint(ctx context.Context, tx *sql.Tx, zone string, version int8, c spawnCandidate, spawnGroupColumns, spawn2Columns map[string]bool, sinkGridIds map[int64]bool) error {
-	// spawngroup.name is UNIQUE on both databases, but source's own name is never guaranteed to
-	// be free in the sink — it's an auto-generated "Nth group created for this zone" label, local
-	// creation history, not shared content identity (same trap as spawngroup.id/spawn2.id). Try
-	// it verbatim first, since matching source exactly is the goal whenever nothing prevents it;
-	// only disambiguate if sink already has an unrelated group with that same name.
-	newSpawnGroupId, err := insertRow(ctx, tx, "spawngroup", c.SpawnGroupFields, spawnGroupColumns, nil)
-	if err != nil && isDuplicateEntryError(err) {
-		newSpawnGroupId, err = insertRow(ctx, tx, "spawngroup", c.SpawnGroupFields, spawnGroupColumns, map[string]interface{}{
-			"name": fmt.Sprintf("%v_npc%d", c.SpawnGroupFields["name"], c.NPCID),
-		})
-	}
-	if err != nil {
-		return fmt.Errorf("creating spawngroup: %w", err)
-	}
-	if _, err := tx.ExecContext(ctx,
-		"INSERT INTO spawnentry (spawngroupID, npcID, chance) VALUES (?, ?, ?)",
-		newSpawnGroupId, c.NPCID, c.Chance,
-	); err != nil {
-		return fmt.Errorf("creating spawnentry: %w", err)
-	}
-	// pathgrid copies verbatim only when it's safe to: source says "no patrol" (0, always safe),
-	// or the grid it references actually exists on the sink for this zone (checked via
-	// sinkGridIds, now that the Grids tab makes grid.id trustworthy within a zone — see
-	// updateSpawn2's matching comment for the fuller history). Falls back to 0 otherwise, same as
-	// before this check existed — still avoids a dangling reference to a grid row that doesn't
-	// exist in the sink, just no longer forces that outcome unconditionally.
-	pathgrid := int64(0)
-	if pg := toInt64(c.Spawn2Fields["pathgrid"]); pg != 0 && sinkGridIds[pg] {
-		pathgrid = pg
-	}
-	if _, err := insertRow(ctx, tx, "spawn2", c.Spawn2Fields, spawn2Columns, map[string]interface{}{
-		"spawngroupID": newSpawnGroupId,
-		"zone":         zone,
-		"version":      version,
-		"pathgrid":     pathgrid,
-	}); err != nil {
-		return fmt.Errorf("creating spawn2: %w", err)
-	}
-	return nil
-}
-
 // updateSpawn2 updates an existing sink spawn2 row's own columns to match source. Never touches
 // spawngroupID — pool composition differences are always flagged (see CompareSpawns'
 // PoolDiffers), never applied by this function, since a spawngroup can be shared by other spawn2
 // rows this call knows nothing about. pathgrid was unconditionally excluded until the Grids tab
 // shipped (2026-07-19) and made grid.id trustworthy within a zone — now it's copied whenever
 // source says "no patrol" (0, always safe) or the grid it references actually exists on the sink
-// for this zone (sinkGridIds, see fetchSinkGridIds); otherwise it's left out of the update
+// for this zone (sinkGridIds, see fetchZoneGridIds); otherwise it's left out of the update
 // entirely, same as before this check existed, so a still-missing grid doesn't get pointed at a
 // patrol path that doesn't exist there.
 func updateSpawn2(ctx context.Context, tx *sql.Tx, sinkId int64, sourceFields map[string]interface{}, sinkColumns map[string]bool, sinkGridIds map[int64]bool) error {
@@ -2233,47 +2297,14 @@ func (a *App) Sync(options SyncOptions) (SyncResult, error) {
 		sinkById[npc.Id] = npc
 	}
 
-	var sinkColumns, spawnGroupColumns, spawn2Columns map[string]bool
-	var sinkGridIds map[int64]bool
+	var sinkColumns map[string]bool
 	var tx *sql.Tx
-	// claimedThisSync tracks spawn2 coordinates already committed to being created earlier in
-	// this same Sync() call — necessary because sinkSpawnPointExists() queries a.sinkDB (the
-	// connection pool), which can't see this transaction's own uncommitted writes, and because
-	// dry runs have no transaction to check against at all. Without this, two NPCs sharing
-	// nearby spawn locations (even after the shared-pool check above) could each independently
-	// decide "no conflict" and create duplicate spawn points at the same coordinates.
-	claimedThisSync := make(map[[3]float64]int64)
 	if !options.DryRun {
 		sinkColumns, err = getSinkColumns(a.ctx, a.sinkDB, "npc_types")
 		if err != nil {
 			return result, err
 		}
-		if options.SyncSpawns {
-			spawnGroupColumns, err = getSinkColumns(a.ctx, a.sinkDB, "spawngroup")
-			if err != nil {
-				return result, err
-			}
-			spawn2Columns, err = getSinkColumns(a.ctx, a.sinkDB, "spawn2")
-			if err != nil {
-				return result, err
-			}
-			sinkGridIds, err = fetchSinkGridIds(a.ctx, a.sinkDB, options.ZoneIdNumber)
-			if err != nil {
-				return result, err
-			}
-		}
 		tx, err = a.sinkDB.BeginTx(a.ctx, nil)
-		if err != nil {
-			return result, err
-		}
-	}
-
-	// Fetched once for the whole zone, not once per NPC — this loop can process many NPCs in one
-	// call, and getSpawnPointsForZone already batches its own queries per-zone; calling it inside
-	// the loop would multiply that batching by NPC count instead of avoiding N+1 altogether.
-	var sourceSpawnPoints []SpawnPoint
-	if options.SyncSpawns {
-		sourceSpawnPoints, err = getSpawnPointsForZone(a.ctx, a.sourceDB, options.ZoneShortName, options.ZoneVersion)
 		if err != nil {
 			return result, err
 		}
@@ -2293,92 +2324,17 @@ func (a *App) Sync(options SyncOptions) (SyncResult, error) {
 		if npc, ok := sinkById[id]; ok {
 			sinkNpc = &npc
 		}
-		npcName := fmt.Sprintf("%v", sourceNpc.Fields["name"])
-
-		var spawnCandidates []spawnCandidate
-		if sinkNpc == nil && sourceNpc.HasSpawnPoint {
-			if !options.SyncSpawns {
-				result.Skipped = append(result.Skipped, SkippedNPC{
-					NPCID:  id,
-					Name:   npcName,
-					Reason: `needs a spawn point in the sink — enable "Create spawn points" to sync it`,
-				})
-				continue
-			}
-			spawnCandidates = spawnCandidatesForNPC(sourceSpawnPoints, id)
-			conflict := false
-			for _, c := range spawnCandidates {
-				if c.SharedPool {
-					result.Skipped = append(result.Skipped, SkippedNPC{
-						NPCID: id,
-						Name:  npcName,
-						Reason: fmt.Sprintf(
-							"spawn point at (%.2f, %.2f, %.2f) uses a shared spawngroup (other NPCs too), not a single-NPC spawn point — needs manual reconciliation",
-							c.X, c.Y, c.Z),
-					})
-					conflict = true
-					break
-				}
-				existingId, err := a.sinkSpawnPointExists(options.ZoneShortName, options.ZoneVersion, c.X, c.Y, c.Z)
-				if err != nil {
-					return result, err
-				}
-				if existingId != 0 {
-					result.Skipped = append(result.Skipped, SkippedNPC{
-						NPCID: id,
-						Name:  npcName,
-						Reason: fmt.Sprintf(
-							"spawn point at (%.2f, %.2f, %.2f) matches existing sink spawn2 #%d — needs manual reconciliation",
-							c.X, c.Y, c.Z, existingId),
-					})
-					conflict = true
-					break
-				}
-				if claimed, ok := claimedThisSync[[3]float64{c.X, c.Y, c.Z}]; ok {
-					result.Skipped = append(result.Skipped, SkippedNPC{
-						NPCID: id,
-						Name:  npcName,
-						Reason: fmt.Sprintf(
-							"spawn point at (%.2f, %.2f, %.2f) is also being created for NPC %d in this same sync — needs manual reconciliation",
-							c.X, c.Y, c.Z, claimed),
-					})
-					conflict = true
-					break
-				}
-			}
-			if conflict {
-				continue
-			}
-			for _, c := range spawnCandidates {
-				claimedThisSync[[3]float64{c.X, c.Y, c.Z}] = id
-			}
-		}
 
 		result.TODOItems = append(result.TODOItems, buildTODOItems(sourceNpc, sinkNpc, options.ZoneShortName, options.ZoneVersion)...)
 
 		if options.DryRun {
 			result.NPCsSynced = append(result.NPCsSynced, id)
-			if len(spawnCandidates) > 0 {
-				result.SpawnsCreatedForNPCs = append(result.SpawnsCreatedForNPCs, id)
-				result.SpawnsSynced += len(spawnCandidates)
-			}
 			continue
 		}
 
 		if err := upsertNPC(a.ctx, tx, sourceNpc.Fields, sinkColumns); err != nil {
 			_ = tx.Rollback()
 			return result, fmt.Errorf("NPC %d: %w", id, err)
-		}
-
-		for _, c := range spawnCandidates {
-			if err := createSpawnPoint(a.ctx, tx, options.ZoneShortName, options.ZoneVersion, c, spawnGroupColumns, spawn2Columns, sinkGridIds); err != nil {
-				_ = tx.Rollback()
-				return result, fmt.Errorf("NPC %d: %w", id, err)
-			}
-		}
-		if len(spawnCandidates) > 0 {
-			result.SpawnsCreatedForNPCs = append(result.SpawnsCreatedForNPCs, id)
-			result.SpawnsSynced += len(spawnCandidates)
 		}
 
 		result.NPCsSynced = append(result.NPCsSynced, id)
@@ -2400,9 +2356,14 @@ func (a *App) Sync(options SyncOptions) (SyncResult, error) {
 // same reasoning as the TODO tab being its own self-contained concern rather than merged into
 // NPC sync: keeps each transaction's blast radius scoped to one kind of change. Same dry-run/
 // execute duality as Sync(). "Modified" rows only ever update spawn2's own columns (never
-// spawngroupID — see updateSpawn2); "new" rows reuse createSpawnPoint, the exact machinery
-// Sync()'s per-NPC path already uses, so both entry points to "create a spawn point" share one
-// implementation.
+// spawngroupID — see updateSpawn2); "new" rows insert spawn2 verbatim, including its raw
+// spawngroupID value copied straight from source. That value has no cross-database meaning (see
+// CLAUDE.md's "Spawn point identity" notes) and will almost always be dangling on the sink — this
+// is deliberate, not a bug: this tab's job is syncing the spawn2 table, full stop, the same way
+// Sync() upserts npc_types regardless of whether other tables it references exist yet. A dangling
+// spawngroupID surfaces as SpawnPoint.SpawnGroupMissing (row flag + detail view, not a block) and
+// is resolved separately via SyncSpawnGroup, which now creates the missing spawngroup on demand —
+// see its own comment for how that closes the loop.
 func (a *App) SyncSpawnPoints(options SpawnSyncOptions) (SpawnSyncResult, error) {
 	result := SpawnSyncResult{DryRun: options.DryRun}
 
@@ -2431,7 +2392,7 @@ func (a *App) SyncSpawnPoints(options SpawnSyncOptions) (SpawnSyncResult, error)
 		sinkById[p.Id] = p
 	}
 
-	var spawn2Columns, spawnGroupColumns map[string]bool
+	var spawn2Columns map[string]bool
 	var sinkGridIds map[int64]bool
 	var tx *sql.Tx
 	if !options.DryRun {
@@ -2439,11 +2400,7 @@ func (a *App) SyncSpawnPoints(options SpawnSyncOptions) (SpawnSyncResult, error)
 		if err != nil {
 			return result, err
 		}
-		spawnGroupColumns, err = getSinkColumns(a.ctx, a.sinkDB, "spawngroup")
-		if err != nil {
-			return result, err
-		}
-		sinkGridIds, err = fetchSinkGridIds(a.ctx, a.sinkDB, options.ZoneIdNumber)
+		sinkGridIds, err = fetchZoneGridIds(a.ctx, a.sinkDB, options.ZoneIdNumber)
 		if err != nil {
 			return result, err
 		}
@@ -2476,22 +2433,14 @@ func (a *App) SyncSpawnPoints(options SpawnSyncOptions) (SpawnSyncResult, error)
 	}
 
 	// claimed tracks coordinates already committed to being created earlier in this same call —
-	// same reasoning as Sync()'s claimedThisSync: sinkSpawnPointExists() can't see this
-	// transaction's own uncommitted writes, and dry runs have no transaction to check at all.
+	// sinkSpawnPointExists() can't see this transaction's own uncommitted writes, and dry runs
+	// have no transaction to check at all.
 	claimed := make(map[[3]float64]bool)
 	for _, coord := range options.NewSpawnCoords {
 		sourcePoint, ok := sourceByCoord[coord]
 		if !ok {
 			result.Errors = append(result.Errors, fmt.Sprintf(
 				"spawn point at (%.2f, %.2f, %.2f): not found in source zone data", coord[0], coord[1], coord[2]))
-			continue
-		}
-		if len(sourcePoint.Pool) != 1 {
-			reason := "source spawngroup has no spawn entries"
-			if len(sourcePoint.Pool) > 1 {
-				reason = "uses a shared spawngroup (other NPCs too), not a single-NPC spawn point — needs manual reconciliation"
-			}
-			result.Skipped = append(result.Skipped, SkippedSpawn{X: coord[0], Y: coord[1], Z: coord[2], Reason: reason})
 			continue
 		}
 		if existingId, err := a.sinkSpawnPointExists(options.ZoneShortName, options.ZoneVersion, coord[0], coord[1], coord[2]); err != nil {
@@ -2514,15 +2463,21 @@ func (a *App) SyncSpawnPoints(options SpawnSyncOptions) (SpawnSyncResult, error)
 			result.Created++
 			continue
 		}
-		npc := sourcePoint.Pool[0]
-		candidate := spawnCandidate{
-			X: coord[0], Y: coord[1], Z: coord[2],
-			NPCID:            npc.NPCID,
-			Chance:           npc.Chance,
-			Spawn2Fields:     sourcePoint.Fields,
-			SpawnGroupFields: sourcePoint.SpawnGroupFields,
+		// pathgrid copies verbatim only when it's safe to: source says "no patrol" (0, always
+		// safe), or the grid it references actually exists on the sink for this zone (checked via
+		// sinkGridIds) — otherwise falls back to 0, same treatment updateSpawn2 already gives it.
+		// spawngroupID, unlike pathgrid, is copied verbatim unconditionally — see the function
+		// comment above for why a dangling value here is the intended behavior, not an oversight.
+		pathgrid := int64(0)
+		if pg := toInt64(sourcePoint.Fields["pathgrid"]); pg != 0 && sinkGridIds[pg] {
+			pathgrid = pg
 		}
-		if err := createSpawnPoint(a.ctx, tx, options.ZoneShortName, options.ZoneVersion, candidate, spawnGroupColumns, spawn2Columns, sinkGridIds); err != nil {
+		if _, err := insertRow(a.ctx, tx, "spawn2", sourcePoint.Fields, spawn2Columns, map[string]interface{}{
+			"spawngroupID": sourcePoint.SpawnGroupId,
+			"zone":         options.ZoneShortName,
+			"version":      options.ZoneVersion,
+			"pathgrid":     pathgrid,
+		}); err != nil {
 			_ = tx.Rollback()
 			return result, fmt.Errorf("spawn point at (%.2f, %.2f, %.2f): %w", coord[0], coord[1], coord[2], err)
 		}
@@ -2557,6 +2512,15 @@ func (a *App) SyncSpawnPoints(options SpawnSyncOptions) (SpawnSyncResult, error)
 // npcID values in spawnentry need no translation between databases — npc_types.id is the portable
 // identity this whole app is built on — so entries are a plain delete-and-reinsert once the safety
 // check above has cleared it; "name" is excluded from the fields update (see updateSpawnGroupFields).
+//
+// If sinkPoint.SpawnGroupMissing is true, the sink spawn2 row's spawngroupID is dangling — the raw
+// value SyncSpawnPoints copied verbatim from source doesn't correspond to any real sink spawngroup
+// row (see SyncSpawnPoints' comment). In that case this creates a fresh spawngroup instead of
+// updating one that doesn't exist, and repoints every sink spawn2 row in this zone/version still
+// carrying that same dangling id at the new one — not just the row identified by X/Y/Z — since a
+// shared spawngroup synced across many new spawn2 locations copies the identical raw source id to
+// each of them; without repointing every sibling, syncing one location's spawngroup would leave
+// the others still dangling.
 func (a *App) SyncSpawnGroup(options SyncSpawnGroupOptions) (SpawnGroupSyncResult, error) {
 	result := SpawnGroupSyncResult{DryRun: options.DryRun}
 
@@ -2601,10 +2565,15 @@ func (a *App) SyncSpawnGroup(options SyncSpawnGroupOptions) (SpawnGroupSyncResul
 	result.SpawnGroupName = fmt.Sprintf("%v", sourcePoint.SpawnGroupFields["name"])
 	result.EntriesBefore = len(sinkPoint.Pool)
 	result.EntriesAfter = len(sourcePoint.Pool)
-	result.FieldsChanged = !mapsEqual(
-		withoutFields(sourcePoint.SpawnGroupFields, "name"),
-		withoutFields(sinkPoint.SpawnGroupFields, "name"),
-	)
+	result.Created = sinkPoint.SpawnGroupMissing
+	if result.Created {
+		result.FieldsChanged = true // nothing on the sink to compare against yet — everything is new
+	} else {
+		result.FieldsChanged = !mapsEqual(
+			withoutFields(sourcePoint.SpawnGroupFields, "name"),
+			withoutFields(sinkPoint.SpawnGroupFields, "name"),
+		)
+	}
 
 	rows, err := a.sinkDB.QueryContext(a.ctx,
 		"SELECT zone, version, COUNT(*) FROM spawn2 WHERE spawngroupID = ? GROUP BY zone, version",
@@ -2643,18 +2612,50 @@ func (a *App) SyncSpawnGroup(options SyncSpawnGroupOptions) (SpawnGroupSyncResul
 	if err != nil {
 		return result, err
 	}
-	if err := updateSpawnGroupFields(a.ctx, tx, sinkPoint.SpawnGroupId, sourcePoint.SpawnGroupFields, sinkColumns); err != nil {
-		_ = tx.Rollback()
-		return result, fmt.Errorf("updating spawngroup fields: %w", err)
-	}
-	if _, err := tx.ExecContext(a.ctx, "DELETE FROM spawnentry WHERE spawngroupID = ?", sinkPoint.SpawnGroupId); err != nil {
-		_ = tx.Rollback()
-		return result, fmt.Errorf("clearing existing spawn entries: %w", err)
+
+	targetGroupId := sinkPoint.SpawnGroupId
+	if result.Created {
+		// spawngroup.name is UNIQUE on both databases, but source's own name is never guaranteed
+		// to be free in the sink — it's a local "Nth group created for this zone" label, not
+		// shared content identity (same trap as spawngroup.id/spawn2.id). Try it verbatim first;
+		// only disambiguate if sink already has an unrelated group with that same name.
+		newGroupId, err := insertRow(a.ctx, tx, "spawngroup", sourcePoint.SpawnGroupFields, sinkColumns, nil)
+		if err != nil && isDuplicateEntryError(err) {
+			newGroupId, err = insertRow(a.ctx, tx, "spawngroup", sourcePoint.SpawnGroupFields, sinkColumns, map[string]interface{}{
+				"name": fmt.Sprintf("%v_grp%d", sourcePoint.SpawnGroupFields["name"], sourcePoint.SpawnGroupId),
+			})
+		}
+		if err != nil {
+			_ = tx.Rollback()
+			return result, fmt.Errorf("creating spawngroup: %w", err)
+		}
+		// Repoint every sink spawn2 row in this zone/version still carrying the old dangling id —
+		// not just sinkPoint's own row — so a shared spawngroup synced across many new spawn2
+		// locations (all copied with the identical raw source spawngroupID, see SyncSpawnPoints)
+		// resolves to the one real spawngroup just created, not a separate dangling reference per
+		// location.
+		if _, err := tx.ExecContext(a.ctx,
+			"UPDATE spawn2 SET spawngroupID = ? WHERE spawngroupID = ? AND zone = ? AND version = ?",
+			newGroupId, targetGroupId, options.ZoneShortName, options.ZoneVersion,
+		); err != nil {
+			_ = tx.Rollback()
+			return result, fmt.Errorf("repointing spawn2 rows to new spawngroup: %w", err)
+		}
+		targetGroupId = newGroupId
+	} else {
+		if err := updateSpawnGroupFields(a.ctx, tx, targetGroupId, sourcePoint.SpawnGroupFields, sinkColumns); err != nil {
+			_ = tx.Rollback()
+			return result, fmt.Errorf("updating spawngroup fields: %w", err)
+		}
+		if _, err := tx.ExecContext(a.ctx, "DELETE FROM spawnentry WHERE spawngroupID = ?", targetGroupId); err != nil {
+			_ = tx.Rollback()
+			return result, fmt.Errorf("clearing existing spawn entries: %w", err)
+		}
 	}
 	for _, entry := range sourcePoint.Pool {
 		if _, err := tx.ExecContext(a.ctx,
 			"INSERT INTO spawnentry (spawngroupID, npcID, chance) VALUES (?, ?, ?)",
-			sinkPoint.SpawnGroupId, entry.NPCID, entry.Chance,
+			targetGroupId, entry.NPCID, entry.Chance,
 		); err != nil {
 			_ = tx.Rollback()
 			return result, fmt.Errorf("creating spawn entry for NPC %d: %w", entry.NPCID, err)
@@ -2666,12 +2667,12 @@ func (a *App) SyncSpawnGroup(options SyncSpawnGroupOptions) (SpawnGroupSyncResul
 	return result, nil
 }
 
-// fetchSinkGridIds returns the set of grid IDs that already exist on the sink for a zone — used to
-// decide whether copying a spawn2's pathgrid would create a dangling reference to a patrol path
-// that doesn't exist there (see updateSpawn2/createSpawnPoint). Deliberately just IDs, not the
-// full getGridsForZone fetch (fields + every waypoint) — that's much more data than this check
-// needs.
-func fetchSinkGridIds(ctx context.Context, db *sql.DB, zoneIdNumber int64) (map[int64]bool, error) {
+// fetchZoneGridIds returns the set of grid IDs that exist for a zone in the given database —
+// renamed from the sink-only fetchSinkGridIds once CompareSpawns started calling it against both
+// databases (see SpawnPoint.PathgridMissing) rather than just the sink at sync time (see
+// updateSpawn2/SyncSpawnPoints). Deliberately just IDs, not the full getGridsForZone fetch (fields
+// + every waypoint) — that's much more data than either use needs.
+func fetchZoneGridIds(ctx context.Context, db *sql.DB, zoneIdNumber int64) (map[int64]bool, error) {
 	rows, err := db.QueryContext(ctx, "SELECT id FROM grid WHERE zoneid = ?", zoneIdNumber)
 	if err != nil {
 		return nil, err

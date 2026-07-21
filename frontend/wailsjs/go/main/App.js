@@ -22,8 +22,8 @@ export function CompareSpawnGroups(arg1, arg2) {
   return window['go']['main']['App']['CompareSpawnGroups'](arg1, arg2);
 }
 
-export function CompareSpawns(arg1, arg2) {
-  return window['go']['main']['App']['CompareSpawns'](arg1, arg2);
+export function CompareSpawns(arg1, arg2, arg3) {
+  return window['go']['main']['App']['CompareSpawns'](arg1, arg2, arg3);
 }
 
 export function CompareZones(arg1, arg2, arg3) {

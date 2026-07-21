@@ -7,7 +7,10 @@ export const fieldGroups = {
     resistances: ['MR', 'CR', 'DR', 'FR', 'PR', 'Corrup', 'PhR'],
     ability_scores: ['STR', 'STA', 'DEX', 'AGI', 'INT', 'WIS', 'CHA'],
     behavior: ['aggroradius', 'assistradius', 'npc_aggro', 'always_aggro', 'see_invis', 'see_invis_undead', 'see_hide', 'trackable', 'flymode'],
-    references: ['loottable_id', 'npc_spells_id', 'npc_faction_id', 'merchantid', 'alt_currency_id']
+    // merchant_id, not merchantid — npc_types spells it with an underscore even though the table
+    // it points at (merchantlist) doesn't; confirmed via SHOW COLUMNS after "merchantid" here (and
+    // in app.go's referenceFKColumns/buildTODOItems) silently returned nothing for every NPC.
+    references: ['loottable_id', 'npc_spells_id', 'npc_faction_id', 'merchant_id', 'alt_currency_id']
 }
 
 // Which References fields currently have a working source-vs-sink comparison drawer — extend this
@@ -18,14 +21,7 @@ export const fieldGroups = {
 export const referenceComparisonTypes = {
     npc_faction_id: 'faction',
     npc_spells_id: 'spells',
-    merchantid: 'merchant'
-}
-
-// A "new" NPC that needs a real spawn point can't sync unless the "Create spawn points" checkbox
-// (syncSpawns) is on — takes syncSpawns as a parameter rather than closing over it so this stays
-// a pure function testable/movable independent of component state.
-export function needsSpawnPoint(row, syncSpawns) {
-    return row.Status === 'new' && row.Source?.HasSpawnPoint && !syncSpawns
+    merchant_id: 'merchant'
 }
 
 // Mirrors spawnRowMatchesSearch's shape for the NPCs tab — matches either side's name, since a
@@ -35,4 +31,13 @@ export function npcRowMatchesSearch(row, query) {
     const q = query.trim().toLowerCase()
     return (row.Source?.Fields?.name ?? '').toLowerCase().includes(q) ||
         (row.Sink?.Fields?.name ?? '').toLowerCase().includes(q)
+}
+
+// True if either side's NPC.MissingReferences (npc_faction_id/npc_spells_id/merchant_id pointing
+// at a row that doesn't exist in that same database — see app.go's annotateMissingReferences)
+// has anything in it — drives the diff list's row-level flag, the same "subtle badge before you
+// even open the detail view" treatment SpawnsTab gives SpawnGroupMissing/PathgridMissing.
+export function npcRowHasMissingReferences(row) {
+    return Object.keys(row.Source?.MissingReferences ?? {}).length > 0 ||
+        Object.keys(row.Sink?.MissingReferences ?? {}).length > 0
 }

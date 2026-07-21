@@ -1,8 +1,9 @@
 import {useState} from 'react';
 
-// Read-only content for the merchantid reference drawer — the third reference type built. Simpler
+// Read-only content for the merchant_id reference drawer — the third reference type built. Simpler
 // than FactionComparison/SpellsComparison in one respect: merchantlist has no separate header/
-// parent row (npc_types.merchantid points straight at merchantlist rows), so there's no "profile"
+// parent row (npc_types.merchant_id points straight at merchantlist rows — the two tables spell it
+// differently, npc_types.merchant_id vs merchantlist.merchantid), so there's no "profile"
 // section here, just entries. Each entry has ~15 comparable fields (faction/level/status
 // requirements, alt currency cost, probability, bucket conditions, etc.) — dense enough that
 // entries collapse by default, the same shape SpellsComparison already uses for the same reason.
@@ -54,6 +55,11 @@ function MerchantComparison({comparison}) {
     }
 
     const entries = comparison.Entries ?? []
+    // merchantlist has no single header row the way npc_faction/npc_spells do (see the module
+    // comment) — a merchant_id "exists" only in the sense of having at least one merchantlist row,
+    // so that's what "dangling" means here: a nonzero id with zero rows on that side.
+    const sourceHasEntries = entries.some(e => e.SourceExists)
+    const sinkHasEntries = entries.some(e => e.SinkExists)
 
     return (
         <>
@@ -63,8 +69,14 @@ function MerchantComparison({comparison}) {
             {comparison.SinkId === 0 && (
                 <div className="text-xs text-amber-400">This NPC has no merchant list on sink.</div>
             )}
+            {comparison.SourceId !== 0 && !sourceHasEntries && (
+                <div className="text-xs text-red-400">⚠ No merchant inventory found for merchant_id {comparison.SourceId} in source.</div>
+            )}
+            {comparison.SinkId !== 0 && !sinkHasEntries && (
+                <div className="text-xs text-red-400">⚠ No merchant inventory found for merchant_id {comparison.SinkId} in sink — likely copied verbatim from source by npc_types sync.</div>
+            )}
             <div className="flex justify-between px-2 py-0.5 text-xs">
-                <span className="w-32 shrink-0 text-gray-500">merchantid</span>
+                <span className="w-32 shrink-0 text-gray-500">merchant_id</span>
                 <span className="flex-1 text-gray-500">{comparison.SourceId || '—'}</span>
                 <span className="px-1 text-gray-600">→</span>
                 <span className="flex-1 text-right text-gray-500">{comparison.SinkId || '—'}</span>

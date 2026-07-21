@@ -65,14 +65,21 @@ function ConfirmSpawnGroupSyncModal({
                             You are about to write to:
                             <div className="text-yellow-400 font-medium">{dbSinkName} (sink)</div>
                         </div>
+                        {spawnGroupSyncPreview.Created && (
+                            <div className="text-sm text-cyan-400">
+                                This spawngroup doesn't exist in the sink yet — a new one will be created, and every sink spawn2 row currently pointing at the same dangling spawngroupID will be repointed at it.
+                            </div>
+                        )}
                         <div className="text-sm text-gray-300">
                             Spawngroup "{spawnGroupSyncPreview.SpawnGroupName}": {spawnGroupSyncPreview.EntriesBefore} → {spawnGroupSyncPreview.EntriesAfter} entries
                         </div>
-                        <div className={`text-sm ${spawnGroupSyncPreview.FieldsChanged ? 'text-cyan-400' : 'text-gray-500'}`}>
-                            {spawnGroupSyncPreview.FieldsChanged
-                                ? 'Its own fields (spawn_limit, wander box, timing, etc.) also differ and will be updated to match source.'
-                                : 'Its own fields already match source — only entries will change.'}
-                        </div>
+                        {!spawnGroupSyncPreview.Created && (
+                            <div className={`text-sm ${spawnGroupSyncPreview.FieldsChanged ? 'text-cyan-400' : 'text-gray-500'}`}>
+                                {spawnGroupSyncPreview.FieldsChanged
+                                    ? 'Its own fields (spawn_limit, wander box, timing, etc.) also differ and will be updated to match source.'
+                                    : 'Its own fields already match source — only entries will change.'}
+                            </div>
+                        )}
                         <div className="flex flex-col gap-1 text-xs max-h-48 overflow-y-auto">
                             <div className="flex text-gray-500">
                                 <span className="flex-1">NPC</span>

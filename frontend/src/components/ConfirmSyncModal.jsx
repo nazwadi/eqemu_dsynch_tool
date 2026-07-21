@@ -32,11 +32,6 @@ function ConfirmSyncModal({showSyncConfirm, setShowSyncConfirm, dbSinkName, sync
                     {syncPreview?.NPCsSynced?.length ?? 0} NPCs will be upserted
                     {syncPreview?.Skipped?.length > 0 && ` (${syncPreview.Skipped.length} skipped, see preview)`}
                 </div>
-                {syncPreview?.SpawnsSynced > 0 && (
-                    <div className="text-sm text-cyan-400">
-                        {syncPreview.SpawnsSynced} new spawn point{syncPreview.SpawnsSynced === 1 ? '' : 's'} will be created ({syncPreview.SpawnsCreatedForNPCs?.length ?? 0} NPCs)
-                    </div>
-                )}
                 <div className="text-sm text-gray-300">
                     {syncPreview?.TODOItems?.length ?? 0} TODO items will be queued
                 </div>

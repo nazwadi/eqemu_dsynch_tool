@@ -1,6 +1,8 @@
+import {referenceComparisonTypes} from '../lib/npcHelpers';
+
 // TODO tab body: zone-scoped, grouped by Type, with Gmail-style archive semantics
 // (dismiss/restore, not delete — see CLAUDE.md's Sync Design section for the reasoning).
-function TodoTab({selectedZoneShortName, zoneTodoItems, showDismissedTodos, setShowDismissedTodos, jumpToNpc, toggleTodoDismissed}) {
+function TodoTab({selectedZoneShortName, zoneTodoItems, showDismissedTodos, setShowDismissedTodos, openTodoItem, toggleTodoDismissed}) {
     return (
         <div className="flex-1 flex flex-col overflow-hidden">
             <div className="flex items-center gap-2 px-3 py-2 border-b border-gray-700">
@@ -36,9 +38,12 @@ function TodoTab({selectedZoneShortName, zoneTodoItems, showDismissedTodos, setS
                     ).map(([type, items]) => (
                         <div key={type} className="flex flex-col gap-1">
                             <div className="text-xs text-gray-400 uppercase tracking-wider">{type} ({items.length})</div>
-                            {items.map(item => (
+                            {items.map(item => {
+                                const hasDrawer = Object.values(referenceComparisonTypes).includes(item.Type)
+                                return (
                                 <div key={item.ID} className="flex items-center gap-2 text-xs px-2 py-1 bg-gray-800 rounded">
-                                    <button onClick={() => jumpToNpc(item.NPCID)}
+                                    <button onClick={() => openTodoItem(item)}
+                                            title={hasDrawer ? 'View source vs sink comparison' : 'Jump to this NPC — no comparison view for this type yet'}
                                             className="text-gray-300 hover:text-yellow-400 cursor-pointer">
                                         {item.NPCName} ({item.NPCID})
                                     </button>
@@ -51,7 +56,8 @@ function TodoTab({selectedZoneShortName, zoneTodoItems, showDismissedTodos, setS
                                         {item.Dismissed ? 'Restore' : 'Dismiss'}
                                     </button>
                                 </div>
-                            ))}
+                                )
+                            })}
                         </div>
                     ))
                 )}

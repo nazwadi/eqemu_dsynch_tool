@@ -167,6 +167,18 @@ function SpawnsTab({
                                             <span className="text-amber-400 text-xs px-1"
                                                   title="Spawn entries differ from source — needs manual reconciliation">⚠</span>
                                         )}
+                                        {(row.Source?.SpawnGroupMissing || row.Sink?.SpawnGroupMissing) && (
+                                            <span className="text-red-400 text-xs px-1"
+                                                  title="References a spawngroupID that doesn't exist yet — sync its spawngroup (Spawngroups tab, or the 'Sync spawngroup from source' action in the detail panel) to create it">
+                                                missing spawngroup
+                                            </span>
+                                        )}
+                                        {(row.Source?.PathgridMissing || row.Sink?.PathgridMissing) && (
+                                            <span className="text-red-400 text-xs px-1"
+                                                  title="pathgrid references a grid that doesn't exist in this database yet — see the Behavior section in the detail panel">
+                                                missing grid
+                                            </span>
+                                        )}
                                         <div className="flex-1 text-xs px-2 py-1">
                                             {spawnRowLabel(row.Source)}
                                         </div>

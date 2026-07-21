@@ -1,16 +1,16 @@
-import {needsSpawnPoint, npcRowMatchesSearch} from '../lib/npcHelpers';
+import {npcRowHasMissingReferences, npcRowMatchesSearch} from '../lib/npcHelpers';
 import {statusOrder} from '../lib/constants';
 
 // NPCs tab body: the diff list (Show All/Differences/sort, checkbox selection) sliding to a sync
 // preview panel, mirrored by SpawnsTab for the Spawn Points tab. Kept as two sibling components
-// rather than one generic "DiffTab" since the two preview shapes (NPCsSynced/SpawnsSynced vs
+// rather than one generic "DiffTab" since the two preview shapes (NPCsSynced vs
 // Created/Updated/PoolDiffers) differ enough that a shared version would just be branching
 // internally — the same reasoning already used for the confirm modals.
 function NpcsTab({
     diffRows, diffLoading, diffFilter, setDiffFilter, npcSearchFilter, setNpcSearchFilter,
     sortBy, setSortBy, sortDir, setSortDir,
     selectableRows, selectedNPCs, setSelectedNPCs, selectedRowKey, setSelectedRowKey, setSelectedNpc,
-    syncSpawns, dbSourceName, dbSinkName, selectedZoneShortName,
+    dbSourceName, dbSinkName, selectedZoneShortName,
     showSyncPreview, setShowSyncPreview, syncPreview, syncing, syncOutcome, setShowSyncConfirm
 }) {
     return (
@@ -63,7 +63,6 @@ function NpcsTab({
                 <div className="flex items-center border-b border-gray-700 bg-gray-800">
                     <input type="checkbox"
                            className="accent-yellow-400 cursor-pointer w-3 h-3 mx-2"
-                           title="NPCs that need a spawn point in the sink can't be synced unless 'Create spawn points' (above) is checked"
                            checked={selectableRows.length > 0 && selectableRows.every(row => selectedNPCs.has(row.Source?.Id ?? row.Sink?.Id))}
                            onChange={(e) => {
                                if (e.target.checked) {
@@ -112,6 +111,7 @@ function NpcsTab({
                                 const rowKey = `${row.Source?.Id ?? ''}-${row.Sink?.Id ?? ''}`
                                 const npcId = row.Source?.Id ?? row.Sink?.Id
                                 const questSpawned = (row.Source ?? row.Sink)?.HasSpawnPoint === false
+                                const missingReferences = npcRowHasMissingReferences(row)
                                 return (
                                     <div key={rowKey}
                                          className={`flex items-center border-b border-gray-800 cursor-pointer ${
@@ -129,8 +129,6 @@ function NpcsTab({
                                         <input type="checkbox"
                                                className="accent-yellow-400 cursor-pointer w-3 h-3 mx-2 disabled:opacity-40 disabled:cursor-not-allowed"
                                                checked={selectedNPCs.has(npcId)}
-                                               disabled={needsSpawnPoint(row, syncSpawns)}
-                                               title={needsSpawnPoint(row, syncSpawns) ? "This NPC needs a spawn point in the sink — enable 'Create spawn points' above to sync it" : undefined}
                                                onChange={(e) => {
                                                    e.stopPropagation()
                                                    const newSet = new Set(selectedNPCs)
@@ -146,6 +144,10 @@ function NpcsTab({
                                         {questSpawned && (
                                             <span className="text-purple-400 text-xs px-1"
                                                   title="Quest-spawned — no static spawn point">⚡</span>
+                                        )}
+                                        {missingReferences && (
+                                            <span className="text-red-400 text-xs px-1"
+                                                  title="A faction/spells/merchant reference on this NPC doesn't exist in its own database — open the References section to see which">⚠</span>
                                         )}
                                         <div
                                             className="flex-1 text-xs px-2 py-1">{row.Source?.Fields?.name ? `${row.Source.Fields.name} (${row.Source?.Id})` : '-'}</div>
@@ -193,9 +195,7 @@ function NpcsTab({
                     {syncOutcome ? (
                         <div className="flex flex-col gap-3">
                             <div className="text-sm text-green-400">
-                                {syncOutcome.NPCsSynced?.length ?? 0} NPCs synced
-                                {syncOutcome.SpawnsSynced > 0 && `, ${syncOutcome.SpawnsSynced} spawn point${syncOutcome.SpawnsSynced === 1 ? '' : 's'} created`}
-                                , {syncOutcome.TODOItems?.length ?? 0} TODO items saved
+                                {syncOutcome.NPCsSynced?.length ?? 0} NPCs synced, {syncOutcome.TODOItems?.length ?? 0} TODO items saved
                             </div>
                             {syncOutcome.Skipped?.length > 0 && (
                                 <div className="flex flex-col gap-1">
@@ -229,7 +229,6 @@ function NpcsTab({
                                 <div className="text-xs text-gray-400 uppercase tracking-wider">
                                     {selectedNPCs.size} NPCs selected
                                     {syncPreview.NPCsSynced?.length > 0 && ` · ${syncPreview.NPCsSynced.length} will sync`}
-                                    {syncPreview.SpawnsSynced > 0 && ` (${syncPreview.SpawnsSynced} spawn point${syncPreview.SpawnsSynced === 1 ? '' : 's'})`}
                                     {syncPreview.Skipped?.length > 0 && ` · ${syncPreview.Skipped.length} skipped`}
                                 </div>
                                 {Array.from(selectedNPCs)
@@ -237,12 +236,11 @@ function NpcsTab({
                                         const row = diffRows.find(r => (r.Source?.Id ?? r.Sink?.Id) === id)
                                         const name = row?.Source?.Fields?.name ?? row?.Sink?.Fields?.name ?? `NPC ${id}`
                                         const skipped = syncPreview.Skipped?.find(s => s.NPCID === id)
-                                        const createsSpawnPoint = syncPreview.SpawnsCreatedForNPCs?.includes(id)
                                         const todoCount = syncPreview.TODOItems?.filter(t => t.NPCID === id).length ?? 0
-                                        return {id, name, row, skipped, createsSpawnPoint, todoCount}
+                                        return {id, name, row, skipped, todoCount}
                                     })
                                     .sort((a, b) => a.name.localeCompare(b.name))
-                                    .map(({id, name, row, skipped, createsSpawnPoint, todoCount}) => (
+                                    .map(({id, name, row, skipped, todoCount}) => (
                                         <div key={id} className="flex items-center gap-2 text-xs px-2 py-1">
                                             {skipped ? (
                                                 <>
@@ -256,11 +254,6 @@ function NpcsTab({
                                                         {row?.Status === 'new' ? '+' : '~'}
                                                     </span>
                                                     <span className="text-gray-300">{name} ({id})</span>
-                                                    {createsSpawnPoint && (
-                                                        <span className="text-cyan-400" title="A new spawngroup/spawnentry/spawn2 will be created for this NPC">
-                                                            + spawn point
-                                                        </span>
-                                                    )}
                                                     {todoCount > 0 && (
                                                         <span className="text-gray-500">{todoCount} TODO item{todoCount === 1 ? '' : 's'}</span>
                                                     )}

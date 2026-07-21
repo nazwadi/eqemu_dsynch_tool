@@ -36,7 +36,7 @@ import TodoTab from './components/TodoTab';
 import GridsTab from './components/GridsTab';
 import SpawngroupsTab from './components/SpawngroupsTab';
 import DetailPanel from './components/DetailPanel';
-import {needsSpawnPoint} from './lib/npcHelpers';
+import {referenceComparisonTypes} from './lib/npcHelpers';
 import {keysSharingSpawngroup, spawnCoords, spawnKey, spawnRowSelectable} from './lib/spawnHelpers';
 import {gridId, gridRowSelectable} from './lib/gridHelpers';
 
@@ -121,7 +121,6 @@ function App() {
     const [syncing, setSyncing] = useState(false)
     const [syncOutcome, setSyncOutcome] = useState(null)
     const [showSyncConfirm, setShowSyncConfirm] = useState(false)
-    const [syncSpawns, setSyncSpawns] = useState(false)
     const [activeView, setActiveView] = useState('npcs') // 'npcs' | 'todo' | 'spawns' | 'grids' | 'spawngroups'
     const [todoItems, setTodoItems] = useState([])
     const [showDismissedTodos, setShowDismissedTodos] = useState(false)
@@ -198,6 +197,21 @@ function App() {
         }
     }
 
+    // TODO items are zone-scoped already (see zoneTodoItems), so unlike jumpToNpc this never
+    // needs to switch zones — just decide where clicking the item should actually take you.
+    // referenceComparisonTypes' values are the only drawer types that exist yet (faction/spells/
+    // merchant); TODOItem.Type uses the exact same strings by design (see buildTODOItems' fkFields
+    // in app.go), so no translation is needed, just a membership check. loottable/alt_currency
+    // items have no drawer built yet, so they still fall back to the older "just show me the NPC"
+    // behavior rather than being dead clicks.
+    function openTodoItem(item) {
+        if (Object.values(referenceComparisonTypes).includes(item.Type)) {
+            openReferenceComparison(item.Type, item.SourceID, item.SinkID)
+        } else {
+            jumpToNpc(item.NPCID)
+        }
+    }
+
     useEffect(() => {
         refreshTodoItems()
     }, [])
@@ -208,7 +222,6 @@ function App() {
             ZoneVersion: selectedZoneVersion,
             ZoneIdNumber: selectedZoneIdNumber,
             SyncNPCTypes: true,
-            SyncSpawns: syncSpawns,
             DryRun: dryRun,
             NPCIds: Array.from(selectedNPCs)
         })
@@ -223,7 +236,7 @@ function App() {
                 setSelectedNpc(null)
                 setSelectedRowKey(null)
                 refreshTodoItems()
-                return CompareZones(selectedZoneShortName, selectedZoneVersion, selectedZoneIdNumber).then(setDiffRows)
+                return CompareZones(selectedZoneShortName, selectedZoneVersion, selectedZoneIdNumber).then(rows => setDiffRows(rows ?? []))
             })
             .catch(err => setSyncOutcome({Errors: [String(err)]}))
             .finally(() => setSyncing(false))
@@ -233,8 +246,8 @@ function App() {
         if (!selectedZoneShortName) return
         setSpawnDiffLoading(true)
         setSpawnDiffRows([])
-        CompareSpawns(selectedZoneShortName, selectedZoneVersion)
-            .then(setSpawnDiffRows)
+        CompareSpawns(selectedZoneShortName, selectedZoneVersion, selectedZoneIdNumber)
+            .then(rows => setSpawnDiffRows(rows ?? []))
             .catch(err => console.error("compare spawns failed:", err))
             .finally(() => setSpawnDiffLoading(false))
     }
@@ -314,17 +327,20 @@ function App() {
     // References row is clickable in the first place). Only 'faction' exists today; adding
     // 'spells'/'merchant'/'loot' later means one more branch here plus that type's own Compare*
     // call, not a rework of this function's shape.
-    function openReferenceComparison(field, sourceVal, sinkVal) {
+    // Takes a drawer type directly ('faction' | 'spells' | 'merchant' — the same strings
+    // referenceComparisonTypes maps NPC field names to, and the same strings TODOItem.Type
+    // already uses, see openTodoItem below) rather than an NPC field name — the field→type
+    // lookup now happens at each trigger's own call site (DetailPanel's References row, or
+    // directly for a TODO item), since a TODO item never has an NPC field name to translate from.
+    function openReferenceComparison(type, sourceVal, sinkVal) {
         setShowReferenceDrawer(true)
         setReferenceDrawerData(null)
-        if (field === 'npc_faction_id') {
-            setReferenceDrawerType('faction')
+        setReferenceDrawerType(type)
+        if (type === 'faction') {
             CompareNPCFaction(sourceVal ?? 0, sinkVal ?? 0).then(setReferenceDrawerData)
-        } else if (field === 'npc_spells_id') {
-            setReferenceDrawerType('spells')
+        } else if (type === 'spells') {
             CompareNPCSpells(sourceVal ?? 0, sinkVal ?? 0).then(setReferenceDrawerData)
-        } else if (field === 'merchantid') {
-            setReferenceDrawerType('merchant')
+        } else if (type === 'merchant') {
             CompareNPCMerchant(sourceVal ?? 0, sinkVal ?? 0).then(setReferenceDrawerData)
         }
     }
@@ -375,7 +391,7 @@ function App() {
         setGridDiffLoading(true)
         setGridDiffRows([])
         CompareGrids(selectedZoneIdNumber)
-            .then(setGridDiffRows)
+            .then(rows => setGridDiffRows(rows ?? []))
             .catch(err => console.error("compare grids failed:", err))
             .finally(() => setGridDiffLoading(false))
     }
@@ -385,7 +401,7 @@ function App() {
         setSpawnGroupDiffLoading(true)
         setSpawnGroupDiffRows([])
         CompareSpawnGroups(selectedZoneShortName, selectedZoneVersion)
-            .then(setSpawnGroupDiffRows)
+            .then(rows => setSpawnGroupDiffRows(rows ?? []))
             .catch(err => console.error("compare spawngroups failed:", err))
             .finally(() => setSpawnGroupDiffLoading(false))
     }
@@ -405,7 +421,7 @@ function App() {
         setDiffRows([])
         setDiffLoading(true)
         CompareZones(zone.ShortName, zone.Version, zone.ZoneIdNumber)
-            .then(setDiffRows)
+            .then(rows => setDiffRows(rows ?? []))
             .catch(err => console.error("compare zones failed:", err))
             .finally(() => setDiffLoading(false))
         setSelectedSpawnKeys(new Set())
@@ -414,8 +430,8 @@ function App() {
         setSpawnSyncOutcome(null)
         setSpawnDiffRows([])
         setSpawnDiffLoading(true)
-        CompareSpawns(zone.ShortName, zone.Version)
-            .then(setSpawnDiffRows)
+        CompareSpawns(zone.ShortName, zone.Version, zone.ZoneIdNumber)
+            .then(rows => setSpawnDiffRows(rows ?? []))
             .catch(err => console.error("compare spawns failed:", err))
             .finally(() => setSpawnDiffLoading(false))
         setSelectedGridIds(new Set())
@@ -425,14 +441,14 @@ function App() {
         setGridDiffRows([])
         setGridDiffLoading(true)
         CompareGrids(zone.ZoneIdNumber)
-            .then(setGridDiffRows)
+            .then(rows => setGridDiffRows(rows ?? []))
             .catch(err => console.error("compare grids failed:", err))
             .finally(() => setGridDiffLoading(false))
         setSelectedSpawnGroupRow(null)
         setSpawnGroupDiffRows([])
         setSpawnGroupDiffLoading(true)
         CompareSpawnGroups(zone.ShortName, zone.Version)
-            .then(setSpawnGroupDiffRows)
+            .then(rows => setSpawnGroupDiffRows(rows ?? []))
             .catch(err => console.error("compare spawngroups failed:", err))
             .finally(() => setSpawnGroupDiffLoading(false))
     }
@@ -551,7 +567,7 @@ function App() {
     // diffRows.length — otherwise this number would count "removed"/"match" rows too, which
     // aren't actionable and are already visible via the +/~/- badges when this tab is active.
     const npcActionableCount = newCount + modifiedCount
-    const selectableRows = diffRows.filter(row => (diffFilter === 'all' || row.Status !== 'match') && !needsSpawnPoint(row, syncSpawns))
+    const selectableRows = diffRows.filter(row => diffFilter === 'all' || row.Status !== 'match')
     const zoneTodoItems = todoItems.filter(t => t.ZoneName === selectedZoneShortName && t.ZoneVersion === selectedZoneVersion)
     const openZoneTodoCount = zoneTodoItems.filter(t => !t.Dismissed).length
     const spawnNewCount = spawnDiffRows?.filter(r => r.Status === 'new').length
@@ -759,15 +775,6 @@ function App() {
                         </>}
                         {activeView === 'npcs' && (
                             <>
-                                <label className={`flex items-center gap-1 text-xs ${showSyncPreview ? 'text-gray-600 cursor-not-allowed' : 'text-gray-400 cursor-pointer'}`}>
-                                    <input type="checkbox"
-                                           className="accent-yellow-400 cursor-pointer w-3 h-3 disabled:cursor-not-allowed"
-                                           checked={syncSpawns}
-                                           disabled={showSyncPreview}
-                                           onChange={e => setSyncSpawns(e.target.checked)}
-                                           title={showSyncPreview ? 'Go back to the diff view to change this — toggling it here would leave the preview out of sync with what executes' : 'When syncing a new NPC that needs a spawn point, also create it (spawngroup/spawnentry/spawn2) instead of skipping the NPC'}/>
-                                    Create spawn points
-                                </label>
                                 <button
                                     disabled={selectedNPCs.size === 0 || showSyncPreview}
                                     className={`px-3 py-1 rounded text-xs font-medium ${
@@ -867,7 +874,7 @@ function App() {
                             selectedNPCs={selectedNPCs} setSelectedNPCs={setSelectedNPCs}
                             selectedRowKey={selectedRowKey} setSelectedRowKey={setSelectedRowKey}
                             setSelectedNpc={setSelectedNpc}
-                            syncSpawns={syncSpawns} dbSourceName={dbSourceName} dbSinkName={dbSinkName}
+                            dbSourceName={dbSourceName} dbSinkName={dbSinkName}
                             selectedZoneShortName={selectedZoneShortName}
                             showSyncPreview={showSyncPreview} setShowSyncPreview={setShowSyncPreview}
                             syncPreview={syncPreview} syncing={syncing} syncOutcome={syncOutcome}
@@ -881,7 +888,7 @@ function App() {
                             selectedZoneShortName={selectedZoneShortName}
                             zoneTodoItems={zoneTodoItems}
                             showDismissedTodos={showDismissedTodos} setShowDismissedTodos={setShowDismissedTodos}
-                            jumpToNpc={jumpToNpc} toggleTodoDismissed={toggleTodoDismissed}
+                            openTodoItem={openTodoItem} toggleTodoDismissed={toggleTodoDismissed}
                         />
                     )}
 

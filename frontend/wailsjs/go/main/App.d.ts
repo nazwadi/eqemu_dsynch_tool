@@ -12,7 +12,7 @@ export function CompareNPCSpells(arg1:number,arg2:number):Promise<main.NPCSpells
 
 export function CompareSpawnGroups(arg1:string,arg2:number):Promise<Array<main.SpawnGroupDiffRow>>;
 
-export function CompareSpawns(arg1:string,arg2:number):Promise<Array<main.SpawnDiffRow>>;
+export function CompareSpawns(arg1:string,arg2:number,arg3:number):Promise<Array<main.SpawnDiffRow>>;
 
 export function CompareZones(arg1:string,arg2:number,arg3:number):Promise<Array<main.NPCDiffRow>>;
 

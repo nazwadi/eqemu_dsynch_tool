@@ -107,6 +107,15 @@ function SpellsComparison({comparison}) {
             {comparison.SinkId === 0 && (
                 <div className="text-xs text-amber-400">This NPC has no spell list on sink.</div>
             )}
+            {/* npc_spells_id is a local surrogate key (not portable) — a nonzero id with no
+                matching row means it's dangling, not just "differs," same distinction
+                SpawnPoint.SpawnGroupMissing draws for spawn2.spawngroupID. */}
+            {comparison.SourceId !== 0 && !sourceFields && (
+                <div className="text-xs text-red-400">⚠ npc_spells_id {comparison.SourceId} doesn't exist in source's npc_spells table.</div>
+            )}
+            {comparison.SinkId !== 0 && !sinkFields && (
+                <div className="text-xs text-red-400">⚠ npc_spells_id {comparison.SinkId} doesn't exist in sink's npc_spells table — likely copied verbatim from source by npc_types sync.</div>
+            )}
             {(sourceFields || sinkFields) && (
                 <div className="flex flex-col gap-1">
                     <div className="text-xs text-gray-400 uppercase tracking-wider">List Profile</div>

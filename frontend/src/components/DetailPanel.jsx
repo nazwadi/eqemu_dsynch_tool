@@ -78,17 +78,27 @@ function DetailPanel({
                                         // other field.
                                         const comparable = section === 'references' &&
                                             referenceComparisonTypes[field] && (srcVal || sinkVal)
+                                        // These FK columns are local surrogate IDs (see CLAUDE.md's
+                                        // identity trust model) copied verbatim by npc_types sync — a
+                                        // nonzero value that doesn't resolve in its OWN database is the
+                                        // same "dangling reference" situation as spawn2.spawngroupID,
+                                        // just surfaced per-field here instead of a top banner (this
+                                        // section can have up to three independently-dangling fields).
+                                        const srcMissing = section === 'references' && selectedNpc.Source?.MissingReferences?.[field]
+                                        const sinkMissing = section === 'references' && selectedNpc.Sink?.MissingReferences?.[field]
                                         return (
                                             <div key={field}
                                                  className={`flex justify-between px-2 py-0.5 ${comparable ? 'cursor-pointer hover:bg-gray-700 rounded' : ''}`}
-                                                 onClick={comparable ? () => openReferenceComparison(field, srcVal, sinkVal) : undefined}
+                                                 onClick={comparable ? () => openReferenceComparison(referenceComparisonTypes[field], srcVal, sinkVal) : undefined}
                                                  title={comparable ? 'View source vs sink comparison' : undefined}>
                                                 <span className={`w-24 shrink-0 ${comparable ? 'text-cyan-400 underline decoration-dotted' : 'text-gray-500'}`}>{field}</span>
                                                 <span
-                                                    className={differs ? 'text-yellow-400' : 'text-gray-400'}>{srcVal ?? '—'}</span>
+                                                    className={srcMissing ? 'text-red-400' : differs ? 'text-yellow-400' : 'text-gray-400'}
+                                                    title={srcMissing ? "Doesn't exist in source's own table" : undefined}>{srcVal ?? '—'}</span>
                                                 <span className="text-gray-600 px-1">→</span>
                                                 <span
-                                                    className={differs ? 'text-yellow-400' : 'text-gray-400'}>{sinkVal ?? '—'}</span>
+                                                    className={sinkMissing ? 'text-red-400' : differs ? 'text-yellow-400' : 'text-gray-400'}
+                                                    title={sinkMissing ? "Doesn't exist in sink's own table — likely copied verbatim by npc_types sync" : undefined}>{sinkVal ?? '—'}</span>
                                             </div>
                                         )
                                     })}
@@ -117,7 +127,19 @@ function DetailPanel({
                                             app that doesn't have a persistent header button, so keeping it
                                             unmissable the moment a differing row is selected matters more
                                             here than it would elsewhere. */}
-                                        {selectedSpawnRow.PoolDiffers && (
+                                        {selectedSpawnRow.Sink?.SpawnGroupMissing ? (
+                                            <div className="flex flex-col gap-1 px-2 py-1">
+                                                <div className="text-red-400 flex items-center gap-1">
+                                                    <span>⚠</span> This spawn point's spawngroupID doesn't exist in the sink yet — it has no spawn entries until its spawngroup is created.
+                                                </div>
+                                                <button
+                                                    onClick={() => openSyncSpawnGroupPreview(selectedSpawnRow)}
+                                                    className="text-xs text-red-400 hover:text-red-300 underline text-left"
+                                                    title="Create the missing spawngroup on the sink and populate it with source's spawn entries — repoints every sink spawn2 row sharing this same dangling reference, not just this one.">
+                                                    Sync spawngroup from source →
+                                                </button>
+                                            </div>
+                                        ) : selectedSpawnRow.PoolDiffers && (
                                             <div className="flex flex-col gap-1 px-2 py-1">
                                                 <div className="text-amber-400 flex items-center gap-1">
                                                     <span>⚠</span> Spawn entries differ from source — needs manual reconciliation
@@ -163,12 +185,21 @@ function DetailPanel({
                                                 const srcVal = selectedSpawnRow.Source?.Fields?.[field]
                                                 const sinkVal = selectedSpawnRow.Sink?.Fields?.[field]
                                                 const differs = srcVal !== sinkVal
+                                                // pathgrid is the one Behavior field that's also a foreign
+                                                // reference (to `grid`) — flagged the same way spawngroupID
+                                                // is, just inline on its own row instead of a top banner,
+                                                // since (unlike spawngroupID) a missing pathgrid target
+                                                // doesn't block anything this tab can sync.
+                                                const srcMissing = field === 'pathgrid' && selectedSpawnRow.Source?.PathgridMissing
+                                                const sinkMissing = field === 'pathgrid' && selectedSpawnRow.Sink?.PathgridMissing
                                                 return (
                                                     <div key={field} className="flex justify-between px-2 py-0.5">
                                                         <span className="text-gray-500 w-24 shrink-0">{field}</span>
-                                                        <span className={differs ? 'text-yellow-400' : 'text-gray-400'}>{srcVal ?? '—'}</span>
+                                                        <span className={srcMissing ? 'text-red-400' : differs ? 'text-yellow-400' : 'text-gray-400'}
+                                                              title={srcMissing ? "References a grid that doesn't exist in source for this zone" : undefined}>{srcVal ?? '—'}</span>
                                                         <span className="text-gray-600 px-1">→</span>
-                                                        <span className={differs ? 'text-yellow-400' : 'text-gray-400'}>{sinkVal ?? '—'}</span>
+                                                        <span className={sinkMissing ? 'text-red-400' : differs ? 'text-yellow-400' : 'text-gray-400'}
+                                                              title={sinkMissing ? "References a grid that doesn't exist in the sink for this zone yet" : undefined}>{sinkVal ?? '—'}</span>
                                                     </div>
                                                 )
                                             })}
