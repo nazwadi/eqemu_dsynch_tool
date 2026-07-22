@@ -215,6 +215,128 @@ export namespace main {
 	}
 	
 	
+	export class LootDropEntry {
+	    ItemID: number;
+	    ItemName: string;
+	    Fields: Record<string, any>;
+	
+	    static createFrom(source: any = {}) {
+	        return new LootDropEntry(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.ItemID = source["ItemID"];
+	        this.ItemName = source["ItemName"];
+	        this.Fields = source["Fields"];
+	    }
+	}
+	export class LootDrop {
+	    Id: number;
+	    Fields: Record<string, any>;
+	    SharedCount: number;
+	    Entries: LootDropEntry[];
+	
+	    static createFrom(source: any = {}) {
+	        return new LootDrop(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.Id = source["Id"];
+	        this.Fields = source["Fields"];
+	        this.SharedCount = source["SharedCount"];
+	        this.Entries = this.convertValues(source["Entries"], LootDropEntry);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
+	export class LootTableEntry {
+	    LootDropId: number;
+	    Fields: Record<string, any>;
+	    Drop?: LootDrop;
+	
+	    static createFrom(source: any = {}) {
+	        return new LootTableEntry(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.LootDropId = source["LootDropId"];
+	        this.Fields = source["Fields"];
+	        this.Drop = this.convertValues(source["Drop"], LootDrop);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class LootTable {
+	    Id: number;
+	    Fields: Record<string, any>;
+	    Entries: LootTableEntry[];
+	
+	    static createFrom(source: any = {}) {
+	        return new LootTable(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.Id = source["Id"];
+	        this.Fields = source["Fields"];
+	        this.Entries = this.convertValues(source["Entries"], LootTableEntry);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
 	export class NPC {
 	    Id: number;
 	    HasSpawnPoint: boolean;
@@ -338,6 +460,42 @@ export namespace main {
 		}
 	}
 	
+	export class NPCLootComparison {
+	    SourceId: number;
+	    SinkId: number;
+	    SourceTable?: LootTable;
+	    SinkTable?: LootTable;
+	
+	    static createFrom(source: any = {}) {
+	        return new NPCLootComparison(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.SourceId = source["SourceId"];
+	        this.SinkId = source["SinkId"];
+	        this.SourceTable = this.convertValues(source["SourceTable"], LootTable);
+	        this.SinkTable = this.convertValues(source["SinkTable"], LootTable);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class NPCMerchantEntryDiff {
 	    ItemID: number;
 	    ItemName: string;

@@ -3,12 +3,14 @@ import './App.css';
 import {
     CompareGrids,
     CompareNPCFaction,
+    CompareNPCLoot,
     CompareNPCMerchant,
     CompareNPCSpells,
     CompareSpawnGroups,
     CompareSpawns,
     CompareZones,
     Connect,
+    GetLootTable,
     GetZones,
     LoadConfig,
     LoadTODOItems,
@@ -35,8 +37,10 @@ import SpawnsTab from './components/SpawnsTab';
 import TodoTab from './components/TodoTab';
 import GridsTab from './components/GridsTab';
 import SpawngroupsTab from './components/SpawngroupsTab';
+import LootTab from './components/LootTab';
 import DetailPanel from './components/DetailPanel';
 import {referenceComparisonTypes} from './lib/npcHelpers';
+import {lootTableIdsForRow} from './lib/lootHelpers';
 import {keysSharingSpawngroup, spawnCoords, spawnKey, spawnRowSelectable} from './lib/spawnHelpers';
 import {gridId, gridRowSelectable} from './lib/gridHelpers';
 
@@ -179,6 +183,19 @@ function App() {
     const [spawnGroupDiffLoading, setSpawnGroupDiffLoading] = useState(false)
     const [spawnGroupDiffFilter, setSpawnGroupDiffFilter] = useState('all')
     const [selectedSpawnGroupRow, setSelectedSpawnGroupRow] = useState(null)
+
+    // Loot tab — read-only (phase 1), no bulk selection/diff-list like the other tabs. An NPC
+    // search (reusing diffRows, already zone-scoped) drives the normal two-sided lookup;
+    // lootRawSide/lootRawId are the one-sided "I already know the raw ID" fallback (see
+    // lib/lootHelpers.js for why a raw id can only ever target one side). lootComparison holds
+    // whichever of CompareNPCLoot's/GetLootTable's result shapes was last looked up, normalized to
+    // {SourceId, SinkId, SourceTable, SinkTable} either way so LootTab only needs one render path.
+    const [lootSearchFilter, setLootSearchFilter] = useState('')
+    const [lootRawSide, setLootRawSide] = useState('source')
+    const [lootRawId, setLootRawId] = useState('')
+    const [lootComparison, setLootComparison] = useState(null)
+    const [lootLoading, setLootLoading] = useState(false)
+    const [lootError, setLootError] = useState(null)
 
     function refreshTodoItems() {
         LoadTODOItems().then(items => setTodoItems(items ?? [])).catch(err => console.error("load todo items failed:", err))
@@ -406,6 +423,41 @@ function App() {
             .finally(() => setSpawnGroupDiffLoading(false))
     }
 
+    // Picking an NPC needs no extra Go round trip to find out which loottable_id to compare —
+    // both sides' values are already sitting in the NPCs tab's diffRows (CompareZones already
+    // fetched them as part of npc_types.*). CompareNPCLoot's own result shape already matches
+    // what LootTab expects, so it's used as-is.
+    function lookupLootByNpc(row) {
+        setLootLoading(true)
+        setLootError(null)
+        const {sourceId, sinkId} = lootTableIdsForRow(row)
+        CompareNPCLoot(sourceId, sinkId)
+            .then(setLootComparison)
+            .catch(err => setLootError(String(err)))
+            .finally(() => setLootLoading(false))
+    }
+
+    // The raw-ID fallback only ever targets one side (see lib/lootHelpers.js for why), so its
+    // result is normalized into the same {SourceId, SinkId, SourceTable, SinkTable} shape
+    // CompareNPCLoot returns, with the untouched side left at its zero value — LootTab renders
+    // both lookup modes through the one path either way.
+    function lookupLootByRawId() {
+        const id = Number(lootRawId)
+        if (!id) return
+        const isSource = lootRawSide === 'source'
+        setLootLoading(true)
+        setLootError(null)
+        GetLootTable(isSource, id)
+            .then(table => setLootComparison({
+                SourceId: isSource ? id : 0,
+                SinkId: isSource ? 0 : id,
+                SourceTable: isSource ? table : null,
+                SinkTable: isSource ? null : table
+            }))
+            .catch(err => setLootError(String(err)))
+            .finally(() => setLootLoading(false))
+    }
+
     // Resets both the NPC and spawn selection/preview state and kicks off both diffs — kept as
     // one function here (not in Sidebar) since it's genuine cross-cutting business logic touching
     // state from both tabs, not something a presentational sidebar component should own.
@@ -451,6 +503,12 @@ function App() {
             .then(rows => setSpawnGroupDiffRows(rows ?? []))
             .catch(err => console.error("compare spawngroups failed:", err))
             .finally(() => setSpawnGroupDiffLoading(false))
+        // Loot tab has no diff to reload (nothing's selected until an NPC/ID is looked up), just
+        // stale state to clear — the previous lookup was for an NPC in the OLD zone.
+        setLootSearchFilter('')
+        setLootRawId('')
+        setLootComparison(null)
+        setLootError(null)
     }
 
     // Builds one side's full ConnectionConfig (DB fields + SSH tunnel sub-config) from App.jsx
@@ -851,6 +909,11 @@ function App() {
                                 Grids{selectableGridRows.length > 0 && ` (${selectableGridRows.length})`}
                             </button>
                             <button
+                                onClick={() => setActiveView('loot')}
+                                className={`px-2 py-1 rounded text-xs border ${activeView === 'loot' ? 'border-yellow-400 text-yellow-400' : 'border-gray-600 text-gray-400 hover:border-gray-400'}`}>
+                                Loot
+                            </button>
+                            <button
                                 onClick={() => setActiveView('todo')}
                                 className={`px-2 py-1 rounded text-xs border ${activeView === 'todo' ? 'border-yellow-400 text-yellow-400' : 'border-gray-600 text-gray-400 hover:border-gray-400'}`}>
                                 TODO{openZoneTodoCount > 0 && ` (${openZoneTodoCount})`}
@@ -934,13 +997,27 @@ function App() {
                             selectedZoneShortName={selectedZoneShortName}
                         />
                     )}
+
+                    {/* Loot view */}
+                    {activeView === 'loot' && (
+                        <LootTab
+                            diffRows={diffRows}
+                            lootSearchFilter={lootSearchFilter} setLootSearchFilter={setLootSearchFilter}
+                            lootRawSide={lootRawSide} setLootRawSide={setLootRawSide}
+                            lootRawId={lootRawId} setLootRawId={setLootRawId}
+                            lootComparison={lootComparison} lootLoading={lootLoading} lootError={lootError}
+                            onSelectNpc={lookupLootByNpc} onLookupRawId={lookupLootByRawId}
+                            dbSourceName={dbSourceName} dbSinkName={dbSinkName}
+                            selectedZoneShortName={selectedZoneShortName}
+                        />
+                    )}
                     </div>
-                    {/* Drag handle + detail panel are omitted entirely on the TODO tab — it has no
-                        corresponding detail content (see DetailPanel), so hiding both lets the TODO
-                        list's flex-1 center panel reclaim that width instead of it sitting idle.
-                        This only affects the content row's width, not the header's — see the
-                        wrapper comment above. */}
-                    {activeView !== 'todo' && (
+                    {/* Drag handle + detail panel are omitted entirely on the TODO and Loot tabs —
+                        neither has corresponding detail-panel content (Loot's two-column tree
+                        already shows everything inline), so hiding both lets the center panel
+                        reclaim that width instead of it sitting idle. This only affects the
+                        content row's width, not the header's — see the wrapper comment above. */}
+                    {activeView !== 'todo' && activeView !== 'loot' && (
                         <>
                             <div
                                 className="w-1 bg-gray-700 hover:bg-yellow-400 cursor-col-resize"

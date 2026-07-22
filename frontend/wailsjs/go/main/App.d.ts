@@ -6,6 +6,8 @@ export function CompareGrids(arg1:number):Promise<Array<main.GridDiffRow>>;
 
 export function CompareNPCFaction(arg1:number,arg2:number):Promise<main.NPCFactionComparison>;
 
+export function CompareNPCLoot(arg1:number,arg2:number):Promise<main.NPCLootComparison>;
+
 export function CompareNPCMerchant(arg1:number,arg2:number):Promise<main.NPCMerchantComparison>;
 
 export function CompareNPCSpells(arg1:number,arg2:number):Promise<main.NPCSpellsComparison>;
@@ -17,6 +19,8 @@ export function CompareSpawns(arg1:string,arg2:number,arg3:number):Promise<Array
 export function CompareZones(arg1:string,arg2:number,arg3:number):Promise<Array<main.NPCDiffRow>>;
 
 export function Connect(arg1:main.ConnectionConfig,arg2:boolean):Promise<void>;
+
+export function GetLootTable(arg1:boolean,arg2:number):Promise<main.LootTable>;
 
 export function GetNPCsForZone(arg1:string,arg2:number,arg3:number,arg4:boolean):Promise<Array<main.NPC>>;
 

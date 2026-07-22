@@ -10,6 +10,10 @@ export function CompareNPCFaction(arg1, arg2) {
   return window['go']['main']['App']['CompareNPCFaction'](arg1, arg2);
 }
 
+export function CompareNPCLoot(arg1, arg2) {
+  return window['go']['main']['App']['CompareNPCLoot'](arg1, arg2);
+}
+
 export function CompareNPCMerchant(arg1, arg2) {
   return window['go']['main']['App']['CompareNPCMerchant'](arg1, arg2);
 }
@@ -32,6 +36,10 @@ export function CompareZones(arg1, arg2, arg3) {
 
 export function Connect(arg1, arg2) {
   return window['go']['main']['App']['Connect'](arg1, arg2);
+}
+
+export function GetLootTable(arg1, arg2) {
+  return window['go']['main']['App']['GetLootTable'](arg1, arg2);
 }
 
 export function GetNPCsForZone(arg1, arg2, arg3, arg4) {
