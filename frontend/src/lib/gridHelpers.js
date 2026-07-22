@@ -1,6 +1,6 @@
 // Pure helpers for the Grids tab. Simpler than spawnHelpers.js overall: grid.id is trustworthy
 // identity within a zone (see CLAUDE.md/GridPoint for why, unlike spawn2's coordinate matching),
-// and a grid isn't shared data the way a spawngroup is, so there's no FieldsDiffer/PoolDiffers
+// and a grid isn't shared data the way a spawngroup is, so there's no FieldsDiffer/SpawnEntriesDiffer
 // split to track here — a "modified" grid is fully syncable, fields and waypoints together.
 
 export function gridId(row) {

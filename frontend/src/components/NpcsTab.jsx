@@ -4,7 +4,7 @@ import {statusOrder} from '../lib/constants';
 // NPCs tab body: the diff list (Show All/Differences/sort, checkbox selection) sliding to a sync
 // preview panel, mirrored by SpawnsTab for the Spawn Points tab. Kept as two sibling components
 // rather than one generic "DiffTab" since the two preview shapes (NPCsSynced vs
-// Created/Updated/PoolDiffers) differ enough that a shared version would just be branching
+// Created/Updated/SpawnEntriesDiffer) differ enough that a shared version would just be branching
 // internally — the same reasoning already used for the confirm modals.
 function NpcsTab({
     diffRows, diffLoading, diffFilter, setDiffFilter, npcSearchFilter, setNpcSearchFilter,

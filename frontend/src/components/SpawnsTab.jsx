@@ -10,7 +10,7 @@ import {
 
 // Spawn Points tab body — mirrors NpcsTab's shape (diff list sliding to a sync preview) but with
 // its own sort keys (Status/Spawngroup/Shared), a spawngroup/NPC search filter, and the
-// FieldsDiffer-vs-PoolDiffers row treatment specific to spawn2 (see spawnEntriesOnly). Kept
+// FieldsDiffer-vs-SpawnEntriesDiffer row treatment specific to spawn2 (see spawnEntriesOnly). Kept
 // separate from NpcsTab rather than a shared generic component — see NpcsTab's header comment.
 function SpawnsTab({
     spawnDiffRows, spawnDiffLoading, spawnDiffFilter, setSpawnDiffFilter,
@@ -163,7 +163,7 @@ function SpawnsTab({
                                                 ×{sharedCount + 1} locations
                                             </span>
                                         )}
-                                        {row.PoolDiffers && (
+                                        {row.SpawnEntriesDiffer && (
                                             <span className="text-amber-400 text-xs px-1"
                                                   title="Spawn entries differ from source — needs manual reconciliation">⚠</span>
                                         )}
@@ -171,6 +171,12 @@ function SpawnsTab({
                                             <span className="text-red-400 text-xs px-1"
                                                   title="References a spawngroupID that doesn't exist yet — sync its spawngroup (Spawngroups tab, or the 'Sync spawngroup from source' action in the detail panel) to create it">
                                                 missing spawngroup
+                                            </span>
+                                        )}
+                                        {row.SpawnGroupCollisionRisk && (
+                                            <span className="text-red-400 text-xs px-1"
+                                                  title="This spawngroupID already exists on the sink, but nothing here referenced it before — almost certainly unrelated content sharing the same number by coincidence, not a real match">
+                                                ⚠ spawngroupID collision
                                             </span>
                                         )}
                                         {(row.Source?.PathgridMissing || row.Sink?.PathgridMissing) && (
@@ -291,7 +297,7 @@ function SpawnsTab({
                                                     <span className="text-gray-300">
                                                         {spawnRowLabel(point)}
                                                     </span>
-                                                    {row.PoolDiffers && (
+                                                    {row.SpawnEntriesDiffer && (
                                                         <span className="text-amber-400" title="Spawn entries differ — not touched by this sync">
                                                             entries differ
                                                         </span>

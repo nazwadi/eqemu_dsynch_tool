@@ -14,6 +14,7 @@ import {
     GetZones,
     LoadConfig,
     LoadTODOItems,
+    RelocateSpawnGroup,
     SaveConfig,
     SetTODOItemDismissed,
     Sync,
@@ -30,6 +31,7 @@ import FactionComparison from './components/FactionComparison';
 import SpellsComparison from './components/SpellsComparison';
 import MerchantComparison from './components/MerchantComparison';
 import ConfirmSpawnGroupSyncModal from './components/ConfirmSpawnGroupSyncModal';
+import ConfirmRelocateSpawnGroupModal from './components/ConfirmRelocateSpawnGroupModal';
 import ConfirmGridSyncModal from './components/ConfirmGridSyncModal';
 import Sidebar from './components/Sidebar';
 import NpcsTab from './components/NpcsTab';
@@ -156,15 +158,24 @@ function App() {
 
     // SyncSpawnGroup confirm modal — shared by two trigger points: the Spawn Points detail panel's
     // per-row action and the Spawngroups tab's own row action (see openSyncSpawnGroupPreview below).
-    // Coords/pools/source are captured at open time so the modal itself never needs to know which
+    // Coords/entries/source are captured at open time so the modal itself never needs to know which
     // tab triggered it.
     const [showSpawnGroupSyncConfirm, setShowSpawnGroupSyncConfirm] = useState(false)
     const [spawnGroupSyncPreview, setSpawnGroupSyncPreview] = useState(null)  // dry-run SpawnGroupSyncResult, null while loading
     const [spawnGroupSyncError, setSpawnGroupSyncError] = useState(null)  // unexpected Go-level error, separate from the "blocked"/"not found" outcomes the result itself carries
     const [syncingSpawnGroup, setSyncingSpawnGroup] = useState(false)
     const [spawnGroupSyncCoords, setSpawnGroupSyncCoords] = useState(null)  // [x,y,z] identifying the target spawngroup, for SyncSpawnGroup
-    const [spawnGroupSyncPools, setSpawnGroupSyncPools] = useState({source: [], sink: []})  // entry preview data for the confirm modal
+    const [spawnGroupSyncEntries, setSpawnGroupSyncEntries] = useState({source: [], sink: []})  // entry preview data for the confirm modal
     const [spawnGroupSyncSource, setSpawnGroupSyncSource] = useState(null)  // 'spawns' | 'spawngroups' — which tab's selection/diff-list to refresh after a successful sync
+
+    // RelocateSpawnGroup confirm modal — resolves a SpawnGroupCollisionRisk, triggered from the
+    // Spawn Points detail panel's collision-risk banner. relocateTarget captures everything the
+    // dry-run/execute calls need (the colliding id plus source's own group content) at open time.
+    const [showRelocateConfirm, setShowRelocateConfirm] = useState(false)
+    const [relocatePreview, setRelocatePreview] = useState(null)  // dry-run RelocateSpawnGroupResult, null while loading
+    const [relocateError, setRelocateError] = useState(null)
+    const [relocating, setRelocating] = useState(false)
+    const [relocateTarget, setRelocateTarget] = useState(null)  // {spawnGroupId, sourceFields, sourceEntries}
 
     // Grids tab
     const [gridDiffRows, setGridDiffRows] = useState([])
@@ -313,11 +324,11 @@ function App() {
     }
 
     // Shared entry point for both trigger sites — coords identify the target spawngroup (see
-    // SyncSpawnGroup), pools feed the confirm modal's entry preview table, and source tags which
+    // SyncSpawnGroup), entries feed the confirm modal's entry preview table, and source tags which
     // tab's selection/diff-list executeSyncSpawnGroup() should refresh afterward.
-    function openSyncSpawnGroupPreview(coords, pools, source) {
+    function openSyncSpawnGroupPreview(coords, entries, source) {
         setSpawnGroupSyncCoords(coords)
-        setSpawnGroupSyncPools(pools)
+        setSpawnGroupSyncEntries(entries)
         setSpawnGroupSyncSource(source)
         setShowSpawnGroupSyncConfirm(true)
         setSpawnGroupSyncPreview(null)
@@ -328,15 +339,15 @@ function App() {
     }
 
     // Triggered from the Spawn Points detail panel's per-row action — wraps the shared opener with
-    // the coordinate/pool extraction specific to a SpawnDiffRow shape.
+    // the coordinate/entries extraction specific to a SpawnDiffRow shape.
     function openSyncSpawnGroupPreviewFromSpawn(row) {
-        openSyncSpawnGroupPreview(spawnCoords(row), {source: row.Source?.Pool, sink: row.Sink?.Pool}, 'spawns')
+        openSyncSpawnGroupPreview(spawnCoords(row), {source: row.Source?.SpawnEntries, sink: row.Sink?.SpawnEntries}, 'spawns')
     }
 
     // Triggered from the Spawngroups tab's own row action — same shared opener, extraction
-    // specific to a SpawnGroupDiffRow shape (SampleCoord/SourcePool/SinkPool live directly on it).
+    // specific to a SpawnGroupDiffRow shape (SampleCoord/SourceSpawnEntries/SinkSpawnEntries live directly on it).
     function openSyncSpawnGroupPreviewFromSpawnGroup(row) {
-        openSyncSpawnGroupPreview(row.SampleCoord, {source: row.SourcePool, sink: row.SinkPool}, 'spawngroups')
+        openSyncSpawnGroupPreview(row.SampleCoord, {source: row.SourceSpawnEntries, sink: row.SinkSpawnEntries}, 'spawngroups')
     }
 
     // Single entry point for every reference-comparison drawer trigger, dispatched by field name
@@ -378,6 +389,48 @@ function App() {
             })
             .catch(err => setSpawnGroupSyncError(String(err)))
             .finally(() => setSyncingSpawnGroup(false))
+    }
+
+    function runRelocateSpawnGroup(target, dryRun) {
+        return RelocateSpawnGroup({
+            SpawnGroupId: target.spawnGroupId,
+            ZoneShortName: selectedZoneShortName,
+            ZoneVersion: selectedZoneVersion,
+            SourceFields: target.sourceFields,
+            SourceSpawnEntries: target.sourceEntries,
+            DryRun: dryRun
+        })
+    }
+
+    // Triggered from the Spawn Points detail panel's collision-risk banner — row.Source carries
+    // both the colliding id and the source content that should replace it once freed, so this
+    // needs no extra Go call beyond the dry-run preview itself.
+    function openRelocatePreview(row) {
+        const target = {
+            spawnGroupId: row.Source.SpawnGroupId,
+            sourceFields: row.Source.SpawnGroupFields,
+            sourceEntries: row.Source.SpawnEntries
+        }
+        setRelocateTarget(target)
+        setShowRelocateConfirm(true)
+        setRelocatePreview(null)
+        setRelocateError(null)
+        runRelocateSpawnGroup(target, true)
+            .then(setRelocatePreview)
+            .catch(err => setRelocateError(String(err)))
+    }
+
+    function executeRelocate() {
+        setRelocating(true)
+        runRelocateSpawnGroup(relocateTarget, false)
+            .then(() => {
+                setShowRelocateConfirm(false)
+                setRelocatePreview(null)
+                setSelectedSpawnRow(null)
+                loadSpawnDiffs()
+            })
+            .catch(err => setRelocateError(String(err)))
+            .finally(() => setRelocating(false))
     }
 
     function runGridSync(dryRun) {
@@ -632,14 +685,14 @@ function App() {
     const spawnModifiedCount = spawnDiffRows?.filter(r => r.Status === 'modified').length
     const spawnRemovedCount = spawnDiffRows?.filter(r => r.Status === 'removed').length
     const selectableSpawnRows = spawnDiffRows?.filter(spawnRowSelectable)
-    // PoolDiffers can be true on a "match"-status row (its own spawn2 fields match, only its spawn
+    // SpawnEntriesDiffer can be true on a "match"-status row (its own spawn2 fields match, only its spawn
     // entries differ) — invisible in the +/~/- badges above, which only count new/modified/removed.
     // Counted separately so a zone with only entry-level drift doesn't look clean at a glance.
-    const spawnEntriesDifferCount = spawnDiffRows?.filter(r => r.PoolDiffers).length
+    const spawnEntriesDifferCount = spawnDiffRows?.filter(r => r.SpawnEntriesDiffer).length
     // Mirrors npcActionableCount's semantics ("how much differs", not "how much is auto-syncable")
     // so the two tab badges answer the same kind of question — includes match-status rows whose
     // spawn entries differ, since those need a human's attention just as much as a "modified" row.
-    const spawnNeedsAttentionCount = spawnDiffRows?.filter(r => (r.Status !== 'match' && r.Status !== 'removed') || r.PoolDiffers).length
+    const spawnNeedsAttentionCount = spawnDiffRows?.filter(r => (r.Status !== 'match' && r.Status !== 'removed') || r.SpawnEntriesDiffer).length
     const gridNewCount = gridDiffRows.filter(r => r.Status === 'new').length
     const gridModifiedCount = gridDiffRows.filter(r => r.Status === 'modified').length
     const gridRemovedCount = gridDiffRows.filter(r => r.Status === 'removed').length
@@ -663,7 +716,7 @@ function App() {
         behavior: false,
         references: true,
         spawn_behavior: true,
-        spawn_pool: true
+        spawn_entries: true
     })
     return (
         <div id="App" className="h-screen bg-gray-900 text-white overflow-hidden flex flex-col">
@@ -709,9 +762,15 @@ function App() {
                 setShowSpawnGroupSyncConfirm={setShowSpawnGroupSyncConfirm}
                 spawnGroupSyncError={spawnGroupSyncError}
                 spawnGroupSyncPreview={spawnGroupSyncPreview}
-                sourcePool={spawnGroupSyncPools.source} sinkPool={spawnGroupSyncPools.sink}
+                sourceEntries={spawnGroupSyncEntries.source} sinkEntries={spawnGroupSyncEntries.sink}
                 syncingSpawnGroup={syncingSpawnGroup}
                 executeSyncSpawnGroup={executeSyncSpawnGroup}
+                dbSinkName={dbSinkName}
+            />
+            <ConfirmRelocateSpawnGroupModal
+                showRelocateConfirm={showRelocateConfirm} setShowRelocateConfirm={setShowRelocateConfirm}
+                relocateError={relocateError} relocatePreview={relocatePreview}
+                relocating={relocating} executeRelocate={executeRelocate}
                 dbSinkName={dbSinkName}
             />
             <ConfirmGridSyncModal
@@ -1047,6 +1106,7 @@ function App() {
                                 selectedSpawnRow={selectedSpawnRow}
                                 selectAllSharingSpawngroup={selectAllSharingSpawngroup}
                                 openSyncSpawnGroupPreview={openSyncSpawnGroupPreviewFromSpawn}
+                                openRelocatePreview={openRelocatePreview}
                                 selectedGridRow={selectedGridRow}
                                 selectedSpawnGroupRow={selectedSpawnGroupRow}
                                 openSyncSpawnGroupPreviewFromSpawnGroup={openSyncSpawnGroupPreviewFromSpawnGroup}

@@ -40,7 +40,7 @@ export function spawnRowMatchesSearch(row, query) {
     const q = query.trim().toLowerCase()
     return [row.Source, row.Sink].filter(Boolean).some(point =>
         (point.SpawnGroupFields?.name ?? '').toLowerCase().includes(q) ||
-        (point.Pool ?? []).some(pe => (pe.NPCName ?? '').toLowerCase().includes(q))
+        (point.SpawnEntries ?? []).some(se => (se.NPCName ?? '').toLowerCase().includes(q))
     )
 }
 
@@ -48,16 +48,18 @@ export function spawnRowMatchesSearch(row, query) {
 // weighted spawngroup shared across whichever NPCs are listed — surfaced here instead of just
 // showing a count so "what's here" is visible without opening the detail panel. Terminology
 // matches the EQEmu tables/editor (spawngroup, spawn entry), not a generic "pool", per direct
-// feedback that "Pool" wasn't recognizable vocabulary for someone editing this schema day to day.
+// feedback that "Pool" wasn't recognizable vocabulary for someone editing this schema day to day
+// — the Go field itself was later renamed the same way (SpawnPoint.Pool -> SpawnEntries), so the
+// name no longer only lives in this display-layer text.
 // Deliberately doesn't say "spawngroup" itself — spawnRowLabel() below prefixes that label
 // so it's clear this text is a preview of the linked spawngroup's contents, not the row's
 // own identity (the row is a spawn2 location; see the diff list's explanatory caption).
-export function spawnPoolSummary(point) {
-    if (!point || !point.Pool || point.Pool.length === 0) return '(no spawn entries)'
+export function spawnEntriesSummary(point) {
+    if (!point || !point.SpawnEntries || point.SpawnEntries.length === 0) return '(no spawn entries)'
     // NPCID always shown alongside the name, never hidden behind it — this tool is for devs
     // cross-referencing raw SQL, where the id is what you actually search/join on.
-    if (point.Pool.length === 1) return `${point.Pool[0].NPCName || 'Unknown NPC'} (${point.Pool[0].NPCID})`
-    return `${point.Pool.length} NPCs`
+    if (point.SpawnEntries.length === 1) return `${point.SpawnEntries[0].NPCName || 'Unknown NPC'} (${point.SpawnEntries[0].NPCID})`
+    return `${point.SpawnEntries.length} NPCs`
 }
 
 // The one-line "coordinates · spawngroup: preview" text used everywhere a spawn2 row is
@@ -65,22 +67,23 @@ export function spawnPoolSummary(point) {
 // distinction consistent instead of re-templating it at each call site.
 export function spawnRowLabel(point) {
     if (!point) return '-'
-    return `(${fmtCoord(Number(point.Fields.x))}, ${fmtCoord(Number(point.Fields.y))}, ${fmtCoord(Number(point.Fields.z))}) · spawngroup: ${spawnPoolSummary(point)}`
+    return `(${fmtCoord(Number(point.Fields.x))}, ${fmtCoord(Number(point.Fields.y))}, ${fmtCoord(Number(point.Fields.z))}) · spawngroup: ${spawnEntriesSummary(point)}`
 }
 
 // Merges source/sink spawn entries by NPCID so a detail panel can show a single table with both
 // sides' chance side by side, the same shape as the field-level source→sink comparisons elsewhere.
-// Takes the two Pool arrays directly (not a row object) so it works the same whether the caller is
-// a SpawnDiffRow (Source.Pool/Sink.Pool) or a SpawnGroupDiffRow (SourcePool/SinkPool directly).
-export function spawnEntryRows(sourcePool, sinkPool) {
+// Takes the two SpawnEntries arrays directly (not a row object) so it works the same whether the
+// caller is a SpawnDiffRow (Source.SpawnEntries/Sink.SpawnEntries) or a SpawnGroupDiffRow
+// (SourceSpawnEntries/SinkSpawnEntries directly).
+export function spawnEntryRows(sourceEntries, sinkEntries) {
     const byId = new Map()
-    for (const pe of sourcePool ?? []) {
-        byId.set(pe.NPCID, {npcId: pe.NPCID, name: pe.NPCName || `NPC ${pe.NPCID}`, srcChance: pe.Chance})
+    for (const se of sourceEntries ?? []) {
+        byId.set(se.NPCID, {npcId: se.NPCID, name: se.NPCName || `NPC ${se.NPCID}`, srcChance: se.Chance})
     }
-    for (const pe of sinkPool ?? []) {
-        const existing = byId.get(pe.NPCID) ?? {npcId: pe.NPCID, name: pe.NPCName || `NPC ${pe.NPCID}`}
-        existing.sinkChance = pe.Chance
-        byId.set(pe.NPCID, existing)
+    for (const se of sinkEntries ?? []) {
+        const existing = byId.get(se.NPCID) ?? {npcId: se.NPCID, name: se.NPCName || `NPC ${se.NPCID}`}
+        existing.sinkChance = se.Chance
+        byId.set(se.NPCID, existing)
     }
     return Array.from(byId.values())
         .map(r => ({...r, differs: r.srcChance !== r.sinkChance}))

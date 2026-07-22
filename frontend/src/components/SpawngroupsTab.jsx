@@ -67,14 +67,14 @@ function SpawngroupsTab({
                                         <span className="text-amber-400 text-xs px-1"
                                               title="Member locations resolved to more than one sink spawngroup — flagged for manual review">⚠</span>
                                     )}
-                                    {row.Status !== 'ambiguous' && row.PoolDiffers && (
+                                    {row.Status !== 'ambiguous' && row.SpawnEntriesDiffer && (
                                         <span className="text-amber-400 text-xs px-1" title="Spawn entries differ from source">⚠</span>
                                     )}
                                     <div className="flex-1 text-xs px-2 py-1">
-                                        {row.SourceGroupId ? spawnGroupRowLabel(row.Name, row.SourcePool, row.SourceLocationCount) : '-'}
+                                        {row.SourceGroupId ? spawnGroupRowLabel(row.Name, row.SourceSpawnEntries, row.SourceLocationCount) : '-'}
                                     </div>
                                     <div className="flex-1 text-xs px-2 py-1 border-l border-gray-700">
-                                        {row.SinkGroupId ? spawnGroupRowLabel(row.Name, row.SinkPool, row.SinkLocationCount) : '-'}
+                                        {row.SinkGroupId ? spawnGroupRowLabel(row.Name, row.SinkSpawnEntries, row.SinkLocationCount) : '-'}
                                     </div>
                                 </div>
                             )

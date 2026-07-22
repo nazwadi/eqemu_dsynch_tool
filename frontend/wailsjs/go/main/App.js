@@ -62,6 +62,10 @@ export function PickPrivateKeyFile() {
   return window['go']['main']['App']['PickPrivateKeyFile']();
 }
 
+export function RelocateSpawnGroup(arg1) {
+  return window['go']['main']['App']['RelocateSpawnGroup'](arg1);
+}
+
 export function SaveConfig(arg1) {
   return window['go']['main']['App']['SaveConfig'](arg1);
 }

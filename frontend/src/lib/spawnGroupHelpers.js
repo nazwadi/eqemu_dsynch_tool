@@ -20,19 +20,19 @@ export function spawnGroupRowSelectable(row) {
 }
 
 // A spawngroup with one spawn entry is a normal single-NPC spawn; more than one means a weighted
-// pool. Mirrors spawnPoolSummary's shape (frontend/src/lib/spawnHelpers.js) but reads directly off
-// a SpawnGroupDiffRow's own Source/SinkPool rather than a SpawnPoint's nested one.
-export function spawnGroupPoolSummary(pool) {
-    if (!pool || pool.length === 0) return '(no spawn entries)'
-    // NPCID always shown alongside the name, never hidden behind it — see spawnPoolSummary's
+// pool. Mirrors spawnEntriesSummary's shape (frontend/src/lib/spawnHelpers.js) but reads directly off
+// a SpawnGroupDiffRow's own Source/SinkSpawnEntries rather than a SpawnPoint's nested one.
+export function spawnGroupEntriesSummary(entries) {
+    if (!entries || entries.length === 0) return '(no spawn entries)'
+    // NPCID always shown alongside the name, never hidden behind it — see spawnEntriesSummary's
     // matching comment in spawnHelpers.js.
-    if (pool.length === 1) return `${pool[0].NPCName || 'Unknown NPC'} (${pool[0].NPCID})`
-    return `${pool.length} NPCs`
+    if (entries.length === 1) return `${entries[0].NPCName || 'Unknown NPC'} (${entries[0].NPCID})`
+    return `${entries.length} NPCs`
 }
 
 // The one-line "name · spawn entries preview · used at N locations" text for a diff-list row.
-export function spawnGroupRowLabel(name, pool, locationCount) {
+export function spawnGroupRowLabel(name, entries, locationCount) {
     if (name == null) return '-'
     const locations = locationCount === 1 ? '1 location' : `${locationCount ?? 0} locations`
-    return `"${name}" · ${spawnGroupPoolSummary(pool)} · ${locations}`
+    return `"${name}" · ${spawnGroupEntriesSummary(entries)} · ${locations}`
 }

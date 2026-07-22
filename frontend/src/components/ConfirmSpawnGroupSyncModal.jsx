@@ -4,15 +4,15 @@ import {spawnEntryRows} from '../lib/spawnHelpers';
 // Confirm-before-execute modal for SyncSpawnGroup — brings both a spawngroup's own fields
 // (spawn_limit, wander box, etc.) and its full spawnentry roster in line with source, together.
 // Shared by two trigger points: the Spawn Points detail panel's per-row "Sync spawngroup from
-// source" action, and the Spawngroups tab's own row action — both just need a source/sink Pool
-// pair and a SpawnGroupName/FieldsChanged/EntriesBefore/EntriesAfter result to render identically,
+// source" action, and the Spawngroups tab's own row action — both just need a source/sink spawn
+// entries pair and a SpawnGroupName/FieldsChanged/EntriesBefore/EntriesAfter result to render identically,
 // so this component doesn't need to know which tab triggered it. Three distinct outcomes are
 // rendered as separate branches (not one generic "preview" shape) since a blocked or not-found
 // result has nothing in common with a confirmable diff — see SyncSpawnGroup in CLAUDE.md for why
 // the cross-zone block exists.
 function ConfirmSpawnGroupSyncModal({
     showSpawnGroupSyncConfirm, setShowSpawnGroupSyncConfirm,
-    spawnGroupSyncError, spawnGroupSyncPreview, sourcePool, sinkPool,
+    spawnGroupSyncError, spawnGroupSyncPreview, sourceEntries, sinkEntries,
     syncingSpawnGroup, executeSyncSpawnGroup, dbSinkName
 }) {
     const spawnGroupSyncConfirmModalRef = useRef(null)
@@ -86,7 +86,7 @@ function ConfirmSpawnGroupSyncModal({
                                 <span className="w-24 text-right">Current (sink)</span>
                                 <span className="w-24 text-right">Will become</span>
                             </div>
-                            {spawnEntryRows(sourcePool, sinkPool).map(({npcId, name, srcChance, sinkChance, differs}) => (
+                            {spawnEntryRows(sourceEntries, sinkEntries).map(({npcId, name, srcChance, sinkChance, differs}) => (
                                 <div key={npcId} className={`flex ${differs ? 'text-yellow-400' : 'text-gray-400'}`}>
                                     <span className="flex-1">{name} ({npcId})</span>
                                     <span className="w-24 text-right">{sinkChance ?? '—'}</span>

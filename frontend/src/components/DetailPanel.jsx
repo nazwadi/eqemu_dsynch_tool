@@ -13,13 +13,13 @@ const detailPanelTitles = {
 // Right-hand detail panel, shared by all tabs — one component whose body branches on
 // activeView, exactly mirroring the pre-extraction structure (see CLAUDE.md: expandedSections is
 // one shared state object across NPC keys (identity, combat, ...) and spawn keys (spawn_behavior,
-// spawn_pool) precisely because they never collide, so collapsed/expanded state persists per
+// spawn_entries) precisely because they never collide, so collapsed/expanded state persists per
 // section across tab switches without extra plumbing — kept as-is rather than split into two
 // separate state objects, which would lose that.
 function DetailPanel({
     activeView, setShowSpawnHelp, detailWidth,
     selectedNpc, openReferenceComparison,
-    selectedSpawnRow, selectAllSharingSpawngroup, openSyncSpawnGroupPreview,
+    selectedSpawnRow, selectAllSharingSpawngroup, openSyncSpawnGroupPreview, openRelocatePreview,
     selectedGridRow,
     selectedSpawnGroupRow, openSyncSpawnGroupPreviewFromSpawnGroup,
     expandedSections, setExpandedSections
@@ -127,7 +127,19 @@ function DetailPanel({
                                             app that doesn't have a persistent header button, so keeping it
                                             unmissable the moment a differing row is selected matters more
                                             here than it would elsewhere. */}
-                                        {selectedSpawnRow.Sink?.SpawnGroupMissing ? (
+                                        {selectedSpawnRow.SpawnGroupCollisionRisk ? (
+                                            <div className="flex flex-col gap-1 px-2 py-1">
+                                                <div className="text-red-400 flex items-center gap-1">
+                                                    <span>⚠</span> This spawn point's spawngroupID ({selectedSpawnRow.Source?.SpawnGroupId}) already exists on the sink, but nothing referenced it here before syncing — almost certainly unrelated content that happens to share the same number, not a real match.
+                                                </div>
+                                                <button
+                                                    onClick={() => openRelocatePreview(selectedSpawnRow)}
+                                                    className="text-xs text-red-400 hover:text-red-300 underline text-left"
+                                                    title="Move whatever's currently at this ID to a new one (repointing anywhere else it's used), then recreate this ID with your source's spawngroup for this zone.">
+                                                    Relocate & reclaim spawngroup →
+                                                </button>
+                                            </div>
+                                        ) : selectedSpawnRow.Sink?.SpawnGroupMissing ? (
                                             <div className="flex flex-col gap-1 px-2 py-1">
                                                 <div className="text-red-400 flex items-center gap-1">
                                                     <span>⚠</span> This spawn point's spawngroupID doesn't exist in the sink yet — it has no spawn entries until its spawngroup is created.
@@ -139,7 +151,7 @@ function DetailPanel({
                                                     Sync spawngroup from source →
                                                 </button>
                                             </div>
-                                        ) : selectedSpawnRow.PoolDiffers && (
+                                        ) : selectedSpawnRow.SpawnEntriesDiffer && (
                                             <div className="flex flex-col gap-1 px-2 py-1">
                                                 <div className="text-amber-400 flex items-center gap-1">
                                                     <span>⚠</span> Spawn entries differ from source — needs manual reconciliation
@@ -213,16 +225,16 @@ function DetailPanel({
                                                 className="flex justify-between items-center py-1 px-2 bg-gray-800 rounded cursor-pointer hover:bg-gray-700"
                                                 onClick={() => setExpandedSections(prev => ({
                                                     ...prev,
-                                                    spawn_pool: !prev.spawn_pool
+                                                    spawn_entries: !prev.spawn_entries
                                                 }))}
                                             >
                                                 <span className="text-gray-400 uppercase tracking-wider text-xs">
-                                                    Spawn Entries{selectedSpawnRow.PoolDiffers ? ' ⚠' : ''}
+                                                    Spawn Entries{selectedSpawnRow.SpawnEntriesDiffer ? ' ⚠' : ''}
                                                     <span className="text-gray-500 normal-case tracking-normal"> — "{point?.SpawnGroupFields?.name ?? '—'}"</span>
                                                 </span>
-                                                <span className="text-gray-600">{expandedSections.spawn_pool ? '▾' : '▸'}</span>
+                                                <span className="text-gray-600">{expandedSections.spawn_entries ? '▾' : '▸'}</span>
                                             </div>
-                                            {expandedSections.spawn_pool && (
+                                            {expandedSections.spawn_entries && (
                                                 <div className="flex flex-col gap-0.5 px-2 py-1">
                                                     {sharedCount > 0 && (
                                                         <div className="flex items-center justify-between text-xs pb-1 gap-2">
@@ -245,7 +257,7 @@ function DetailPanel({
                                                         <span className="w-14 text-right">Src %</span>
                                                         <span className="w-14 text-right">Sink %</span>
                                                     </div>
-                                                    {spawnEntryRows(selectedSpawnRow.Source?.Pool, selectedSpawnRow.Sink?.Pool).map(({npcId, name, srcChance, sinkChance, differs}) => (
+                                                    {spawnEntryRows(selectedSpawnRow.Source?.SpawnEntries, selectedSpawnRow.Sink?.SpawnEntries).map(({npcId, name, srcChance, sinkChance, differs}) => (
                                                         <div key={npcId}
                                                              className={`flex text-xs ${differs ? 'text-yellow-400' : 'text-gray-400'}`}>
                                                             <span className="flex-1">{name} ({npcId})</span>
@@ -375,7 +387,7 @@ function DetailPanel({
                                         {spawnGroupRowSelectable(row) && (
                                             <div className="flex flex-col gap-1 px-2 py-1">
                                                 <div className="text-amber-400 flex items-center gap-1">
-                                                    <span>⚠</span> {row.FieldsDiffer && row.PoolDiffers
+                                                    <span>⚠</span> {row.FieldsDiffer && row.SpawnEntriesDiffer
                                                         ? 'Fields and spawn entries differ from source'
                                                         : row.FieldsDiffer
                                                             ? 'Fields differ from source'
@@ -433,7 +445,7 @@ function DetailPanel({
                                                 }))}
                                             >
                                                 <span className="text-gray-400 uppercase tracking-wider text-xs">
-                                                    Spawn Entries{row.PoolDiffers ? ' ⚠' : ''}
+                                                    Spawn Entries{row.SpawnEntriesDiffer ? ' ⚠' : ''}
                                                 </span>
                                                 <span className="text-gray-600">{(expandedSections.spawngroup_entries ?? true) ? '▾' : '▸'}</span>
                                             </div>
@@ -446,7 +458,7 @@ function DetailPanel({
                                                         <span className="w-14 text-right">Src %</span>
                                                         <span className="w-14 text-right">Sink %</span>
                                                     </div>
-                                                    {spawnEntryRows(row.SourcePool, row.SinkPool).map(({npcId, name, srcChance, sinkChance, differs}) => (
+                                                    {spawnEntryRows(row.SourceSpawnEntries, row.SinkSpawnEntries).map(({npcId, name, srcChance, sinkChance, differs}) => (
                                                         <div key={npcId}
                                                              className={`flex text-xs ${differs ? 'text-yellow-400' : 'text-gray-400'}`}>
                                                             <span className="flex-1">{name} ({npcId})</span>
