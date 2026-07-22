@@ -1,6 +1,6 @@
 # EQEmu Data Sync Tool
 
-A domain-aware database diff & sync tool for [EverQuest Emulator](https://github.com/EQEmu/Server) (EQEmu) servers. Think **Navicat Data Compare**, but it actually understands the EQEmu schema — spawn chains, shared loot/faction/spell tables, and all.
+A domain-aware database diff & sync tool for [EverQuest Emulator](https://github.com/EQEmu/Server) (EQEmu) servers. Think **Navicat Data Compare**, but it actually understands the EQEmu schema — spawn chains, patrol grids, and the shared loot/faction/spell/merchant tables, and all.
 
 ![Go](https://img.shields.io/badge/Go-1.25-00ADD8?logo=go&logoColor=white)
 ![Wails](https://img.shields.io/badge/Wails-v2-DF0000)
@@ -13,31 +13,30 @@ A domain-aware database diff & sync tool for [EverQuest Emulator](https://github
 
 If you run an EQEmu server, you've lived this: you build and test content — NPCs, spawns, loot — against a local or dev database, then need to push it to your live server. Generic DB sync tools don't know that `npc_types` is joined to `spawn2` through `spawngroup` and `spawnentry`, that `loottable_id` / `npc_faction_id` / `npc_spells_id` point at *shared* tables that can't be blindly overwritten per-NPC, or that your dev and live databases might have drifted schemas (136 columns vs. 131, in one real case).
 
-**EQEmu Data Sync Tool** is purpose-built for this workflow: connect to a source and sink database, pick a zone, and get an instant, field-level diff of every NPC in it — color-coded, sortable, and safe by design (it queues anything it can't sync safely instead of guessing).
+**EQEmu Data Sync Tool** connects to a source and sink database and gives you an instant, field-level diff for any zone — NPCs, spawn points, spawn groups, patrol grids, and the shared loot/faction/spell/merchant content they reference — color-coded, sortable, and safe by design: it flags or queues anything it can't sync safely instead of guessing.
 
 ## Features
 
-### Available now
-- **Dual DB connections** — connect to a source (dev) and sink (live) MariaDB/MySQL database side by side; credentials are saved locally so you only enter them once
-- **Zone browser** — searchable list of every zone in the source database, version-aware (EQEmu zones are keyed by `short_name` + `version`, so same-named zones with different content revisions are shown and synced separately)
-- **Schema-aware NPC diffing** — walks the real `spawn2 → spawngroup → spawnentry → npc_types` join chain and diffs *every* column, not a hardcoded subset. Also detects quest-spawned NPCs (e.g. Vex Thal) that have no static spawn point at all, via zone-ID-range matching, so they show up in the diff instead of being invisible — marked with a ⚡ badge
-- **Field-level detail view** — collapsible sections (Identity, Combat, Resistances, Ability Scores, Behavior, References) with differing values highlighted
-- **Color-coded status** — new / modified / removed / match, at a glance
-- **Sortable, filterable, multi-select diff table** — filter to just the differences, sort by status/name/ID, select the NPCs you care about
-- **`npc_types` sync, with dry-run preview** — select NPCs, preview exactly what will change (and what won't be touched), then execute inside a transaction that rolls back on any error; automatically handles source/sink schema drift (e.g. 136 columns vs. 131) by only writing columns the sink actually has
-- **TODO queue, with an in-app checklist tab** — loot/faction/spell/merchant/alt-currency references get queued on every sync instead of being blindly overwritten. A dedicated TODO tab (next to NPCs) shows them zone-scoped, grouped by type, with a Gmail-archive-style dismiss/restore so you can work through a zone's checklist and hide what you've already reviewed without deleting the record
-- **Spawn point creation for new NPCs** — opt-in ("Create spawn points" checkbox) creation of a `spawngroup`/`spawnentry`/`spawn2` chain for a new NPC that needs one, instead of leaving it permanently blocked. Scoped to just that NPC, not a zone-wide replace — and it won't touch anything if the source's spawn location already matches an existing sink spawn point, flagging that for manual review instead of guessing. Patrol pathing (`grid`) isn't synced yet, so spawned NPCs stand still rather than patrolling
-- **Spawn Points tab** — a third tab (next to NPCs/TODO) that diffs `spawn2` directly, zone-scoped, matched by coordinate since a `spawn2` row's own ID has no meaning across two diverged databases. Field-level changes (respawn time, variance, heading, enabled, etc.) sync with a plain update; a spawngroup's spawn entries are never bundled into that batch sync — shared spawngroups (one used at dozens of physical locations) are flagged with a "shared ×N" badge instead of being silently cloned, and if an entry's NPC no longer resolves on one side, its name is recovered from the other database instead of showing a bare "unknown"
-- **Sync Spawn Group Entries** — a dedicated, per-spawngroup action (separate from the batch spawn2 sync) for actually bringing a spawngroup's NPC roster in line with source, since a spawngroup has no zone column of its own and could theoretically be shared outside the zone you're working on. Before writing anything, it checks whether the sink's spawngroup is referenced by any `spawn2` row outside the current zone/version — if so, it refuses outright rather than risk silently changing spawns somewhere unreviewed. A companion "select all locations sharing this spawngroup" action makes it fast to gather every affected spawn2 row first
-- **Grids tab** — a fourth tab diffing `grid`/`grid_entries` (patrol pathing), zone-scoped. Simpler than the Spawn Points tab: `grid.id` is scoped to one zone and isn't auto-generated, so it's trusted as identity directly — no coordinate matching needed — and a grid isn't shared across unrelated things the way a spawngroup is, so both its fields and its full waypoint list sync together in one action
-- **Spawngroups tab** — a fifth tab, a zone-scoped, spawngroup-first view (source vs sink side by side) answering the workflow gap the other tabs work around: knowing which spawngroups belong to the zone you're revamping, and what their own settings (`spawn_limit`, wander box, timing) look like — not just their entries. Matched indirectly, since a spawngroup has no zone column and its ID isn't portable across databases; if a source spawngroup's locations resolve to more than one sink spawngroup, it's flagged for manual review instead of guessed. Syncing a spawngroup always brings both its fields and its entries in line together — never one without the other
-- **Resizable, collapsible sidebar and detail panel** — drag either edge to resize, or collapse the sidebar to a thin rail when you're not actively switching zones; both preferences (plus width) persist across restarts
-- **SSH tunnel support** — connect to a source/sink that's only reachable through a bastion host. Supports both private-key (with optional passphrase, browsable via a native file picker) and password auth, and verifies the SSH server's host key against your own `~/.ssh/known_hosts` rather than trusting it blindly — the same check `ssh`/`git` already do on your machine
+**Diffing & sync**
+- Zone browser — searchable, version-aware (EQEmu zones are keyed by `short_name` + `version`)
+- NPCs — full `spawn2 → spawngroup → spawnentry → npc_types` diff, dry-run preview, transactional sync; detects quest-spawned NPCs that have no static spawn point
+- Spawn Points — zone-scoped `spawn2` diffing and sync, matched by coordinate
+- Spawngroups — spawngroup fields (`spawn_limit`, wander box, timing) and rosters, source vs sink, synced together
+- Grids — patrol path (`grid`/`grid_entries`) diffing and sync
+- Loot / Faction / Spells / Merchant — read-only source-vs-sink comparisons for every shared reference table an NPC can point at
 
-### In progress
-- **Shared reference table visibility** — clicking a loot table/faction/spells/merchant/alt-currency reference in the NPC detail panel's References section will open a read-only source-vs-sink comparison of what's actually in that table, so you can see what a sync would be walking into before deciding anything. The same "see it before you can touch it" step the Spawn Points and Spawngroups tabs both went through before either gained a sync action. Actually syncing these tables stays a separate, later phase — they're shared across many NPCs, so a naive overwrite risks corrupting loot/faction/spells for every other NPC referencing the same row, and that needs its own design once the visibility layer proves out the pattern
+**Safety**
+- TODO checklist — shared references get queued for manual review on every sync instead of being blindly overwritten, with a zone-scoped, dismissible tracking tab
+- Missing-reference detection — flags any foreign key (loot table, faction, spells, merchant, spawn group, patrol grid) that points at a row which doesn't actually exist on that side
+- Schema-drift tolerant — only ever writes columns that actually exist on the sink, so dev/live schema differences don't break a sync
+- Nothing is ever guessed: shared or ambiguous data is always flagged for you to resolve, never silently merged
 
-> This is an early-stage, actively-developed project. Diffing, `npc_types` sync, per-NPC spawn point creation, the Spawn Points tab, the Grids tab, and the Spawngroups tab all work today. See [Roadmap](#roadmap).
+**Connectivity & UX**
+- Dual DB connections, credentials saved locally
+- SSH tunnel support, with real host-key verification against your own `~/.ssh/known_hosts`
+- Resizable, collapsible sidebar and detail panel; layout persists across restarts
+
+See the [Roadmap](#roadmap) for what's shipped vs. still in progress.
 
 ## Tech stack
 
@@ -82,20 +81,19 @@ Source/sink connection settings are saved automatically after your first success
 5. Select the NPCs you want to bring over and click "Sync" to see a dry-run preview — exactly what will change, plus any loot/faction/spell references that will be queued as TODOs.
 6. Click "Execute Sync" to write the selected `npc_types` rows to the sink inside a transaction. The diff view refreshes automatically so synced NPCs flip to "match".
 
+The Spawn Points, Spawngroups, and Grids tabs follow the same diff → select → preview → sync pattern for their own tables. Loot, faction, spells, and merchant content is comparison-only for now (see Roadmap).
+
 ## Roadmap
 
-- [x] Execute sync: write `npc_types` (upsert) to the sink DB inside a transaction, with rollback on failure
-- [x] Persist the TODO queue (loot tables, factions, spells) to `~/.config/eqemu-sync/todo.json` for manual follow-up
-- [x] Dry-run mode surfaced in the UI before executing a real sync
-- [x] Per-NPC `spawngroup`/`spawnentry`/`spawn2` creation for new NPCs that need a spawn point (opt-in, coordinate-conflict-safe)
-- [x] In-app TODO checklist tab, zone-scoped, dismissible (archive, not delete)
-- [x] Spawn Points tab: zone-scoped diffing for `spawn2`, with spawngroup/spawnentry composition always flagged for review
-- [x] Sync Spawn Group Entries: dedicated action to bring a spawngroup's NPC roster in line with source, blocked outright if the spawngroup is shared outside the current zone
-- [x] Grids tab: zone-scoped diffing and syncing for `grid`/`grid_entries` (patrol pathing)
-- [x] Spawngroups tab: zone-scoped, spawngroup-first diffing (source vs sink side by side), matched by looking up the sink spawngroup(s) at a source spawngroup's member spawn2 coordinates, with ambiguous matches flagged rather than guessed. Diffs a spawngroup's own fields (`spawn_limit`, wander settings, etc.) for the first time, and syncs them together with entries as one action
-- [x] SSH tunnel support for remote database connections, with private-key or password auth and `~/.ssh/known_hosts` verification
-- [ ] Shared reference table comparison, phase 1: a read-only source-vs-sink view of a reference entry's actual contents, opened by clicking it in the NPC detail panel — visibility before any sync capability. `npc_faction` and `npc_spells` done (both matched by portable content IDs, `faction_id`/`spellid`, never by the local `npc_faction_id`/`npc_spells_id` surrogate keys themselves); `merchantlist` and `loottable` remain — loot in particular may need its own design given its two-level `loottable`→`lootdrop` nesting. `alt_currency` dropped from scope entirely (confirmed unused, 0 count on both databases)
-- [ ] Shared reference table sync, phase 2: actually writing these tables instead of only flagging them as manual TODO items — blocked on phase 1 proving out the comparison shape, and needs its own "is this shared row safe to touch" design given they're referenced by many NPCs at once
+- [x] `npc_types` diff and sync — dry-run preview, transactional execute with rollback on failure, schema-drift tolerant
+- [x] TODO queue for shared references, persisted and surfaced in an in-app checklist tab (zone-scoped, dismissible — archive, not delete)
+- [x] Spawn Points tab — zone-scoped `spawn2` diffing and sync, matched by coordinate; a spawn group reference that doesn't resolve on the sink is flagged, not blocked
+- [x] Spawngroups tab — spawngroup fields and rosters, source vs sink, synced together as one action; ambiguous matches are flagged rather than guessed
+- [x] Grids tab — zone-scoped diffing and syncing for patrol paths (`grid`/`grid_entries`)
+- [x] SSH tunnel support, with private-key or password auth and `~/.ssh/known_hosts` verification
+- [x] Shared reference table comparison (phase 1): read-only source-vs-sink views for faction, spells, merchant, and loot (`loottable → lootdrop → items`)
+- [x] Missing-reference detection: flags a dangling faction/spells/merchant/loot-table/spawn-group/patrol-grid reference instead of silently showing nothing
+- [ ] Shared reference table sync (phase 2): actually writing loot/faction/spells/merchant instead of only comparing and flagging — needs its own "is this shared row safe to touch" design, since these tables are referenced by many NPCs at once
 
 ## Contributing
 

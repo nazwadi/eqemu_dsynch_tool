@@ -142,6 +142,136 @@ type TODOItem struct {
     ZoneVersion int8    // ZoneName alone isn't unique — same reason GetNPCsForZone needs it
 }
 
+// NPCFactionEntryDiff is one faction_id row from npc_faction_entries, merged across source and
+// sink by faction_id — portable shared content (faction_list.id has no AUTO_INCREMENT, same trust
+// tier as npc_types.id), not the local surrogate npc_faction.id itself.
+type NPCFactionEntryDiff struct {
+    FactionID      int64
+    FactionName    string
+    SourceExists   bool  // distinguishes "no entry for this faction" from "an entry that's all zeros"
+    SourceValue    int64
+    SourceNPCValue int64
+    SourceTemp     int64
+    SinkExists     bool
+    SinkValue      int64
+    SinkNPCValue   int64
+    SinkTemp       int64
+    Differs        bool
+}
+
+// NPCFactionComparison is the read-only source-vs-sink view behind the References section's
+// "npc_faction_id" reference — the first of four reference-comparison types built this way. Each
+// gets its own concrete type rather than a shared generic shape, since each FK's target is a
+// genuinely different structure (loot's two-level loottable→lootdrop nesting alone rules that
+// out); what IS shared across all four is the trigger mechanism and drawer chrome on the frontend.
+type NPCFactionComparison struct {
+    SourceId     int64  // this NPC's npc_faction_id on source; 0 if it has no faction link there
+    SinkId       int64
+    SourceFields map[string]interface{}  // npc_faction header row, minus id — nil if SourceId == 0
+    SinkFields   map[string]interface{}
+    Entries      []NPCFactionEntryDiff
+}
+
+// NPCSpellsEntryDiff is one spellid row from npc_spells_entries, merged by spellid (portable,
+// spells_new.id has no AUTO_INCREMENT). Entry fields are a dynamic map, not hardcoded struct
+// fields like NPCFactionEntryDiff — npc_spells_entries has 16 columns with no single "the
+// important one" the way faction's value/npc_value/temp are, so this follows spawn2's Behavior
+// section's drift-tolerant approach instead.
+type NPCSpellsEntryDiff struct {
+    SpellID      int64
+    SpellName    string
+    SourceExists bool
+    SourceFields map[string]interface{}  // npc_spells_entries columns, minus id/npc_spells_id/spellid
+    SinkExists   bool
+    SinkFields   map[string]interface{}
+    Differs      bool
+}
+
+// NPCSpellsComparison is the read-only source-vs-sink view behind the "npc_spells_id" reference.
+// SourceFields/SinkFields include parent_list, deliberately shown as a plain field rather than
+// resolved or walked — auto-following a spell list's parent chain risks pulling in spells that
+// aren't really this encounter's own.
+type NPCSpellsComparison struct {
+    SourceId     int64
+    SinkId       int64
+    SourceFields map[string]interface{}  // npc_spells header row, minus id
+    SinkFields   map[string]interface{}
+    Entries      []NPCSpellsEntryDiff
+}
+
+// NPCMerchantEntryDiff is one item row from merchantlist, merged by item (portable, items.id has
+// no AUTO_INCREMENT) — not slot: merchantlist's PRIMARY KEY is (merchantid, slot) but its UNIQUE
+// KEY is (merchantid, item), so item is the real identity and slot is closer to a display order.
+type NPCMerchantEntryDiff struct {
+    ItemID       int64
+    ItemName     string
+    SourceExists bool
+    SourceFields map[string]interface{}  // merchantlist columns, minus merchantid/item
+    SinkExists   bool
+    SinkFields   map[string]interface{}
+    Differs      bool
+}
+
+// NPCMerchantComparison is the read-only source-vs-sink view behind the "merchant_id" reference.
+// Unlike npc_faction/npc_spells, merchantlist has no separate header/parent row — npc_types.
+// merchant_id points straight at merchantlist rows, by merchantlist's own "merchantid" column
+// (the two tables spell it differently — see EQEmu Schema Notes) — so there's no profile to fetch,
+// just each side's rows diffed directly.
+type NPCMerchantComparison struct {
+    SourceId int64  // this NPC's merchant_id on source; 0 if no merchant link there
+    SinkId   int64
+    Entries  []NPCMerchantEntryDiff
+}
+
+// LootDropEntry is one item within a lootdrop — the leaf level, keyed by the portable item_id.
+type LootDropEntry struct {
+    ItemID   int64
+    ItemName string
+    Fields   map[string]interface{}  // lootdrop_entries columns, minus lootdrop_id/item_id
+}
+
+// LootDrop is one lootdrop_id's own fields plus its full item list. lootdrop.id is a local
+// surrogate (AUTO_INCREMENT on both databases) — same untrustworthy-across-databases category as
+// spawngroup.id, shown for reference only, never matched against the other database's lootdrop.id.
+type LootDrop struct {
+    Id          int64
+    Fields      map[string]interface{}  // lootdrop columns, minus id
+    SharedCount int  // OTHER loottables in this SAME database referencing this lootdrop_id — mirrors SpawnPoint.LocationSharedCount's "shared ×N" signal
+    Entries     []LootDropEntry
+}
+
+// LootTableEntry is one loottable_entries row: a reference to one LootDrop plus this loottable's
+// own weighting for it (multiplier/droplimit/mindrop/probability).
+type LootTableEntry struct {
+    LootDropId int64
+    Fields     map[string]interface{}  // loottable_entries columns, minus loottable_id/lootdrop_id
+    Drop       *LootDrop  // nil if lootdrop_id doesn't resolve to a real lootdrop row on this side (orphaned reference, shown not hidden)
+}
+
+// LootTable is one loottable_id's own fields plus its full ordered entries. loottable.id is also
+// a local surrogate, same reasoning as LootDrop.
+type LootTable struct {
+    Id      int64
+    Fields  map[string]interface{}  // loottable columns, minus id
+    Entries []LootTableEntry
+}
+
+// NPCLootComparison is the read-only source-vs-sink view behind the Loot tab — anchored by an NPC
+// (portable npc_types.id resolves each side's own loottable_id independently, same pattern as the
+// other three reference types) or by a raw loottable_id typed directly for one side. Deliberately
+// does NOT pair SourceTable's and SinkTable's LootDrops against each other: unlike spawngroup
+// (which at least has spawn2 coordinates as an anchor), lootdrop has nothing linking it across
+// databases, and lootdrop.name is exactly as unreliable as spawngroup.name was for the same
+// reason. Renders two independent trees side by side rather than claiming a correspondence it
+// can't verify — same restraint already applied to alt_currency (dropped rather than guessed) and
+// ambiguous spawngroup matches (flagged, not resolved).
+type NPCLootComparison struct {
+    SourceId    int64  // this NPC's loottable_id on source; 0 if none
+    SinkId      int64
+    SourceTable *LootTable  // nil if SourceId == 0 or doesn't resolve
+    SinkTable   *LootTable
+}
+
 // PoolEntry is one NPC in a spawn point's weighted pool (a spawngroup's spawnentry rows).
 type PoolEntry struct {
     NPCID    int64
@@ -308,8 +438,13 @@ type SyncGridsResult struct {
 - `GetZones() ([]Zone, error)` — queries source DB zone table
 - `GetNPCsForZone(shortName string, version int8, zoneIdNumber int64, isSource bool) ([]NPC, error)` — discovers NPCs for a zone via two `UNION ALL`'d branches, not one `LEFT JOIN`ed query (see Important Go Implementation Details for why): (1) a real spawn2/spawngroup/spawnentry chain scoped to `(zone, version)`, or (2) — only if the NPC has no spawn2 row in *any* zone — `npc_types.id` falling in this zone's `[zoneidnumber*1000, zoneidnumber*1000+1000)` ID block, found via a primary-key range scan (quest-spawned NPCs, e.g. Vex Thal). The branches can never overlap by construction. `NPC.HasSpawnPoint` records which path found it. Returns all npc_types columns as map
 - `CompareZones(shortName string, version int8, zoneIdNumber int64) ([]NPCDiffRow, error)` — diffs source vs sink NPCs by ID, scoped to one specific `(short_name, version)` zone row; calls `annotateMissingReferences` for both sides after fetching, so each `NPC.MissingReferences` is populated before the diff rows are built
-- `annotateMissingReferences(ctx, db *sql.DB, npcs []NPC) error` — flags, per NPC, any of `referenceFKColumns` (`npc_faction_id`→`npc_faction.id`, `npc_spells_id`→`npc_spells.id`, `merchant_id`→`merchantlist.merchantid` — note the two tables spell it differently, see EQEmu Schema Notes) whose nonzero value doesn't resolve to a real row in that SAME database — batched into exactly 3 queries per side via `existingIds()`, regardless of zone size. Only called from `CompareZones`, not `GetNPCsForZone` itself (which `Sync()` also uses and has no need for this), so `Sync()` doesn't pay for checks it never displays. `loottable_id` has no comparison drawer yet and `alt_currency_id` is unused everywhere checked, so neither is in `referenceFKColumns`
+- `annotateMissingReferences(ctx, db *sql.DB, npcs []NPC) error` — flags, per NPC, any of `referenceFKColumns` (`npc_faction_id`→`npc_faction.id`, `npc_spells_id`→`npc_spells.id`, `merchant_id`→`merchantlist.merchantid`, `loottable_id`→`loottable.id` — note npc_types.merchant_id and merchantlist.merchantid spell it differently, see EQEmu Schema Notes) whose nonzero value doesn't resolve to a real row in that SAME database — batched into exactly 3 queries per side via `existingIds()`, regardless of zone size. Only called from `CompareZones`, not `GetNPCsForZone` itself (which `Sync()` also uses and has no need for this), so `Sync()` doesn't pay for checks it never displays. `alt_currency_id` is the only one still excluded (unused everywhere checked)
 - `existingIds(ctx, db, table, column string, ids map[int64]bool) (map[int64]bool, error)` — batch existence check via `SELECT DISTINCT <column> FROM <table> WHERE <column> IN (...)`; `table`/`column` are always one of `referenceFKColumns`'s hardcoded pairs, never user input
+- `CompareNPCFaction(sourceFactionId, sinkFactionId int64) (NPCFactionComparison, error)` — fetches the `npc_faction` header row and `npc_faction_entries` for each side independently by its own raw id (no cross-database matching — the NPC that led here is the anchor), merges entries by the portable `faction_id`. `fetchNPCFactionHeader`/`fetchNPCFactionEntries` do the actual queries; `resolveFactionNames` batch-resolves `faction_list.name` for whichever `faction_id`s showed up, against the same database the entries came from
+- `CompareNPCSpells(sourceSpellsId, sinkSpellsId int64) (NPCSpellsComparison, error)` — same anchor-via-NPC shape as faction. `fetchNPCSpellsHeader`/`fetchNPCSpellsEntries` fetch the raw rows; `resolveSpellNames` resolves `spells_new.name` (scanned as `sql.NullString` — unlike `faction_list.name`, this column is nullable)
+- `CompareNPCMerchant(sourceMerchantId, sinkMerchantId int64) (NPCMerchantComparison, error)` — no header fetch (merchantlist has no separate profile row, see `NPCMerchantComparison`); `fetchMerchantEntries` queries `merchantlist WHERE merchantid = ?` directly, entries merged by `item`. `resolveItemNames(ctx, db, entries, idField string)` resolves `items.Name` — generalized to take the id column name as a parameter since merchantlist calls it `item` and `lootdrop_entries` calls it `item_id`
+- `CompareNPCLoot(sourceLoottableId, sinkLoottableId int64) (NPCLootComparison, error)` — same anchor-via-NPC shape, one level deeper. `fetchLootTable(ctx, db, id)` builds one side's full tree: `fetchLootTableHeader` for the loottable's own fields, then `loottable_entries` for that id, then `fetchLootDrops` batch-fetches every referenced lootdrop (headers + `lootdrop_entries` + resolved item names + `lootDropSharedCounts`, 4 queries total regardless of tree size, mirroring `getSpawnPointsForZone`'s batching). A `loottable_entries` row whose `lootdrop_id` doesn't resolve to a real `lootdrop` row still produces a `LootTableEntry` with `Drop: nil`, not a silently-dropped entry
+- `GetLootTable(isSource bool, loottableId int64) (*LootTable, error)` — the Loot tab's raw-ID lookup path, necessarily one-sided: `loottable_id` isn't portable across databases (same local-surrogate category as `spawngroup.id`), so a typed-in id only means something on the database it was typed against
 - `Sync(options SyncOptions) (SyncResult, error)` — dry-run preview and real execution of `npc_types` sync, keyed off `options.DryRun`; see Sync Design below
 - `SaveConfig(c Config) error` — saves to `~/.config/eqemu-sync/config.json`
 - `LoadConfig() (Config, error)` — loads config on startup
@@ -481,6 +616,34 @@ const [spawnGroupDiffLoading, setSpawnGroupDiffLoading] = useState(false)
 const [spawnGroupDiffFilter, setSpawnGroupDiffFilter] = useState('all')  // 'all' | 'diff'
 const [selectedSpawnGroupRow, setSelectedSpawnGroupRow] = useState(null)
 
+// Shared reference comparison drawer (ReferenceDrawer.jsx) — one open/close flag and one data
+// slot reused across faction/spells/merchant, triggered by clicking a References-section row in
+// the NPC detail panel (see referenceComparisonTypes in lib/npcHelpers.js, which is what decides
+// whether a field is clickable at all). referenceDrawerType picks which content component
+// (FactionComparison/SpellsComparison/MerchantComparison) renders inside; referenceDrawerData is
+// null while loading. Loot deliberately does NOT use this drawer — see the Loot tab below for why
+// (it needs its own NPC search/raw-ID entry points, which don't fit the "click a row you're
+// already looking at" trigger the other three share).
+const [showReferenceDrawer, setShowReferenceDrawer] = useState(false)
+const [referenceDrawerType, setReferenceDrawerType] = useState(null)  // 'faction' | 'spells' | 'merchant'
+const [referenceDrawerData, setReferenceDrawerData] = useState(null)  // null while loading
+
+// Loot tab — read-only (phase 1), no bulk selection or diff-list like the other tabs, closer in
+// shape to the reference drawers than to a zone-scoped diff table. An NPC search (reusing
+// diffRows, already zone-scoped, so picking an NPC costs no extra Go call — both sides'
+// loottable_id are already sitting in that data) drives the normal two-sided lookup;
+// lootRawSide/lootRawId are the one-sided "I already know the raw ID" fallback, since a raw
+// loottable_id only means something on the database it came from (loottable.id is a local
+// surrogate, not portable). lootComparison holds whichever of CompareNPCLoot's/GetLootTable's
+// result shapes was last looked up, normalized to {SourceId, SinkId, SourceTable, SinkTable}
+// either way so LootTab only needs one render path regardless of which lookup mode produced it.
+const [lootSearchFilter, setLootSearchFilter] = useState('')
+const [lootRawSide, setLootRawSide] = useState('source')  // 'source' | 'sink'
+const [lootRawId, setLootRawId] = useState('')
+const [lootComparison, setLootComparison] = useState(null)
+const [lootLoading, setLootLoading] = useState(false)
+const [lootError, setLootError] = useState(null)
+
 // NPC / Spawn Point / Grid / Spawngroup Detail panel (shared panel, content switches on activeView)
 const [detailWidth, setDetailWidth] = useState(240)
 const [expandedSections, setExpandedSections] = useState({
@@ -527,41 +690,26 @@ const [expandedSections, setExpandedSections] = useState({
 
 ## UI Layout
 
-```
-┌─────────────┬───────────────────────────────────────┬──────────────────┐
-│   Sidebar   │      Center (sliding panels)           │  Detail panel    │
-│  w-64       │      flex-1                            │   resizable      │
-│             │                                        │   drag handle    │
-│ CONNECTIONS │  ← Diff View slides out left           │  NPCs tab:       │
-│  Source     │  → Sync Preview slides in right        │  - Identity      │
-│  Sink       │    (locked, dimmed while open —        │  - Combat        │
-│             │     zone list can't be clicked)        │  - Resistances   │
-│ ZONES       │                                        │  - Ability Scores│
-│  Filter     │  Zone header (persistent):             │  - Behavior      │
-│  Zone list: │  [LongName - ShortName (zone N, vN)]   │  - References    │
-│  LongName   │  [+8 ~53 -6] [tab controls] [NPCs]     │                  │
-│  (ShortName │  [Spawns] [TODO]                       │  Spawns tab:     │
-│   vN)       │                                        │  - Location      │
-│  (scrolls)  │  NPCs tab — Diff View:                 │  - Behavior      │
-│             │  [Show All][Differences Only][sort]    │  - Pool (src %   │
-│             │  [☐ SOURCE: DB][SINK: DB]              │    vs sink %,    │
-│             │  Color-coded rows, ⚡=quest-spawned     │    gold=differs) │
-│             │                                        │  ⚠ if pool       │
-│             │  Spawns tab — Diff View:                │    differs       │
-│             │  [Show All][Differences Only]          │                  │
-│             │  [☐ SOURCE: DB][SINK: DB]              │  Empty state:    │
-│             │  Color-coded rows, coords + pool        │  "Select a[n]    │
-│             │  summary per side, "shared ×N" badge,   │   NPC/spawn      │
-│             │  ⚠ badge if pool composition differs    │   point to view  │
-│             │                                        │   details"       │
-│             │  TODO tab — grouped by Type, dismiss/   │  Gold = differs  │
-│             │  restore, zone+version scoped           │  Gray = matches  │
-│             │                                        │                  │
-│             │  Execute Sync → Confirm Sync modal      │                  │
-│             │  (shows sink DB, counts, "cannot be     │                  │
-│             │   undone")                              │                  │
-└─────────────┴───────────────────────────────────────┴──────────────────┘
-```
+Three columns: a resizable/collapsible **sidebar** (connections + zone list), a **center panel**
+(flex-1, holds whichever tab is active — NPCs slides between its own Diff View and Sync Preview;
+Spawns/Grids/Spawngroups do the same with their own preview slide-overs; TODO and Loot are single-
+view, no slide-over), and a resizable **detail panel** on the right showing whatever's selected in
+the active tab.
+
+The persistent zone header sits above the center panel, outside the sliding content, so its width
+never depends on which tab is open: zone name/version, that tab's own diff-count badges
+(`+new ~modified -removed`, plus an amber `⚠` count where a tab has a "differs but not the usual
+way" case — spawn entries only, or ambiguous spawngroup matches), that tab's own sync-trigger
+button if it has one, and the tab switcher itself (NPCs / Spawn Points / Spawngroups / Grids /
+Loot / TODO), always last so the switcher's position never shifts as other controls come and go.
+
+The detail panel is shared and switches its content on `activeView`: NPCs shows the field-group
+sections (Identity/Combat/Resistances/Ability Scores/Behavior/References, the last with clickable
+rows that open the faction/spells/merchant reference drawer — see ReferenceDrawer.jsx); Spawns
+shows Location/Behavior/Spawn Entries; Grids shows fields + Waypoints; Spawngroups shows
+Fields/Spawn Entries. The detail panel and its drag handle are omitted entirely on TODO and Loot —
+neither has content of its own (Loot's two-column tree already shows everything inline) — so the
+center panel reclaims that width instead of it sitting idle.
 
 ## Color Coding
 - **Green** (`bg-green-950`) = new NPC in source, not in sink
@@ -593,8 +741,9 @@ const [expandedSections, setExpandedSections] = useState({
   - **Ambiguous matches are flagged, never guessed.** A source spawngroup's member spawn2 coordinates might resolve to more than one distinct sink spawngroup if the two databases have genuinely diverged on which pool serves which spot. Rather than picking a majority match, `CompareSpawnGroups` marks the row `"ambiguous"` and lists every candidate sink spawngroupID (`AmbiguousSinkGroupIds`) — same "shared data gets flagged, not silently resolved" rule used everywhere else spawngroup-adjacent.
   - **Syncing a spawngroup was defined to always include its entries — no fields-only or entries-only mode.** The user's own framing: "Syncing a spawngroup *must* include syncing its entries, or else it doesn't really make sense to do so." This is why `SyncSpawnGroupEntries` was generalized into `SyncSpawnGroup` (see Key Functions) rather than adding a second, narrower method next to it — the same guard (`OtherZoneUsage`) and the same confirm modal now serve both the existing Spawn Points detail panel trigger and this tab's own trigger.
   - The tab itself is intentionally the simplest of the five: no bulk selection, sort, search, or sync-preview slide-over — a spawngroup's diff status is reviewed and synced one row at a time from the detail panel, the same interaction shape the entries-only sync always had, just now also covering fields.
+- **Shared reference table comparison, phase 1 — complete as of the Loot tab, built incrementally across faction → spells → merchant → loot.** All four are read-only source-vs-sink views, anchored via the NPC that led there rather than any cross-database ID matching: `npc_types.id` is portable, so each side's own raw FK value (`npc_faction_id`/`npc_spells_id`/`merchant_id`/`loottable_id`) is read independently and used to fetch that side's own data — no attempt to match `npc_faction.id`/`npc_spells.id`/`loottable.id` values against each other, since all three are local surrogates (see EQEmu Schema Notes). Faction/spells/merchant share one mechanism: clicking a clickable References-section row (`referenceComparisonTypes` in `lib/npcHelpers.js` decides which fields qualify) opens `ReferenceDrawer.jsx`, a right-edge slide-over whose content switches between `FactionComparison`/`SpellsComparison`/`MerchantComparison.jsx` on `referenceDrawerType`. **Loot deliberately does not use this drawer** — it's one level deeper (`loottable → loottable_entries → lootdrop → lootdrop_entries`, `lootdrop` itself a shared, reusable middle layer with no anchor of its own), and the intended workflow ("do comparable NPCs drop the same loot") needs picking an NPC you *don't* already have open, not just reacting to one you do — so it got its own tab (`LootTab.jsx`) with an NPC search plus a one-sided raw-`loottable_id` lookup fallback (necessarily one-sided, same reasoning as the ID itself not being portable). `NPCLootComparison` renders `SourceTable`/`SinkTable` as two independent trees rather than pairing individual lootdrops across databases — there's no anchor to pair them on (unlike spawngroup, which at least has spawn2 coordinates), so claiming a correspondence would mean guessing, not comparing. `LootDrop.SharedCount` (a lootdrop referenced by other loottables in the same database) mirrors `SpawnPoint.LocationSharedCount`'s "shared ×N" signal, added after checking the official PEQ editor's per-object lootdrop navigation for ideas — the object-oriented drill-down suits *content authoring* (managing a reusable lootdrop as its own asset) better than this tool's *diagnostic comparison* task, but the reuse-visibility it provides was worth keeping. A UI/UX pass after the disclosure triangles turned out too subtle to notice moved every expand/collapse control to the left of its row (reading-order convention — Finder, VS Code's file tree — instead of trailing after other text on the right) and added an Expand All/Collapse All toggle per column, which also makes the row-level affordance obvious by association. `alt_currency` stayed out of scope entirely (confirmed unused, 0 rows on both databases checked).
 - Per-item deselection within the sync preview (currently the preview reflects exactly what was checked in the diff view; there's no way to uncheck an individual NPC from the preview panel itself)
-- **Safely sync the shared reference tables an NPC points to** (`loottable`, `npc_faction`, `npc_spells`, `merchantlist`, alternate currency — see "What gets queued as TODO" below) instead of only flagging them for manual reconciliation. Currently deferred because these tables are *shared across many NPCs* — blindly overwriting one on sync risks corrupting loot/faction/spells for every other NPC that also references the same row. Any real implementation needs a design for detecting "is this shared row actually different, and is it safe to touch" before it can replace the TODO-queue approach.
+- **Shared reference table sync, phase 2 — safely writing** `loottable`, `npc_faction`, `npc_spells`, `merchantlist` (and skipping `alt_currency`, unused) instead of only comparing them and flagging via the TODO queue. Not started. Deferred because these tables are *shared across many NPCs* — blindly overwriting one on sync risks corrupting loot/faction/spells for every other NPC that also references the same row. Needs a design for detecting "is this shared row actually different, and is it safe to touch" before it can replace the TODO-queue approach — phase 1 (comparison) exists now specifically to make that judgment call visible to a human first, the same "see it before you can touch it" step every sync-capable tab in this app went through before gaining a sync action.
 
 ### What gets queued as TODO (not synced):
 - `loottable` / `loottable_entries` / `lootdrop` / `lootdrop_entries` (via `loottable_id`)
@@ -644,10 +793,12 @@ const [expandedSections, setExpandedSections] = useState({
 - **`claude.md`/`CLAUDE.md` case-collision incident, 2026-07-19:** an untracked `claude.md` (lowercase) turned out to be the *same on-disk file* as the tracked `CLAUDE.md` on this case-insensitive filesystem — git's index was just confused into showing two paths for one file. Deleting the untracked "duplicate" briefly deleted the real (never-committed) file; restored from conversation context since the content was fully known, no actual data lost. If this file is still uncommitted, committing it is the real fix — git tracking it properly is what would have caught this before it became a problem.
 - **SSH tunnel support, 2026-07-19 (same day, next feature):** the last "In progress" item, `ConnectionConfig.UseSSH`/`SshConfig` had existed as unused fields since early in the project. `SshConfig` gained real auth fields (`AuthMethod`/`Password`/`PrivateKeyPath`/`Passphrase`, replacing a single unused `PrivateKey` string) and `Connect()` now actually opens a tunnel (`openSSHTunnel`, `golang.org/x/crypto/ssh` + `ssh/knownhosts`) when `UseSSH` is set, verifying the SSH host's key against the user's own `~/.ssh/known_hosts` rather than skipping verification — a deliberate choice given the user's stated goal of this being a tool other operators trust, not just a personal script. `ConnectModal` gained a progressive-disclosure SSH settings panel (checkbox reveals host/port/username/auth-method/key-or-password fields, plus a native file-browse button for the private key) mirroring how TablePlus/DBeaver/Navicat handle the same feature. See Key Types/Functions and Important Go/Frontend Implementation Details above for the tunnel lifecycle, host-key verification rationale, and the `connectionConfigFor()`/`hydrateSshConfig()`/`currentFullConfig()` frontend plumbing (which also fixed a small pre-existing bug: `connect()`'s save call used to omit the `UI` prefs field entirely, silently resetting sidebar/detail width on every reconnect).
 - **Spawn point sync redesign — per-NPC creation removed, spawn2 syncs verbatim, 2026-07-19 (same day, following the Spawngroups tab):** direct response to a real usability report — "This is not functional" — against the original per-NPC/shared-pool-skip design (see the "Per-NPC spawn point creation" and "Shared spawn pools" bullets above for the full before/after). Summary of what changed: `SyncOptions.SyncSpawns` and the "Create spawn points" checkbox are gone; `Sync()` upserts `npc_types` only, unconditionally; `spawnCandidate`/`spawnCandidatesForNPC`/`createSpawnPoint` are deleted (no longer used anywhere); `SyncSpawnPoints`'s "new" path is a plain verbatim `INSERT` of spawn2's own columns including a raw-copied `spawngroupID`; `SpawnPoint` gained `SpawnGroupMissing` (row badge + detail-panel banner, not a block); `SyncSpawnGroup` gained a create-path for when the target `spawngroupID` is dangling, repointing every sink spawn2 row sharing that same dangling id, not just the one the caller identified. Confirmed via multiple rounds of user correction that the intended trust model is "sync everything, flag what's incomplete, resolve it with a follow-up action" — the same rule the TODO queue and shared-reference-table drawers already embody — rather than "block anything Sync can't fully guarantee working end-to-end." The Principle of Least Surprise came up explicitly as the reason per-NPC creation specifically had to go (not just be loosened): a checkbox promising a *working* spawn point that, under the new model, would often create a dangling one is worse than no checkbox at all.
-- **"Missing reference" flags extended to NPC FK columns and pathgrid, 2026-07-20:** direct follow-up after auditing where else the "verbatim-copied local ID, likely dangling" situation applies — asked "do missing references to ids now show up in all my detail views where applicable," the honest answer was no, only `spawngroupID` had it. Extended the same pattern: `NPC.MissingReferences` (new, populated by `annotateMissingReferences`/`existingIds` in `CompareZones`) flags `npc_faction_id`/`npc_spells_id`/`merchant_id` values that don't resolve in that NPC's own database — surfaced as a red ⚠ row badge in the NPCs tab diff list, per-field red coloring in the Detail panel's References section, and explicit "doesn't exist in source/sink's table" messaging in the three comparison drawers (previously they only handled the `id == 0` "no link at all" case, silently rendering dashes for a nonzero-but-dangling id). `loottable_id` stays out of scope (no comparison drawer yet) and `alt_currency_id` stays excluded (unused). Separately, `SpawnPoint.PathgridMissing` (new, computed by `annotatePathgridMissing` in `CompareSpawns`, which gained a `zoneIdNumber` param for this) flags a spawn2's `pathgrid` when it doesn't resolve to a real `grid` row for that zone in that same database — a **read-only diagnostic only**, deliberately not paired with a write-behavior change: unlike `spawngroupID`, `pathgrid` was never changed to copy verbatim (`updateSpawn2`/`SyncSpawnPoints` still only copy it when the target grid already exists on the sink, per the earlier documented bug fix), so this just reports on whatever value is already sitting on the row. `fetchSinkGridIds` was renamed `fetchZoneGridIds` since it's now called against both databases, not just the sink at sync time.
+- **"Missing reference" flags extended to NPC FK columns and pathgrid, 2026-07-20:** direct follow-up after auditing where else the "verbatim-copied local ID, likely dangling" situation applies — asked "do missing references to ids now show up in all my detail views where applicable," the honest answer was no, only `spawngroupID` had it. Extended the same pattern: `NPC.MissingReferences` (new, populated by `annotateMissingReferences`/`existingIds` in `CompareZones`) flags `npc_faction_id`/`npc_spells_id`/`merchant_id` values that don't resolve in that NPC's own database — surfaced as a red ⚠ row badge in the NPCs tab diff list, per-field red coloring in the Detail panel's References section, and explicit "doesn't exist in source/sink's table" messaging in the three comparison drawers (previously they only handled the `id == 0` "no link at all" case, silently rendering dashes for a nonzero-but-dangling id). (`loottable_id` was added to the same check once the Loot tab landed — see below — `alt_currency_id` stays excluded, unused). Separately, `SpawnPoint.PathgridMissing` (new, computed by `annotatePathgridMissing` in `CompareSpawns`, which gained a `zoneIdNumber` param for this) flags a spawn2's `pathgrid` when it doesn't resolve to a real `grid` row for that zone in that same database — a **read-only diagnostic only**, deliberately not paired with a write-behavior change: unlike `spawngroupID`, `pathgrid` was never changed to copy verbatim (`updateSpawn2`/`SyncSpawnPoints` still only copy it when the target grid already exists on the sink, per the earlier documented bug fix), so this just reports on whatever value is already sitting on the row. `fetchSinkGridIds` was renamed `fetchZoneGridIds` since it's now called against both databases, not just the sink at sync time.
 - **`null` diff-array crash fix, 2026-07-20 (same day, found via user-reported console errors):** `App.jsx` crashed on any zone where a `Compare*` call had nothing to return (e.g. a zone with no patrol grids at all, the common case) — `TypeError: can't access property "filter", gridDiffRows is null`. Root cause: a Go `nil` slice (e.g. `CompareGrids`'s `var diff []GridDiffRow`, never appended to) serializes to JSON `null`, not `[]`, and every `.then(setXRows)` call site in `App.jsx` wired that straight into state with no normalization — unlike `LoadTODOItems`'s existing `.then(items => setTodoItems(items ?? []))`, which is why TODO items never hit this. Fixed by changing all 8 call sites (`setDiffRows`/`setSpawnDiffRows`/`setGridDiffRows`/`setSpawnGroupDiffRows`, each with an initial-load and a post-sync-refresh site) to `.then(rows => setXRows(rows ?? []))`, matching the pattern that already worked for TODOs, rather than changing the Go side to always return non-nil (JSON `null` is the correct wire representation for "Go returned nil"; normalizing at the one place it becomes React state is the narrower fix).
 - **`npc_types.merchant_id` vs `merchantlist.merchantid` column-name mismatch, 2026-07-20 (same day, found via user report):** user suspected the merchant reference "never showed up" because of a schema naming issue — confirmed via `SHOW COLUMNS FROM npc_types LIKE '%merchant%'`. Every reference FK on `npc_types` other than this one follows the `_id` suffix convention (`loottable_id`, `npc_spells_id`, `npc_faction_id`), so `merchantid` (no underscore) was assumed rather than verified when the merchant comparison drawer was built. Fixed everywhere the `npc_types`-side key was used: `fieldGroups.references`/`referenceComparisonTypes` (frontend), `referenceFKColumns`/`buildTODOItems.fkFields` (Go) — `merchantlist`'s own `merchantid` column (no underscore) was correct all along and untouched. See EQEmu Schema Notes for the full explanation. A silent, no-error map-key miss like this — not a crash, not a wrong value, just permanently empty — is exactly the kind of bug that doesn't surface itself; it took a user noticing a feature "never worked" to catch it.
 - **Login/connect logic audit, 2026-07-20 (same day, requested review, not a user-reported symptom):** asked to check `Connect()` for bugs, found two real ones and fixed both — see the `Connect()` bullet under Key Functions for specifics. (1) The MySQL DSN was built via raw string concatenation (`user+":"+pass+"@tcp("+host...`) instead of `mysql.Config`/`FormatDSN()` — a password containing `@`/`:`/`/`/`?` would silently misparse into the wrong host/db rather than fail loudly; nobody had hit it yet only because no one had tested a password with those characters. (2) Reconnecting to the same side (edit settings, click Connect again) leaked the previous `sql.DB` pool's connections forever — the existing tunnel-cleanup comment claimed `sourceDB`/`sinkDB` were "pooled and eventually GC'd" as the reason they didn't need the same explicit `Close()` the tunnel got, which is wrong: `sql.DB` has no finalizer, so dropping the reference does nothing to its live MySQL connections. `shutdown()` closing them only ever covered whichever pool was current at final app exit, not any pool replaced along the way. Both fixed the same way the tunnel cleanup already worked: close the old one before assigning the new one. Not fixed: no mutex guards `sourceDB`/`sourceTunnel`/`sinkDB`/`sinkTunnel`, so two `Connect()` calls racing on the *same* side could still leak — flagged as a known gap rather than fixed, since real protection would mean auditing every read site across the file, a much bigger change than the login path itself.
+- **Loot tab, 2026-07-21 — Phase 1 (shared reference table comparison) complete.** The last unbuilt reference type, deliberately saved for last since it needed its own design pass: real schema pulled for `loottable`/`loottable_entries`/`lootdrop`/`lootdrop_entries` on both databases first, confirming both `loottable.id` and `lootdrop.id` are local surrogates (`AUTO_INCREMENT` on both) before deciding anything. See the "Shared reference table comparison, phase 1" bullet under Sync Design for the full design (why Loot got its own tab instead of reusing `ReferenceDrawer`, why source/sink render as two independent trees rather than paired lootdrops, the `SharedCount`/"shared ×N" addition, and the disclosure-triangle/Expand-All UI pass). `resolveItemNames` was generalized to take the id-column name as a parameter (`"item"` for merchantlist, `"item_id"` for lootdrop_entries) rather than staying merchant-specific once loot needed the same lookup. `loottable_id` was also added to `referenceFKColumns`, so a dangling `loottable_id` now gets the same missing-reference flag the other three FK types already had.
+- **Zone-switch crash audit, 2026-07-21 (same day, requested review, not resolved):** asked to audit for crashes when clicking through zones with sparse data, hypothesis being some zones are missing rows in some tables. Systematically checked and confirmed safe: every `IN (...)` SQL clause (8 call sites) is guarded against an empty id list; every Go slice that can come back `nil` for sparse data (`Pool`, `Entries`, `MissingReferences`) has a frontend `?.`/`??` guard; `toInt64`/`toFloat64`/`scanDynamicRows` all handle SQL `NULL` (Go `nil`) without panicking; every `result[0]`-style access is preceded by a length check. No new bug found through static reading alone — logged here so the next session doesn't redo the same sweep from scratch. Still open: needs an actual repro (console output, or which zone) to make further progress; static auditing without a concrete symptom had hit diminishing returns.
 
 ## Git
 - Repo: `git@github.com:nazwadi/eqemu_dsynch_tool.git`
