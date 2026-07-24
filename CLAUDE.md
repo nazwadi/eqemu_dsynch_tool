@@ -10,28 +10,89 @@ A Wails v2 desktop app (Go backend + React frontend) for syncing EverQuest Emula
 - **Node**: v22.23.1 (via nvm — must use `nvm use 22` before running)
 
 ## Project Structure
+
+**Go backend, split into domain files 2026-07-23** (previously one 3544-line `app.go`) — pure
+reorganization, zero logic changes, verified by diffing every relocated declaration against the
+original file. The split follows the same domain boundaries the code was already informally
+grouped into, and maps 1:1 to the frontend tabs below (`npc.go` ↔ `NpcsTab.jsx`, `spawn.go` ↔
+`SpawnsTab.jsx`, etc.) — a dev reading one side can guess where the other lives. See Repo Meta for
+the full pass.
 ```
 eqemu_dsynch_tool/
 ├── main.go          # Wails app entry, registers App struct
-├── app.go           # All Go backend logic
-├── app_test.go      # Go unit tests (currently just TestToFloat64)
+├── app.go           # App struct, Config/UIPrefs/ConnectionConfig/Zone types, lifecycle
+│                     (NewApp/startup/shutdown), config persistence, GetZones
+├── ssh.go           # SshConfig/sshTunnel, tunnel dial/forward, Connect, PickPrivateKeyFile
+├── dbutil.go        # Shared low-level helpers used across domains: toInt64/toFloat64/
+│                     mapsEqual/scanDynamicRows/insertRow/existingIds/getSinkColumns/
+│                     inClausePlaceholders/isDuplicateEntryError
+├── npc.go           # NPCs tab: GetNPCsForZone, CompareZones, annotateMissingReferences,
+│                     upsertNPC, Sync, buildTODOItems
+├── todo.go          # TODO tab: TODOItem persistence (append/load/dismiss)
+├── reference.go     # Faction/spells/merchant reference-comparison drawer (3 of 4 reference
+│                     types — loot is its own file, see below)
+├── loot.go          # Loot tab: loottable→lootdrop→lootdrop_entries tree fetch/compare
+├── spawn.go         # Spawn Points tab: CompareSpawns, SyncSpawnPoints, spawn2/spawnentry
+│                     fetch, collision-risk detection
+├── spawngroup.go    # Spawngroups tab: CompareSpawnGroups, SyncSpawnGroup, RelocateSpawnGroup
+├── grid.go          # Grids tab: CompareGrids, SyncGrids, grid/grid_entries fetch
+├── app_test.go      # (superseded — see dbutil_test.go/spawn_test.go/grid_test.go below)
+├── dbutil_test.go   # Table-driven tests for dbutil.go's pure helpers (toFloat64/toInt64/
+│                     mapsEqual/inClausePlaceholders)
+├── spawn_test.go    # TestSpawnEntriesEqual
+├── grid_test.go     # TestGridEntriesEqual
 └── frontend/
     └── src/
-        ├── App.jsx        # Shell: state, business-logic functions, layout — 910 lines as of SSH tunnel support (2026-07-19), grown back up from the 558-line low right after the component split
+        ├── App.jsx        # Coordinator: zone-identity state, activeView, expandedSections,
+        │                   selectZone's cross-tab reset/reload fan-out, and the JSX layout —
+        │                   576 lines as of the 2026-07-23 hooks split (was 1125; see Repo Meta)
+        ├── hooks/          # Custom hooks, one per tab/domain — each owns that domain's
+        │   │               useState + handler functions, returned as a plain object;
+        │   │               cross-hook dependencies are explicit function parameters, not
+        │   │               implicit shared closure scope (see each hook's own header comment)
+        │   ├── useUIPrefs.js            # sidebar/detail width + collapsed state
+        │   ├── useConnections.js        # source/sink connection state, SSH config, Config
+        │   │                             file load/save lifecycle (including UI prefs)
+        │   ├── useReferenceDrawer.js    # faction/spells/merchant drawer
+        │   ├── useNpcSync.js            # NPCs tab
+        │   ├── useTodo.js               # TODO tab
+        │   ├── useSpawnSync.js          # Spawn Points tab
+        │   ├── useSpawnGroupsTab.js     # Spawngroups tab's own diff/selection
+        │   ├── useSpawnGroupSync.js     # "Sync spawngroup from source" confirm flow,
+        │   │                             shared by the Spawn Points and Spawngroups tabs
+        │   ├── useRelocateSpawnGroup.js # Relocate-and-reclaim confirm flow
+        │   ├── useGridSync.js           # Grids tab
+        │   ├── useLoot.js               # Loot tab
+        │   └── useModalFocusTrap.js     # Shared focus-on-open + Escape-to-close behavior,
+        │                                 used by all 8 modal/drawer components below
         ├── lib/            # Pure helpers/constants, no React or component state
         │   ├── constants.js
         │   ├── npcHelpers.js
         │   ├── spawnHelpers.js
         │   ├── gridHelpers.js
-        │   └── spawnGroupHelpers.js
+        │   ├── spawnGroupHelpers.js
+        │   └── lootHelpers.js
         └── components/     # Presentational components, one per modal/drawer/tab/panel
             ├── ConnectModal.jsx, ConfirmSyncModal.jsx, ConfirmSpawnSyncModal.jsx,
-            │   SpawnHelpDrawer.jsx, ConfirmSpawnGroupSyncModal.jsx, ConfirmGridSyncModal.jsx
+            │   SpawnHelpDrawer.jsx, ConfirmSpawnGroupSyncModal.jsx, ConfirmGridSyncModal.jsx,
+            │   ConfirmRelocateSpawnGroupModal.jsx, ReferenceDrawer.jsx
+            ├── FactionComparison.jsx, SpellsComparison.jsx, MerchantComparison.jsx
             ├── Sidebar.jsx
-            └── NpcsTab.jsx, SpawnsTab.jsx, TodoTab.jsx, GridsTab.jsx, SpawngroupsTab.jsx, DetailPanel.jsx
+            ├── NpcsTab.jsx, SpawnsTab.jsx, TodoTab.jsx, GridsTab.jsx, SpawngroupsTab.jsx,
+            │   LootTab.jsx
+            └── DetailPanel.jsx  # Thin dispatcher on activeView + shared chrome; each tab's
+                own content lives in its own NpcDetailPanel.jsx/SpawnDetailPanel.jsx/
+                GridDetailPanel.jsx/SpawnGroupDetailPanel.jsx (split 2026-07-23, mirroring the
+                NpcsTab/SpawnsTab/etc. split)
 ```
 
-## Go Backend (app.go) — Key Types
+## Go Backend — Key Types
+
+*As of the 2026-07-23 file split (see Project Structure above), these types are organized across
+`app.go`/`ssh.go`/`npc.go`/`todo.go`/`reference.go`/`loot.go`/`spawn.go`/`spawngroup.go`/`grid.go`
+rather than one `app.go` — the domain each type belongs to (NPC/spawn/spawngroup/grid/etc.) is the
+same domain grouping the section headers below already use, so file location isn't re-annotated
+per type.*
 
 ```go
 type App struct {
@@ -460,6 +521,10 @@ type SyncGridsResult struct {
 
 ## Go Backend — Key Functions
 
+*Same file-split note as Key Types above — e.g. `Connect`/`openSSHTunnel` live in `ssh.go`,
+`CompareZones`/`Sync` in `npc.go`, `CompareSpawns`/`SyncSpawnPoints` in `spawn.go`, and so on
+following each function's own domain; see Project Structure for the full file list.*
+
 - `Connect(c *ConnectionConfig, isSource bool) error` — connects to DB, pings, sets pool settings. **When `c.UseSSH` is true (added 2026-07-19), opens an SSH tunnel first** (`openSSHTunnel`) and points `sql.Open` at the tunnel's local forwarding address instead of `c.Host`/`c.Port` — the DB driver never knows a tunnel is involved, it just connects to `127.0.0.1:<ephemeral>`. DSN is built via `mysql.Config`/`FormatDSN()` (fixed 2026-07-20 — was raw string concatenation, which silently misparsed a username/password containing `@`/`:`/`/`/`?` into the wrong host or database instead of failing loudly). Closes any pre-existing tunnel **and** `sql.DB` pool on that side before replacing them (fixed 2026-07-20 — a stale tunnel is a live goroutine + open listener that would otherwise run forever, and `sql.DB` has no finalizer either: dropping the reference without calling `Close()` leaked its pooled connections, up to `MaxOpenConns`, for the rest of the process's life on every reconnect. `shutdown()` closing `sourceDB`/`sinkDB` only ever covered the *last* one). No mutex protects `sourceDB`/`sourceTunnel`/`sinkDB`/`sinkTunnel` — two `Connect()` calls racing on the *same* side (not source-vs-sink, which touch disjoint fields) could still leak a pool/tunnel; not fixed, since real protection would mean auditing every read site across the file, not just this function
 - `openSSHTunnel(cfg SshConfig, remoteHost, remotePort string) (*sshTunnel, string, error)` — dials the SSH server (`sshAuthMethods` for the auth method, `sshHostKeyDB` for host-key verification **and** `HostKeyAlgorithms` pinning, see below), then opens a local listener bound to `127.0.0.1:0` (OS-assigned ephemeral port, loopback-only — so source and sink tunnels never collide and nothing outside this machine can reach the forwarded port) and returns its address. Each accepted local connection gets forwarded through the SSH client to `remoteHost:remotePort` by `forwardConn` (its own goroutine pair, one per direction, so one slow client can't stall others sharing the tunnel)
 - `sshHostKeyDB() (*knownhosts.HostKeyDB, error)` — verifies the SSH server's host key against the user's own `~/.ssh/known_hosts`, deliberately **not** `ssh.InsecureIgnoreHostKey()`. Same trust model the system `ssh`/`git` already use on this machine; if the host isn't already known, `ssh.Dial` fails with a `knownhosts` error rather than silently trusting whatever key the server presents — the fix is the same one `ssh` itself would prompt for (connect via a terminal once to add it), not something this app tries to paper over with a TOFU prompt of its own. Uses `github.com/skeema/knownhosts` (a thin wrapper around `x/crypto/ssh/knownhosts`) rather than that package directly — **real, shipped bug, fixed 2026-07-21:** a user with an ED25519-only entry for a host in `known_hosts` (added by the system `ssh`, which prefers ED25519 when a server offers multiple host key types) got a "knownhosts: key is unknown" error from this app even though `ssh` itself trusted the host fine. Root cause: `ssh.ClientConfig.HostKeyAlgorithms` was left unset, so `x/crypto/ssh` used its own default preference order (RSA-family algorithms before ED25519) to negotiate with the server — which, having both key types configured, presented its RSA key instead of the ED25519 one `known_hosts` actually had recorded. `openSSHTunnel` now sets `HostKeyAlgorithms: hostKeyDB.HostKeyAlgorithms(sshAddr)`, pinning the negotiation to whichever key type(s) are actually recorded for that host — the same "known_hosts already decided" trust model, just applied at negotiation time too, not only at verification time. A host with no `known_hosts` entry at all still falls through to the library default order and fails the same way it always did (`HostKeyAlgorithms()` returns `nil` for those, and `ssh.ClientConfig` treats a nil slice as "unset," not "no algorithms allowed" — checked via `!= nil`, not `len == 0`, in `x/crypto/ssh/handshake.go`)
@@ -528,10 +593,19 @@ type SyncGridsResult struct {
 - `updateSpawn2()` is an extracted, standalone function (not an `*App` method) specifically so `SyncSpawnPoints()` can call it against its own transaction — same reasoning as `scanDynamicRows()`/`mapsEqual()` already being free functions rather than methods
 - **`Sync()` no longer touches spawn2/spawngroup/spawnentry at all — it upserts `npc_types` only, regardless of `NPC.HasSpawnPoint`.** Per-NPC spawn point creation (the "Create spawn points" checkbox, `SyncOptions.SyncSpawns`, `spawnCandidate`/`spawnCandidatesForNPC`/`createSpawnPoint`) was removed 2026-07-19 — see "Spawn points sync verbatim, per-NPC creation removed" under Sync Design for why
 
-## React Frontend (App.jsx) — Key State
+## React Frontend — Key State
+
+*As of the 2026-07-23 hooks split (see Project Structure above), this state lives across
+`frontend/src/hooks/useXxx.js` — one hook per tab/domain — rather than directly in `App.jsx`.
+Grouped below by the same domain each hook owns; a state variable's own hook is named the same
+as the section it's under (e.g. everything under "Connections" is `useConnections`'s own state,
+returned from the hook and read in `App.jsx` as `connections.sourceConnected` etc.). Kept as
+plain `useState` declarations here rather than rewritten as hook return values, since the
+declarations themselves — names, initial values, comments — are unchanged; only where they're
+defined moved.*
 
 ```js
-// Connections
+// Connections (useConnections.js)
 const [sourceConnected, setSourceConnected] = useState(false)
 const [sinkConnected, setSinkConnected] = useState(false)
 const [activeModal, setActiveModal] = useState(null)  // 'source' | 'sink' | null
@@ -555,7 +629,9 @@ const [dbSinkName, setDbSinkName] = useState('')
 const [sourceSsh, setSourceSsh] = useState(defaultSshConfig())
 const [sinkSsh, setSinkSsh] = useState(defaultSshConfig())
 
-// Zone
+// Zone — zones itself is useConnections' (populated by GetZones after connect); the rest
+// (search filter, selected-zone identity) stays in App.jsx, since it's genuinely cross-tab state
+// every domain hook's onZoneChange/loadDiffs needs, not owned by any one tab.
 const [zones, setZones] = useState([])
 const [searchFilter, setSearchFilter] = useState('')
 const [selectedZoneShortName, setSelectedZoneShortName] = useState('')
@@ -564,7 +640,7 @@ const [selectedZoneId, setSelectedZoneId] = useState(null)        // zone.Id —
 const [selectedZoneVersion, setSelectedZoneVersion] = useState(0) // zone.Version — threaded into CompareZones/Sync calls
 const [selectedZoneIdNumber, setSelectedZoneIdNumber] = useState(null) // zone.ZoneIdNumber, shown in the zone header and threaded into CompareZones/Sync (drives the quest-spawn ID-range fallback)
 
-// Diff
+// Diff (useNpcSync.js)
 const [diffRows, setDiffRows] = useState([])
 const [diffLoading, setDiffLoading] = useState(false)  // true while CompareZones is in flight; diffRows is cleared first so stale rows never linger
 const [diffFilter, setDiffFilter] = useState('all')  // 'all' | 'diff'
@@ -576,7 +652,7 @@ const [selectedRowKey, setSelectedRowKey] = useState(null)
 // otherwise the NPC Detail panel can silently show a stale snapshot from a different
 // zone or from before the sync, since it's not a live reference into diffRows.
 
-// Sync
+// Sync (useNpcSync.js)
 const [selectedNPCs, setSelectedNPCs] = useState(new Set())
 const [showSyncPreview, setShowSyncPreview] = useState(false)
 const [syncPreview, setSyncPreview] = useState(null)  // dry-run SyncResult, null while loading
@@ -584,19 +660,22 @@ const [syncing, setSyncing] = useState(false)         // true while Execute Sync
 const [syncOutcome, setSyncOutcome] = useState(null)  // post-execute SyncResult
 const [showSyncConfirm, setShowSyncConfirm] = useState(false)  // gates Execute Sync behind a confirm modal
 
-// TODO tab
+// TODO tab — activeView stays in App.jsx (drives which tab's JSX renders, read by every hook's
+// section in the header/detail panel, not owned by any one tab); todoItems/showDismissedTodos are
+// useTodo.js's.
 const [activeView, setActiveView] = useState('npcs')  // 'npcs' | 'todo' | 'spawns' | 'grids' | 'spawngroups' — tab switcher in the zone header
 const [todoItems, setTodoItems] = useState([])        // full archive from LoadTODOItems(), dismissed items included
 const [showDismissedTodos, setShowDismissedTodos] = useState(false)
 
-// Sidebar resize/collapse + detail panel width — added 2026-07-19, persisted to config.json's
-// new UI field (see UIPrefs) so they survive an app restart; loaded in the same useEffect that
-// loads Source/Sink, saved via persistUIPrefs() on drag-end/collapse-toggle, not on every render
+// Sidebar resize/collapse + detail panel width (useUIPrefs.js) — added 2026-07-19, persisted to
+// config.json's new UI field (see UIPrefs) so they survive an app restart; loaded in
+// useConnections' startup effect (which takes useUIPrefs' return value as a parameter — see
+// useConnections.js), saved via persistUIPrefs() on drag-end/collapse-toggle, not on every render
 const [sidebarWidth, setSidebarWidth] = useState(256)
 const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
-const [npcSearchFilter, setNpcSearchFilter] = useState('')  // NPCs tab name filter, added for parity with Spawns tab's existing one
+const [npcSearchFilter, setNpcSearchFilter] = useState('')  // NPCs tab name filter (useNpcSync.js), added for parity with Spawns tab's existing one
 
-// Spawns tab
+// Spawns tab (useSpawnSync.js)
 const [spawnDiffRows, setSpawnDiffRows] = useState([])
 const [spawnDiffLoading, setSpawnDiffLoading] = useState(false)
 const [spawnDiffFilter, setSpawnDiffFilter] = useState('all')  // 'all' | 'diff'
@@ -610,37 +689,44 @@ const [spawnSyncPreview, setSpawnSyncPreview] = useState(null)
 const [spawnSyncing, setSpawnSyncing] = useState(false)
 const [spawnSyncOutcome, setSpawnSyncOutcome] = useState(null)
 const [showSpawnSyncConfirm, setShowSpawnSyncConfirm] = useState(false)
-const [showSpawnHelp, setShowSpawnHelp] = useState(false)  // right-edge drawer, see "?" button next to the detail panel title
+const [showSpawnHelp, setShowSpawnHelp] = useState(false)  // right-edge drawer, see "?" button next to the detail panel title — stays a plain App.jsx toggle, not its own hook (too small, no logic beyond open/close)
 
-// SyncSpawnGroup confirm modal state (generalized 2026-07-19 from entries-only — see Key
-// Functions) — shared by two trigger points: the Spawn Points detail panel's per-row action and
-// the Spawngroups tab's own row action. Coords/pools/source are captured at open time (via
-// openSyncSpawnGroupPreview) so the modal itself never needs to know which tab triggered it, and
-// spawnGroupSyncSource ('spawns' | 'spawngroups') tells executeSyncSpawnGroup() which tab's
-// selection/diff-list to refresh afterward.
+// SyncSpawnGroup confirm modal state (useSpawnGroupSync.js; generalized 2026-07-19 from
+// entries-only — see Key Functions) — shared by two trigger points: the Spawn Points detail
+// panel's per-row action and the Spawngroups tab's own row action. Coords/entries are captured at
+// open time (via openPreview) so the hook itself never needs to know which tab triggered it.
+// **Changed in the 2026-07-23 hooks split**: the string-tagged spawnGroupSyncSource
+// ('spawns' | 'spawngroups') dispatch was replaced by passing the actual refresh callback
+// (onSuccess) into openPreview at call time — App.jsx's openSyncSpawnGroupPreviewFromSpawn/
+// FromSpawnGroup wrapper functions each build the right callback for their own tab, so
+// useSpawnGroupSync.js doesn't need to know about spawnSync/spawnGroupsTab's hooks at all.
 const [showSpawnGroupSyncConfirm, setShowSpawnGroupSyncConfirm] = useState(false)
 const [spawnGroupSyncPreview, setSpawnGroupSyncPreview] = useState(null)  // dry-run SpawnGroupSyncResult, null while loading
 const [spawnGroupSyncError, setSpawnGroupSyncError] = useState(null)  // unexpected Go-level error, separate from the "blocked"/"not found" outcomes the result itself carries
 const [syncingSpawnGroup, setSyncingSpawnGroup] = useState(false)
 const [spawnGroupSyncCoords, setSpawnGroupSyncCoords] = useState(null)  // [x,y,z] identifying the target spawngroup, for SyncSpawnGroup
 const [spawnGroupSyncEntries, setSpawnGroupSyncEntries] = useState({source: [], sink: []})  // entry preview data for the confirm modal
-const [spawnGroupSyncSource, setSpawnGroupSyncSource] = useState(null)  // 'spawns' | 'spawngroups'
 
-// RelocateSpawnGroup confirm modal state — resolves a SpawnGroupCollisionRisk, triggered only
-// from the Spawn Points detail panel's collision-risk banner (no Spawngroups-tab equivalent
-// trigger the way SyncSpawnGroup has two, since collision risk is only ever computed for "new"
-// spawn2 rows). relocateTarget captures the colliding id plus source's own spawngroup content at
-// open time — openRelocatePreview needs no extra Go call, both live on the selected row already.
+// RelocateSpawnGroup confirm modal state (useRelocateSpawnGroup.js) — resolves a
+// SpawnGroupCollisionRisk, triggered only from the Spawn Points detail panel's collision-risk
+// banner (no Spawngroups-tab equivalent trigger the way SyncSpawnGroup has two, since collision
+// risk is only ever computed for "new" spawn2 rows). relocateTarget captures the colliding id
+// plus source's own spawngroup content at open time — openRelocatePreview needs no extra Go call,
+// both live on the selected row already. onRelocated (the Spawn Points tab refresh) is a fixed
+// hook-creation-time parameter rather than a per-call callback like useSpawnGroupSync's, since
+// there's only ever the one refresh target — see useRelocateSpawnGroup.js.
 const [showRelocateConfirm, setShowRelocateConfirm] = useState(false)
 const [relocatePreview, setRelocatePreview] = useState(null)  // dry-run RelocateSpawnGroupResult, null while loading
 const [relocateError, setRelocateError] = useState(null)
 const [relocating, setRelocating] = useState(false)
 const [relocateTarget, setRelocateTarget] = useState(null)  // {spawnGroupId, sourceFields, sourceEntries}
 // Each overlay component (ConnectModal, ConfirmSyncModal, ConfirmSpawnSyncModal, SpawnHelpDrawer,
-// ConfirmSpawnGroupSyncModal, ConfirmGridSyncModal) owns its own focus-on-open ref/effect
-// internally now — see "App.jsx component/lib split" below — so none of those refs live here.
+// ConfirmSpawnGroupSyncModal, ConfirmGridSyncModal, ConfirmRelocateSpawnGroupModal,
+// ReferenceDrawer) shares one useModalFocusTrap hook (frontend/src/hooks/useModalFocusTrap.js,
+// added 2026-07-23) for focus-on-open + Escape-to-close, rather than each owning its own
+// duplicated useRef/useEffect pair — see that hook's own header comment.
 
-// Grids tab
+// Grids tab (useGridSync.js)
 const [gridDiffRows, setGridDiffRows] = useState([])
 const [gridDiffLoading, setGridDiffLoading] = useState(false)
 const [gridDiffFilter, setGridDiffFilter] = useState('all')  // 'all' | 'diff'
@@ -652,16 +738,18 @@ const [gridSyncing, setGridSyncing] = useState(false)
 const [gridSyncOutcome, setGridSyncOutcome] = useState(null)
 const [showGridSyncConfirm, setShowGridSyncConfirm] = useState(false)
 
-// Spawngroups tab — no bulk-select Set or sync-preview slide-over like the other tabs; syncing a
-// spawngroup is a deliberate, single-row action triggered from the detail panel (via SyncSpawnGroup
-// above), mirroring how the old entries-only sync always worked, not a batch-checkbox flow.
+// Spawngroups tab (useSpawnGroupsTab.js) — no bulk-select Set or sync-preview slide-over like the
+// other tabs; syncing a spawngroup is a deliberate, single-row action triggered from the detail
+// panel (via useSpawnGroupSync above), mirroring how the old entries-only sync always worked, not
+// a batch-checkbox flow.
 const [spawnGroupDiffRows, setSpawnGroupDiffRows] = useState([])
 const [spawnGroupDiffLoading, setSpawnGroupDiffLoading] = useState(false)
 const [spawnGroupDiffFilter, setSpawnGroupDiffFilter] = useState('all')  // 'all' | 'diff'
 const [selectedSpawnGroupRow, setSelectedSpawnGroupRow] = useState(null)
 
-// Shared reference comparison drawer (ReferenceDrawer.jsx) — one open/close flag and one data
-// slot reused across faction/spells/merchant, triggered by clicking a References-section row in
+// Shared reference comparison drawer (useReferenceDrawer.js, chrome in ReferenceDrawer.jsx) — one
+// open/close flag and one data slot reused across faction/spells/merchant, triggered by clicking
+// a References-section row in
 // the NPC detail panel (see referenceComparisonTypes in lib/npcHelpers.js, which is what decides
 // whether a field is clickable at all). referenceDrawerType picks which content component
 // (FactionComparison/SpellsComparison/MerchantComparison) renders inside; referenceDrawerData is
@@ -672,7 +760,7 @@ const [showReferenceDrawer, setShowReferenceDrawer] = useState(false)
 const [referenceDrawerType, setReferenceDrawerType] = useState(null)  // 'faction' | 'spells' | 'merchant'
 const [referenceDrawerData, setReferenceDrawerData] = useState(null)  // null while loading
 
-// Loot tab — read-only (phase 1), no bulk selection or diff-list like the other tabs, closer in
+// Loot tab (useLoot.js) — read-only (phase 1), no bulk selection or diff-list like the other tabs, closer in
 // shape to the reference drawers than to a zone-scoped diff table. An NPC search (reusing
 // diffRows, already zone-scoped, so picking an NPC costs no extra Go call — both sides'
 // loottable_id are already sitting in that data) drives the normal two-sided lookup;
@@ -688,7 +776,10 @@ const [lootComparison, setLootComparison] = useState(null)
 const [lootLoading, setLootLoading] = useState(false)
 const [lootError, setLootError] = useState(null)
 
-// NPC / Spawn Point / Grid / Spawngroup Detail panel (shared panel, content switches on activeView)
+// NPC / Spawn Point / Grid / Spawngroup Detail panel (shared panel, content switches on
+// activeView) — detailWidth is useUIPrefs.js's; expandedSections stays in App.jsx, since it's
+// shared across every per-tab detail panel component (see DetailPanel.jsx's own comment on why
+// splitting it per-panel would lose the "collapsed state persists across tab switches" behavior).
 const [detailWidth, setDetailWidth] = useState(240)
 const [expandedSections, setExpandedSections] = useState({
     identity: true,
@@ -697,8 +788,8 @@ const [expandedSections, setExpandedSections] = useState({
     ability_scores: false,
     behavior: false,
     references: true,
-    spawn_behavior: false,
-    spawn_pool: true
+    spawn_behavior: true,
+    spawn_entries: true
     // grid_waypoints, spawngroup_fields, spawngroup_entries default via `?? true` at the read
     // site instead of being listed here — same drift-tolerant "add a fallback, not a new key"
     // approach as everywhere else new detail-panel sections have been added since the split.
@@ -846,6 +937,11 @@ center panel reclaims that width instead of it sitting idle.
 - **Spawngroup ID-collision detection, 2026-07-21 (same day, direct follow-up to the Befallen/Diaku collision found during manual sync verification):** that incident revealed a real gap — `SpawnPoint.SpawnGroupMissing` only ever answers "does this id exist in this side's own database," so once *some* sink spawngroup row exists at a given id (whether legitimately or coincidentally), the app had no way to distinguish "the right one" from "someone else's, sharing a number by coincidence." Added `SpawnDiffRow.SpawnGroupCollisionRisk` (`annotateSpawnGroupCollisionRisk`, called from `CompareSpawns`): for every `"new"` row, checks whether Source's raw `spawngroupID` already exists as a real `spawngroup` row on the sink, *before* that location has ever referenced it there — since sink had no spawn2 row at that coordinate before, a pre-existing group at that exact auto-increment number is essentially never a legitimate coincidence between two independently-run databases. Surfaced as a red row badge (Spawns tab) and a detail-panel banner, computed proactively during the diff/preview step rather than discovered only when a later action fails. **Deliberately warning-only, not blocking** — the spawn2 row's own fields are still real content regardless of the collision, and the app's established pattern is "flag shared/risky data, don't block on it" (same as `SpawnEntriesDiffer`, `OtherZoneUsage`, ambiguous spawngroup matches). No in-app resolution yet; see the "relocate a colliding spawngroup" discussion started the same day (not yet designed/built) for where this is headed.
 - **Relocate & reclaim a colliding spawngroup, 2026-07-21 (same day, direct follow-up):** closes the loop left by the collision-detection bullet above — `RelocateSpawnGroup` (see Key Functions), triggered from the same collision-risk banner. Structurally the same mechanism `SyncSpawnGroup`'s dangling-id create-path already uses (create real, repoint every sink spawn2 row sharing a stale reference) just run in the opposite direction: move whatever's *currently* occupying the colliding id out of the way instead of creating something new at a missing one. The one design question that mattered — do spawn2 rows in the caller's own zone that already share the colliding id get repointed too? — the answer is no, deliberately: they're already pointed at the id, and once the id gets repopulated with correct content, they resolve correctly with no further action; repointing them anywhere would be wrong, since the id itself is what's being fixed, not the rows pointing at it. Only spawn2 rows *outside* the caller's zone/version (the id's actual legitimate users, e.g. Diaku's) get moved to the squatter's new home. Confirmed via user framing: "relocate-and-reclaim, with the confirmation step" — the confirm modal always shows every other zone/version the colliding id is currently used by (mirroring `SyncSpawnGroup`'s `OtherZoneUsage` list) before acting, but unlike that check, it never blocks — the whole point of this action is to safely touch that usage, not avoid it. Reclaiming the freed id uses `insertRow`'s existing `overrides` param to force an explicit `id` value — MySQL accepts this on an `AUTO_INCREMENT` column as long as it's free, no schema change or new primitive needed. **Follow-up same day:** the in-zone exclusion is a real, if narrow, honesty gap — the app assumes every in-zone spawn2 row currently referencing the colliding id is genuinely waiting on the reclaim, with no way to verify that's true rather than a coincidental unrelated match. Rather than building the more precise per-row provenance check (cross-referencing each in-zone row against source by coordinate) right away, added `RelocateSpawnGroupResult.ThisZoneCount` — the in-zone count, never touched, shown in the confirm modal specifically so it can be eyeballed against what the user actually expects to see there ("3 locations, that's right") before confirming. Cheap transparency now; the precise check stays a documented possible follow-up if the narrower assumption ever turns out to be wrong in practice.
 - **"Pool" → domain-vocabulary rename, 2026-07-21 (same day, direct follow-up):** direct response to user pushback on imprecise terminology — "Pool doesn't have precise meaning for me. You mean spawngroup? Be precise," followed by "The source code needs to match the domain-specific terms (spawngroup) because otherwise, people reading the code won't know for sure what the hell that field is referencing." The 2026-07-19 terminology pass (see the "Spawn Points tab terminology + UX pass" bullet above) only ever touched UI-facing strings; this pass renamed the actual identifiers, Go and JS both, so the source itself reads in EQEmu's own vocabulary rather than a generic internal name: `PoolEntry`→`SpawnEntry`, `SpawnPoint.Pool`→`SpawnEntries`, `SpawnDiffRow.PoolDiffers`→`SpawnEntriesDiffer`, `SpawnGroupDiffRow.SourcePool`/`SinkPool`/`PoolDiffers`→`SourceSpawnEntries`/`SinkSpawnEntries`/`SpawnEntriesDiffer`, `RelocateSpawnGroupOptions.SourcePool`→`SourceSpawnEntries`, `poolsEqual`→`spawnEntriesEqual`, `resolveOrphanedPoolNames`→`resolveOrphanedSpawnEntryNames`, plus every frontend consumer (`App.jsx`'s `spawnGroupSyncPools` state and `openSyncSpawnGroupPreview`'s `pools` param, `spawnGroupHelpers.js`'s `spawnGroupPoolSummary`→`spawnGroupEntriesSummary` and its `pool` parameters, `DetailPanel.jsx`'s `expandedSections.spawn_pool` key→`spawn_entries` to match the Spawngroups tab's existing `spawngroup_entries` convention, and the confirm modal's `sourcePool`/`sinkPool` props→`sourceEntries`/`sinkEntries`). Verified via `go build`/`go vet`/`go test` and `vite build`, both clean, after every occurrence was accounted for — the only "Pool" text left anywhere in the codebase is the legitimate `sql.DB` connection-pool comments in `Connect()`'s tunnel-cleanup code and one deliberately-preserved historical comment in `spawnHelpers.js` explaining the old field name for context. This is a durable rule for the rest of the project, not a one-time cleanup: internal identifiers must use EQEmu's own domain vocabulary, not generic names, even when nobody user-facing will ever see them.
+- **Tech-debt cleanup: file organization, 2026-07-23.** Direct response to "clean up tech debt... optimize the code for readability and maintainability so that we can reduce the time needed to onboard a new human developer team member." A pure reorganization pass — no logic, safety behavior, or UI copy changed anywhere; only *where code lives* changed. Four phases, each verified by a full build before the next (same discipline as the 2026-07-19 component/lib split):
+  1. **`app.go` (3544 lines, 74 funcs, 42 types, all one file) split into 9 domain files** — `ssh.go`/`dbutil.go`/`npc.go`/`todo.go`/`reference.go`/`loot.go`/`spawn.go`/`spawngroup.go`/`grid.go`, `app.go` trimmed to the App struct/lifecycle/config persistence — see Project Structure for the full breakdown. Done via a small Python script that partitioned the file into (leading-comment + declaration) blocks by original line position, then regrouped those blocks by target file, preserving every byte of actual code — verified by diffing the reconstructed declaration-name list against the original (all 74 funcs + 42 types accounted for) and by `go build`/`vet`/`test` staying clean throughout. Caught two real bugs in the process, both from the same root cause (the partitioning script only tracked `type`/`func` declarations, so package-level `const`/`var` lines between two declarations got silently swept into whichever declaration preceded them): `const mysqlErrDupEntry` landed in `spawn.go` (attached to `sinkSpawnPointExists`) while its only user, `isDuplicateEntryError`, moved to `dbutil.go` — fixed by moving the const to sit with its user. `var referenceFKColumns` had the same risk but happened to land correctly (both it and its only user, `annotateMissingReferences`, went to `npc.go`). Also caught a genuine bug in the *splitting script itself* mid-pass: the first version's comment-attribution heuristic walked backward from a declaration through any non-blank line, not just `//` comment lines — for any two declarations with zero blank lines between them (there were a few), it silently swallowed the *entire first declaration's body* as if it were the second declaration's leading comment. Fixed by requiring `//`-prefixed lines specifically; re-verified the whole file end to end afterward. Added table-driven tests for the pure helpers relocated into `dbutil.go`/`spawn.go`/`grid.go` (`toInt64`, `mapsEqual`, `inClausePlaceholders`, `spawnEntriesEqual`, `gridEntriesEqual` — `toFloat64` already had coverage) as executable documentation of edge cases, replacing `app_test.go` with `dbutil_test.go`/`spawn_test.go`/`grid_test.go` alongside the files they test.
+  2. **`DetailPanel.jsx` (483 lines, 5-way branch on `activeView`) split into a thin dispatcher + `NpcDetailPanel.jsx`/`SpawnDetailPanel.jsx`/`GridDetailPanel.jsx`/`SpawnGroupDetailPanel.jsx`**, mirroring the `NpcsTab`/`SpawnsTab`/`GridsTab`/`SpawngroupsTab` split that tab-level components already went through — `DetailPanel` never got the same treatment until now. Each panel takes only the props its own branch actually used, a strict subset of the old single 13-prop signature.
+  3. **8 modal/drawer components' duplicated focus-on-open + Escape-to-close block extracted into `frontend/src/hooks/useModalFocusTrap.js`** — each had its own near-identical `useRef`/`useEffect`/inline `onKeyDown` (~6-7 lines apiece); now one hook, one place to fix the WKWebView-alert-sound-suppression behavior if it ever needs to change again.
+  4. **`App.jsx` (1125 lines — grown back from the 558-line 2026-07-19 low, per that entry's own note flagging the regrowth) decomposed into 11 custom hooks** under `frontend/src/hooks/` (`useUIPrefs`/`useConnections`/`useReferenceDrawer`/`useNpcSync`/`useTodo`/`useSpawnSync`/`useSpawnGroupsTab`/`useSpawnGroupSync`/`useRelocateSpawnGroup`/`useGridSync`/`useLoot`), one per tab/domain — same domain boundaries as the Go split, so the two sides of the codebase now mirror each other. `App.jsx` dropped to 576 lines: zone-identity state, `activeView`, `expandedSections` (all genuinely cross-tab, stay put — see Key State above for why each), the `selectZone` fan-out (each hook now owns its own `onZoneChange`, so this shrank from ~50 inlined `setX(...)` calls to five one-line delegations), and the JSX layout. The one real design question this phase raised — several hooks need things from *each other* (e.g. `useTodo`'s `jumpToNpc` needs `useNpcSync`'s `diffRows`/`setSelectedNpc`; `useNpcSync`'s `executeSync` wants to call `useTodo`'s `refreshTodoItems`) — was resolved two ways depending on direction: a hook created *later* can freely take an earlier hook's return values as constructor-time parameters (no cycle); the one genuine cycle (`useNpcSync` ⇄ `useTodo`) was broken by having `executeSync` accept its `onSuccess` callback *at call time* instead of at hook-creation time, so `App.jsx` wires `executeSync={() => npcSync.executeSync(todo.refreshTodoItems)}`. The same call-time-callback pattern replaced `useSpawnGroupSync`'s old string-tagged `spawnGroupSyncSource` ('spawns' | 'spawngroups') dispatch — `openPreview` now takes the actual refresh callback directly, which is both simpler and removes a whole category of "forgot to handle a source string" bug. Verification for this phase specifically: `vite build` clean, plus (since there's no frontend test runner and Wails renders a native window this session couldn't drive) two static-analysis passes before considering it done — a script diffing every `hookVar.property` access in `App.jsx` against that hook's actual `return {...}` keys (zero mismatches), and a second diffing the full ordered list of JSX prop *names* (not values) between the pre-change and post-change `App.jsx` (identical, confirming no prop got renamed or dropped in transit, only its value source changed). **The user still needs to run `wails dev` and click through each tab plus a couple of modals as the real acceptance test** — this phase's static checks confirm the wiring is shaped correctly, not that the running app behaves identically.
 
 ## Git
 - Repo: `git@github.com:nazwadi/eqemu_dsynch_tool.git`

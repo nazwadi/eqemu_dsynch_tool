@@ -1,5 +1,5 @@
-import {useEffect, useRef} from 'react';
 import {PickPrivateKeyFile} from '../../wailsjs/go/main/App';
+import {useModalFocusTrap} from '../hooks/useModalFocusTrap';
 
 // The Connect/Edit modal for either database (activeModal is 'source' | 'sink' | null). Kept as
 // one component covering both sides (mirroring the ternary pattern already used throughout) rather
@@ -23,10 +23,10 @@ function ConnectModal({
     sinkPassword, setSinkPassword, dbSinkName, setDbSinkName,
     ssh, setSsh
 }) {
-    const connectModalRef = useRef(null)
-    useEffect(() => {
-        if (activeModal) connectModalRef.current?.focus()
-    }, [activeModal])
+    const {ref, handleKeyDown} = useModalFocusTrap(activeModal, () => {
+        setActiveModal(null)
+        setConnectError(null)
+    })
 
     if (!activeModal) return null
 
@@ -41,15 +41,9 @@ function ConnectModal({
 
     return (
         <div
-            ref={connectModalRef}
+            ref={ref}
             tabIndex={-1}
-            onKeyDown={e => {
-                if (e.key === 'Escape') {
-                    e.preventDefault()
-                    setActiveModal(null)
-                    setConnectError(null)
-                }
-            }}
+            onKeyDown={handleKeyDown}
             onClick={e => {
                 // Only the backdrop itself, not a click that bubbled up from the modal box —
                 // this isn't a destructive action (unlike the Confirm modals, which deliberately

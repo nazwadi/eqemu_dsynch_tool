@@ -1,23 +1,15 @@
-import {useEffect, useRef} from 'react';
+import {useModalFocusTrap} from '../hooks/useModalFocusTrap';
 
 // Confirm-before-execute modal for the NPCs tab's batch npc_types sync.
 function ConfirmSyncModal({showSyncConfirm, setShowSyncConfirm, dbSinkName, syncPreview, executeSync}) {
-    const syncConfirmModalRef = useRef(null)
-    useEffect(() => {
-        if (showSyncConfirm) syncConfirmModalRef.current?.focus()
-    }, [showSyncConfirm])
+    const {ref, handleKeyDown} = useModalFocusTrap(showSyncConfirm, () => setShowSyncConfirm(false))
 
     if (!showSyncConfirm) return null
     return (
         <div
-            ref={syncConfirmModalRef}
+            ref={ref}
             tabIndex={-1}
-            onKeyDown={e => {
-                if (e.key === 'Escape') {
-                    e.preventDefault()
-                    setShowSyncConfirm(false)
-                }
-            }}
+            onKeyDown={handleKeyDown}
             className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 outline-none">
             <div className="bg-gray-800 p-6 rounded-lg w-96 flex flex-col gap-3">
                 <div className="flex justify-between items-center mb-2">

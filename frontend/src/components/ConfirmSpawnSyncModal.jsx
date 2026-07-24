@@ -1,26 +1,18 @@
-import {useEffect, useRef} from 'react';
+import {useModalFocusTrap} from '../hooks/useModalFocusTrap';
 
 // Confirm-before-execute modal for the Spawn Points tab's batch spawn2 sync. Mirrors
 // ConfirmSyncModal's shape but for SpawnSyncResult fields — kept as a separate component
 // rather than a generic shared one since the two preview shapes differ enough (NPCsSynced vs
 // Created/Updated) that a "generic" version would just be an if/else in disguise.
 function ConfirmSpawnSyncModal({showSpawnSyncConfirm, setShowSpawnSyncConfirm, dbSinkName, spawnSyncPreview, executeSpawnSync}) {
-    const spawnSyncConfirmModalRef = useRef(null)
-    useEffect(() => {
-        if (showSpawnSyncConfirm) spawnSyncConfirmModalRef.current?.focus()
-    }, [showSpawnSyncConfirm])
+    const {ref, handleKeyDown} = useModalFocusTrap(showSpawnSyncConfirm, () => setShowSpawnSyncConfirm(false))
 
     if (!showSpawnSyncConfirm) return null
     return (
         <div
-            ref={spawnSyncConfirmModalRef}
+            ref={ref}
             tabIndex={-1}
-            onKeyDown={e => {
-                if (e.key === 'Escape') {
-                    e.preventDefault()
-                    setShowSpawnSyncConfirm(false)
-                }
-            }}
+            onKeyDown={handleKeyDown}
             className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 outline-none">
             <div className="bg-gray-800 p-6 rounded-lg w-96 flex flex-col gap-3">
                 <div className="flex justify-between items-center mb-2">

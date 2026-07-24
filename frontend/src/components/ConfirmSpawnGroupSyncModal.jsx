@@ -1,5 +1,5 @@
-import {useEffect, useRef} from 'react';
 import {spawnEntryRows} from '../lib/spawnHelpers';
+import {useModalFocusTrap} from '../hooks/useModalFocusTrap';
 
 // Confirm-before-execute modal for SyncSpawnGroup — brings both a spawngroup's own fields
 // (spawn_limit, wander box, etc.) and its full spawnentry roster in line with source, together.
@@ -15,22 +15,14 @@ function ConfirmSpawnGroupSyncModal({
     spawnGroupSyncError, spawnGroupSyncPreview, sourceEntries, sinkEntries,
     syncingSpawnGroup, executeSyncSpawnGroup, dbSinkName
 }) {
-    const spawnGroupSyncConfirmModalRef = useRef(null)
-    useEffect(() => {
-        if (showSpawnGroupSyncConfirm) spawnGroupSyncConfirmModalRef.current?.focus()
-    }, [showSpawnGroupSyncConfirm])
+    const {ref, handleKeyDown} = useModalFocusTrap(showSpawnGroupSyncConfirm, () => setShowSpawnGroupSyncConfirm(false))
 
     if (!showSpawnGroupSyncConfirm) return null
     return (
         <div
-            ref={spawnGroupSyncConfirmModalRef}
+            ref={ref}
             tabIndex={-1}
-            onKeyDown={e => {
-                if (e.key === 'Escape') {
-                    e.preventDefault()
-                    setShowSpawnGroupSyncConfirm(false)
-                }
-            }}
+            onKeyDown={handleKeyDown}
             className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 outline-none">
             <div className="bg-gray-800 p-6 rounded-lg w-[28rem] flex flex-col gap-3 max-h-[80vh] overflow-y-auto">
                 <div className="flex justify-between items-center mb-2">

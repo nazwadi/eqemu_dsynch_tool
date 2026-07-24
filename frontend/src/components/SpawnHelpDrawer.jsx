@@ -1,4 +1,4 @@
-import {useEffect, useRef} from 'react';
+import {useModalFocusTrap} from '../hooks/useModalFocusTrap';
 
 // Right-edge slide-over explaining the spawn2 → spawngroup → spawn entries relationship.
 // Deliberately not a modal (every modal in this app means "you're about to commit to something";
@@ -6,24 +6,16 @@ import {useEffect, useRef} from 'react';
 // panel is too narrow to anchor one usefully) — see CLAUDE.md for the full reasoning. All content
 // is static, so besides the open/close state this is the simplest of the overlay components.
 function SpawnHelpDrawer({showSpawnHelp, setShowSpawnHelp}) {
-    const spawnHelpDrawerRef = useRef(null)
-    useEffect(() => {
-        if (showSpawnHelp) spawnHelpDrawerRef.current?.focus()
-    }, [showSpawnHelp])
+    const {ref, handleKeyDown} = useModalFocusTrap(showSpawnHelp, () => setShowSpawnHelp(false))
 
     if (!showSpawnHelp) return null
     return (
         <>
             <div className="fixed inset-0 bg-black bg-opacity-50 z-40" onClick={() => setShowSpawnHelp(false)}/>
             <div
-                ref={spawnHelpDrawerRef}
+                ref={ref}
                 tabIndex={-1}
-                onKeyDown={e => {
-                    if (e.key === 'Escape') {
-                        e.preventDefault()
-                        setShowSpawnHelp(false)
-                    }
-                }}
+                onKeyDown={handleKeyDown}
                 className="fixed top-0 right-0 bottom-0 w-96 max-w-full bg-gray-800 border-l border-gray-700 z-50 outline-none flex flex-col shadow-2xl">
                 <div className="flex items-center justify-between px-4 py-3 border-b border-gray-700">
                     <h2 className="text-sm font-medium text-gray-200">How spawn points fit together</h2>
