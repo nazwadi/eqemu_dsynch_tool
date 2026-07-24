@@ -26,11 +26,15 @@ export function GetLootTable(arg1:boolean,arg2:number):Promise<main.LootTable>;
 
 export function GetNPCsForZone(arg1:string,arg2:number,arg3:number,arg4:boolean):Promise<Array<main.NPC>>;
 
+export function GetZoneMap(arg1:string,arg2:string):Promise<main.ZoneMap>;
+
 export function GetZones():Promise<Array<main.Zone>>;
 
 export function LoadConfig():Promise<main.Config>;
 
 export function LoadTODOItems():Promise<Array<main.TODOItem>>;
+
+export function PickMapsDirectory():Promise<string>;
 
 export function PickPrivateKeyFile():Promise<string>;
 

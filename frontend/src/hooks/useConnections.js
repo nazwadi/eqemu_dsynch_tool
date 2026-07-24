@@ -58,6 +58,7 @@ export function useConnections(uiPrefs) {
     const [connecting, setConnecting] = useState(false)
     const [sourceConnected, setSourceConnected] = useState(false)
     const [sinkConnected, setSinkConnected] = useState(false)
+    const [mapsDirectory, setMapsDirectory] = useState('') // Brewall's Maps folder — see zonemap.go/useZoneMap.js
 
     // Builds one side's full ConnectionConfig (DB fields + SSH tunnel sub-config) from this hook's
     // state — shared by connect() and persistUIPrefs() so there's exactly one place that knows how
@@ -78,6 +79,7 @@ export function useConnections(uiPrefs) {
         return {
             Source: connectionConfigFor(sourceHost, sourcePort, sourceUsername, sourcePassword, dbSourceName, sourceSsh),
             Sink: connectionConfigFor(sinkHost, sinkPort, sinkUsername, sinkPassword, dbSinkName, sinkSsh),
+            MapsDirectory: mapsDirectory,
             UI: {
                 SidebarWidth: uiPrefs.sidebarWidth,
                 SidebarCollapsed: uiPrefs.sidebarCollapsed,
@@ -85,6 +87,13 @@ export function useConnections(uiPrefs) {
                 ...overrides
             }
         }
+    }
+
+    // Sets mapsDirectory and immediately persists it — not gated behind Connect the way DB
+    // settings are, since there's no "connect" step for a plain folder path, just "remember it."
+    function setAndPersistMapsDirectory(dir) {
+        setMapsDirectory(dir)
+        SaveConfig({...currentFullConfig(), MapsDirectory: dir}).catch(err => console.error("save maps directory failed:", err))
     }
 
     // Persists the current layout prefs (or an override taken mid-drag, before its setState has
@@ -133,6 +142,7 @@ export function useConnections(uiPrefs) {
                 setDbSinkName(config.Sink.DbName)
                 setSourceSsh({...defaultSshConfig(), ...hydrateSshConfig(config.Source)})
                 setSinkSsh({...defaultSshConfig(), ...hydrateSshConfig(config.Sink)})
+                setMapsDirectory(config.MapsDirectory ?? '')
 
                 // A config.json written before this field existed has no UI key at all; a zero
                 // value here (SidebarWidth: 0, etc.) means "never explicitly set" either way, so
@@ -176,6 +186,7 @@ export function useConnections(uiPrefs) {
         activeModal, setActiveModal,
         connectError, setConnectError,
         connecting, sourceConnected, sinkConnected,
+        mapsDirectory, setMapsDirectory: setAndPersistMapsDirectory,
         connect, persistUIPrefs
     }
 }

@@ -22,7 +22,7 @@ If you run an EQEmu server, you've lived this: you build and test content — NP
 - NPCs — full `spawn2 → spawngroup → spawnentry → npc_types` diff, dry-run preview, transactional sync; detects quest-spawned NPCs that have no static spawn point
 - Spawn Points — zone-scoped `spawn2` diffing and sync, matched by coordinate
 - Spawngroups — spawngroup fields (`spawn_limit`, wander box, timing) and rosters, source vs sink, synced together
-- Grids — patrol path (`grid`/`grid_entries`) diffing and sync
+- Grids — patrol path (`grid`/`grid_entries`) diffing and sync, with an optional map view that plots every grid over your own Brewall's Maps files (point the app at your maps folder once, in the sidebar)
 - Loot / Faction / Spells / Merchant — source-vs-sink comparisons for every shared reference table an NPC can point at; loot table, lootdrop, faction list, and spell list IDs can be realigned to match source directly from the comparison view — see **ID alignment** below
 
 **Safety**
@@ -97,6 +97,7 @@ The Spawn Points, Spawngroups, and Grids tabs follow the same diff → select �
 - [x] Missing-reference detection: flags a dangling faction/spells/merchant/loot-table/spawn-group/patrol-grid reference instead of silently showing nothing
 - [x] Spawngroup ID-collision detection and resolution: a colliding spawngroup ID is flagged before it's synced into, with a one-click "relocate & reclaim" action to safely free it up instead of hand-written SQL
 - [x] ID alignment: renumber a sink row's local surrogate ID (loot table, lootdrop, faction list, spell list) to match source directly from the comparison view — a rename, not a content overwrite, so it doesn't need the same "is this safe to touch" design phase 2 below still does; anything already occupying the target id is relocated out of the way first
+- [x] Grids map view: plot every patrol grid in a zone over your own Brewall's Maps files, with the selected grid highlighted (waypoints, heading, centerpoints) and every other grid shown dim for context
 - [ ] Shared reference table sync (phase 2): actually overwriting loot/faction/spells/merchant *content* (distinct from realigning their IDs, above) instead of only comparing and flagging — needs its own "is this shared row safe to touch" design, since these tables are referenced by many NPCs at once
 
 ## Contributing

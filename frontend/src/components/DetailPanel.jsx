@@ -22,7 +22,7 @@ function DetailPanel({
     activeView, setShowSpawnHelp, detailWidth,
     selectedNpc, openReferenceComparison, onInspectLoot,
     selectedSpawnRow, selectAllSharingSpawngroup, openSyncSpawnGroupPreview, openRelocatePreview,
-    selectedGridRow,
+    selectedGridRow, selectedWaypointNumber, onSelectWaypoint,
     selectedSpawnGroupRow, openSyncSpawnGroupPreviewFromSpawnGroup,
     expandedSections, setExpandedSections
 }) {
@@ -59,6 +59,7 @@ function DetailPanel({
                     {activeView === 'grids' && (
                         <GridDetailPanel
                             selectedGridRow={selectedGridRow}
+                            selectedWaypointNumber={selectedWaypointNumber} onSelectWaypoint={onSelectWaypoint}
                             expandedSections={expandedSections} setExpandedSections={setExpandedSections}
                         />
                     )}

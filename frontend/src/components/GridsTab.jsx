@@ -1,16 +1,27 @@
+import {useState} from 'react';
 import {gridId, gridRowSelectable, gridWaypointSummary} from '../lib/gridHelpers';
+import ZoneMapView from './ZoneMapView';
 
 // Grids tab body: diff list (Show All/Differences Only, checkbox selection) sliding to a sync
 // preview panel — same shape as NpcsTab/SpawnsTab. No sort/search controls here: grids per zone
 // are typically a handful to a few dozen, nowhere near spawn2's scale, so the extra UI SpawnsTab
 // needed isn't earning its keep yet. Can add later if a zone turns out to need it.
+//
+// viewMode ('list' | 'map', added 2026-07-24) is local, pure UI state — nothing outside this tab
+// needs it, unlike selectedGridRow/selectedGridIds which are already threaded in from App.jsx.
+// Map mode replaces the diff-list body with ZoneMapView (a Brewall's Maps background + every
+// grid in the zone overlaid) plus a compact picker list, mirroring how the TODO/Loot tabs already
+// reclaim the detail panel's width when it isn't earning its keep.
 function GridsTab({
     gridDiffRows, gridDiffLoading, gridDiffFilter, setGridDiffFilter,
     selectedGridIds, setSelectedGridIds, selectedGridRow, setSelectedGridRow,
+    selectedWaypointNumber, onSelectWaypoint,
     selectedZoneShortName,
     showGridSyncPreview, setShowGridSyncPreview, gridSyncPreview, gridSyncing, gridSyncOutcome,
-    setShowGridSyncConfirm
+    setShowGridSyncConfirm,
+    zoneMap, zoneMapLoading
 }) {
+    const [viewMode, setViewMode] = useState('list')
     const selectableGridRows = gridDiffRows.filter(gridRowSelectable)
     return (
         <div className="flex-1 relative overflow-hidden">
@@ -20,7 +31,7 @@ function GridsTab({
                 showGridSyncPreview ? '-translate-x-full' : 'translate-x-0'
             }`}>
 
-                <div className="flex gap-2 px-3 py-2 border-b border-gray-700">
+                <div className="flex items-center gap-2 px-3 py-2 border-b border-gray-700">
                     <button
                         onClick={() => setGridDiffFilter('all')}
                         className={`text-xs px-3 py-1 rounded border ${gridDiffFilter === 'all' ? 'border-yellow-400 text-yellow-400' : 'border-gray-600 text-gray-400 hover:border-gray-400'}`}>
@@ -31,7 +42,44 @@ function GridsTab({
                         className={`text-xs px-3 py-1 rounded border ${gridDiffFilter === 'diff' ? 'border-yellow-400 text-yellow-400' : 'border-gray-600 text-gray-400 hover:border-gray-400'}`}>
                         Differences Only
                     </button>
+                    <div className="ml-auto flex items-center gap-2">
+                        <button
+                            onClick={() => setViewMode('list')}
+                            className={`text-xs px-3 py-1 rounded border ${viewMode === 'list' ? 'border-yellow-400 text-yellow-400' : 'border-gray-600 text-gray-400 hover:border-gray-400'}`}>
+                            List
+                        </button>
+                        <button
+                            onClick={() => setViewMode('map')}
+                            className={`text-xs px-3 py-1 rounded border ${viewMode === 'map' ? 'border-yellow-400 text-yellow-400' : 'border-gray-600 text-gray-400 hover:border-gray-400'}`}>
+                            Map
+                        </button>
+                    </div>
                 </div>
+                {viewMode === 'map' ? (
+                    <div className="flex flex-1 min-h-0 overflow-hidden">
+                        <div className="w-52 shrink-0 flex flex-col overflow-y-auto border-r border-gray-700">
+                            {zoneMapLoading ? (
+                                <div className="p-2 text-xs text-gray-500">Loading map…</div>
+                            ) : gridDiffRows.filter(row => row.Source).length === 0 ? (
+                                <div className="p-2 text-xs text-gray-600">No source grids in this zone to plot.</div>
+                            ) : (
+                                gridDiffRows.filter(row => row.Source).sort((a, b) => a.Source.Id - b.Source.Id).map(row => (
+                                    <div key={row.Source.Id}
+                                         className={`px-2 py-1 text-xs cursor-pointer hover:bg-gray-800 ${
+                                             selectedGridRow?.Source?.Id === row.Source.Id ? 'bg-blue-900/40 text-yellow-400' : 'text-gray-300'
+                                         }`}
+                                         onClick={() => setSelectedGridRow(row)}>
+                                        #{row.Source.Id} — {gridWaypointSummary(row.Source)}
+                                    </div>
+                                ))
+                            )}
+                        </div>
+                        <ZoneMapView zoneMap={zoneMap} gridDiffRows={gridDiffRows} selectedGridRow={selectedGridRow}
+                                     selectedWaypointNumber={selectedWaypointNumber} onSelectWaypoint={onSelectWaypoint}/>
+                    </div>
+                ) : (
+                <>
+
                 <div className="px-3 py-1 text-xs text-gray-500 border-b border-gray-700 bg-gray-850">
                     Each row is one <span className="text-gray-400">grid</span> (patrol path), matched by its own ID within this zone — grid IDs aren't auto-generated, so they're trusted as identity here, unlike spawn2/spawngroup.
                 </div>
@@ -110,6 +158,8 @@ function GridsTab({
                                 )
                             })}
                     </div>
+                )}
+                </>
                 )}
             </div>
 

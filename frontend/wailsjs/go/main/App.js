@@ -50,6 +50,10 @@ export function GetNPCsForZone(arg1, arg2, arg3, arg4) {
   return window['go']['main']['App']['GetNPCsForZone'](arg1, arg2, arg3, arg4);
 }
 
+export function GetZoneMap(arg1, arg2) {
+  return window['go']['main']['App']['GetZoneMap'](arg1, arg2);
+}
+
 export function GetZones() {
   return window['go']['main']['App']['GetZones']();
 }
@@ -60,6 +64,10 @@ export function LoadConfig() {
 
 export function LoadTODOItems() {
   return window['go']['main']['App']['LoadTODOItems']();
+}
+
+export function PickMapsDirectory() {
+  return window['go']['main']['App']['PickMapsDirectory']();
 }
 
 export function PickPrivateKeyFile() {

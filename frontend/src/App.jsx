@@ -1,4 +1,4 @@
-import {useState} from 'react';
+import {useEffect, useState} from 'react';
 import './App.css';
 import ConnectModal from './components/ConnectModal';
 import ConfirmSyncModal from './components/ConfirmSyncModal';
@@ -33,6 +33,7 @@ import {useSpawnGroupSync} from './hooks/useSpawnGroupSync';
 import {useRelocateSpawnGroup} from './hooks/useRelocateSpawnGroup';
 import {useGridSync} from './hooks/useGridSync';
 import {useLoot} from './hooks/useLoot';
+import {useZoneMap} from './hooks/useZoneMap';
 import {useAlignId} from './hooks/useAlignId';
 
 // Title shown in the shared ReferenceDrawer — one more entry per reference type as they're built,
@@ -84,6 +85,20 @@ function App() {
     const gridSync = useGridSync(zoneIdentity)
     const loot = useLoot()
     const alignId = useAlignId()
+    const zoneMap = useZoneMap(connections.mapsDirectory)
+
+    // Real, shipped bug (found 2026-07-24 via user report): loadZoneMap only ever ran from
+    // selectZone's fan-out, i.e. when a zone is newly clicked. If the Maps folder gets set (or
+    // changed) *after* a zone is already selected — the ordinary first-run case, since setting it
+    // once in the Sidebar is a one-time action, not something done before every zone click —
+    // nothing re-fetched, and the Grids tab kept showing "No Brewall map for this zone" even
+    // though the file was right there, correctly configured. Deliberately depends only on
+    // mapsDirectory, not selectedZoneShortName — zone switches are already handled by
+    // selectZone's own call, so including it here would just double-fetch on every switch.
+    useEffect(() => {
+        if (selectedZoneShortName) zoneMap.loadZoneMap(selectedZoneShortName)
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [connections.mapsDirectory])
 
     // Triggered from the Loot tab's loottable-level "Align loottable ID to source" button —
     // ids are already known (anchored via the same NPC on both sides), no pairing needed.
@@ -187,6 +202,7 @@ function App() {
         gridSync.onZoneChange(zone)
         spawnGroupsTab.onZoneChange(zone)
         loot.resetForZoneChange()
+        zoneMap.loadZoneMap(zone.ShortName)
     }
 
     const newCount = npcSync.diffRows.filter(r => r.Status === 'new').length
@@ -332,6 +348,7 @@ function App() {
                             showSyncPreview={npcSync.showSyncPreview} showSpawnSyncPreview={spawnSync.showSpawnSyncPreview}
                             zones={connections.zones} selectedZoneId={selectedZoneId} onSelectZone={selectZone}
                             width={uiPrefs.sidebarWidth}
+                            mapsDirectory={connections.mapsDirectory} setMapsDirectory={connections.setMapsDirectory}
                         />
                         {/* Sidebar resize/collapse handle — mirrors the detail panel's drag handle, but
                             dragging right (not left) grows this one since it's on the opposite edge.
@@ -574,10 +591,12 @@ function App() {
                             gridDiffFilter={gridSync.gridDiffFilter} setGridDiffFilter={gridSync.setGridDiffFilter}
                             selectedGridIds={gridSync.selectedGridIds} setSelectedGridIds={gridSync.setSelectedGridIds}
                             selectedGridRow={gridSync.selectedGridRow} setSelectedGridRow={gridSync.setSelectedGridRow}
+                            selectedWaypointNumber={gridSync.selectedWaypointNumber} onSelectWaypoint={gridSync.setSelectedWaypointNumber}
                             selectedZoneShortName={selectedZoneShortName}
                             showGridSyncPreview={gridSync.showGridSyncPreview} setShowGridSyncPreview={gridSync.setShowGridSyncPreview}
                             gridSyncPreview={gridSync.gridSyncPreview} gridSyncing={gridSync.gridSyncing} gridSyncOutcome={gridSync.gridSyncOutcome}
                             setShowGridSyncConfirm={gridSync.setShowGridSyncConfirm}
+                            zoneMap={zoneMap.zoneMap} zoneMapLoading={zoneMap.zoneMapLoading}
                         />
                     )}
 
@@ -643,6 +662,7 @@ function App() {
                                 openSyncSpawnGroupPreview={openSyncSpawnGroupPreviewFromSpawn}
                                 openRelocatePreview={relocateSpawnGroup.openRelocatePreview}
                                 selectedGridRow={gridSync.selectedGridRow}
+                                selectedWaypointNumber={gridSync.selectedWaypointNumber} onSelectWaypoint={gridSync.setSelectedWaypointNumber}
                                 selectedSpawnGroupRow={spawnGroupsTab.selectedSpawnGroupRow}
                                 openSyncSpawnGroupPreviewFromSpawnGroup={openSyncSpawnGroupPreviewFromSpawnGroup}
                                 openReferenceComparison={referenceDrawer.openReferenceComparison}

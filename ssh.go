@@ -266,3 +266,11 @@ func (a *App) PickPrivateKeyFile() (string, error) {
 		Title: "Select SSH Private Key",
 	})
 }
+
+// PickMapsDirectory opens a native "choose a folder" dialog for the Brewall's Maps directory
+// setting (see zonemap.go) — same cancel-returns-empty-string contract as PickPrivateKeyFile.
+func (a *App) PickMapsDirectory() (string, error) {
+	return wailsruntime.OpenDirectoryDialog(a.ctx, wailsruntime.OpenDialogOptions{
+		Title: "Select Brewall's Maps Folder",
+	})
+}

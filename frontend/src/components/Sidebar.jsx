@@ -1,3 +1,5 @@
+import {PickMapsDirectory} from '../../wailsjs/go/main/App';
+
 // Left rail: connection status/edit buttons + the searchable zone list. Purely presentational —
 // the actual "what happens when a zone is clicked" logic (resetting NPC/spawn selection state,
 // firing both CompareZones and CompareSpawns) stays in App.jsx as selectZone(), passed down as
@@ -6,7 +8,8 @@
 function Sidebar({
     sourceConnected, sourceHost, sinkConnected, sinkHost, setActiveModal, setConnectError,
     searchFilter, setSearchFilter, showSyncPreview, showSpawnSyncPreview,
-    zones, selectedZoneId, onSelectZone, width
+    zones, selectedZoneId, onSelectZone, width,
+    mapsDirectory, setMapsDirectory
 }) {
     const locked = showSyncPreview || showSpawnSyncPreview
     return (
@@ -52,6 +55,22 @@ function Sidebar({
                         </button>
                     </div>
                 </div>
+            </div>
+            {/* Brewall's Maps folder — a plain path setting, not a "connection," so it saves
+                immediately on pick rather than going through the Connect modal's confirm flow.
+                See the Grids tab's Map view for what this actually drives. */}
+            <div className="px-3 pb-2 flex items-center justify-between gap-2 border-b border-gray-700">
+                <div className="min-w-0">
+                    <div className="text-xs text-gray-400">Maps folder</div>
+                    <div className="text-xs text-white truncate" title={mapsDirectory || undefined}>
+                        {mapsDirectory || 'Not set'}
+                    </div>
+                </div>
+                <button
+                    onClick={() => PickMapsDirectory().then(dir => { if (dir) setMapsDirectory(dir) })}
+                    className="text-xs text-gray-400 border border-gray-600 rounded px-2 py-1 hover:text-white hover:border-gray-400 shrink-0">
+                    Browse…
+                </button>
             </div>
             <div
                 className="px-3 py-2 text-xs font-medium text-gray-400 uppercase tracking-wider border-t border-b border-gray-700">

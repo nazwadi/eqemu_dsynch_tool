@@ -19,9 +19,10 @@ type App struct {
 }
 
 type Config struct {
-	Source ConnectionConfig
-	Sink   ConnectionConfig
-	UI     UIPrefs
+	Source        ConnectionConfig
+	Sink          ConnectionConfig
+	UI            UIPrefs
+	MapsDirectory string // folder of Brewall's Maps .txt files, looked up by zone short_name — see zonemap.go
 }
 
 // UIPrefs persists layout preferences (sidebar/detail panel width, sidebar collapsed state)

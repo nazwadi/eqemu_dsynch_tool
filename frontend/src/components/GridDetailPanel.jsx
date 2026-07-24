@@ -1,9 +1,21 @@
+import {useEffect, useRef} from 'react';
 import {fmtCoord} from '../lib/spawnHelpers';
 import {gridEntryRows} from '../lib/gridHelpers';
 
 // Grids branch of the shared detail panel — see DetailPanel.jsx for the dispatcher/chrome this
-// plugs into.
-function GridDetailPanel({selectedGridRow, expandedSections, setExpandedSections}) {
+// plugs into. selectedWaypointNumber/onSelectWaypoint (added 2026-07-24) cross-link this table
+// with ZoneMapView's waypoint markers — lifted into useGridSync so both components can read AND
+// write the same selection, see that hook's own comment.
+function GridDetailPanel({selectedGridRow, selectedWaypointNumber, onSelectWaypoint, expandedSections, setExpandedSections}) {
+    // Callback-ref map (waypoint number -> row element) rather than one ref per row, since the
+    // row count is dynamic (a grid's waypoint count, not a fixed list) — the same reason a plain
+    // array of refs wouldn't work here without knowing the count up front.
+    const rowRefs = useRef(new Map())
+    useEffect(() => {
+        if (selectedWaypointNumber == null) return
+        rowRefs.current.get(selectedWaypointNumber)?.scrollIntoView({block: 'nearest'})
+    }, [selectedWaypointNumber])
+
     return (
         <>
             {!selectedGridRow && (
@@ -52,9 +64,17 @@ function GridDetailPanel({selectedGridRow, expandedSections, setExpandedSections
                                     </div>
                                     {gridEntryRows(selectedGridRow).map(({number, src, sink, differs}) => {
                                         const fmt = e => e ? `${fmtCoord(e.X)}, ${fmtCoord(e.Y)}, ${fmtCoord(e.Z)}, ${fmtCoord(e.Heading)}, ${e.Pause}` : '—'
+                                        const isSelected = number === selectedWaypointNumber
                                         return (
                                             <div key={number}
-                                                 className={`flex text-xs ${differs ? 'text-yellow-400' : 'text-gray-400'}`}>
+                                                 ref={el => {
+                                                     if (el) rowRefs.current.set(number, el)
+                                                     else rowRefs.current.delete(number)
+                                                 }}
+                                                 onClick={() => onSelectWaypoint(number)}
+                                                 className={`flex text-xs cursor-pointer rounded px-1 -mx-1 ${
+                                                     isSelected ? 'bg-blue-900/40' : 'hover:bg-gray-800'
+                                                 } ${differs ? 'text-yellow-400' : 'text-gray-400'}`}>
                                                 <span className="w-8 shrink-0">{number}</span>
                                                 <span className="flex-1">{fmt(src)}</span>
                                                 {sink && (

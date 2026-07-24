@@ -1,4 +1,4 @@
-import {useState} from 'react';
+import {useEffect, useState} from 'react';
 import {CompareGrids, SyncGrids} from "../../wailsjs/go/main/App";
 import {gridId} from '../lib/gridHelpers';
 
@@ -11,6 +11,15 @@ export function useGridSync({zoneIdNumber}) {
     const [gridDiffFilter, setGridDiffFilter] = useState('all')
     const [selectedGridIds, setSelectedGridIds] = useState(new Set())
     const [selectedGridRow, setSelectedGridRow] = useState(null)
+    // Map-view waypoint selection (see ZoneMapView.jsx/GridDetailPanel.jsx) — lives here alongside
+    // selectedGridRow rather than as local state in either component, since both need to read AND
+    // write it for the bidirectional map<->table cross-highlight. Cleared whenever the selected
+    // grid itself changes, so a waypoint number from the previous grid's roster never lingers as
+    // "selected" against a different one.
+    const [selectedWaypointNumber, setSelectedWaypointNumber] = useState(null)
+    useEffect(() => {
+        setSelectedWaypointNumber(null)
+    }, [selectedGridRow ? gridId(selectedGridRow) : null])
     const [showGridSyncPreview, setShowGridSyncPreview] = useState(false)
     const [gridSyncPreview, setGridSyncPreview] = useState(null)
     const [gridSyncing, setGridSyncing] = useState(false)
@@ -63,6 +72,7 @@ export function useGridSync({zoneIdNumber}) {
         gridDiffFilter, setGridDiffFilter,
         selectedGridIds, setSelectedGridIds,
         selectedGridRow, setSelectedGridRow,
+        selectedWaypointNumber, setSelectedWaypointNumber,
         showGridSyncPreview, setShowGridSyncPreview,
         gridSyncPreview, setGridSyncPreview,
         gridSyncing, gridSyncOutcome, setGridSyncOutcome,
