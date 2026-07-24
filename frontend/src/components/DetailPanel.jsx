@@ -22,6 +22,7 @@ function DetailPanel({
     activeView, setShowSpawnHelp, detailWidth,
     selectedNpc, openReferenceComparison, onInspectLoot,
     selectedSpawnRow, selectAllSharingSpawngroup, openSyncSpawnGroupPreview, openRelocatePreview,
+    onJumpToGrid,
     selectedGridRow, selectedWaypointNumber, onSelectWaypoint,
     selectedSpawnGroupRow, openSyncSpawnGroupPreviewFromSpawnGroup,
     expandedSections, setExpandedSections
@@ -53,6 +54,7 @@ function DetailPanel({
                         <SpawnDetailPanel
                             selectedSpawnRow={selectedSpawnRow} selectAllSharingSpawngroup={selectAllSharingSpawngroup}
                             openSyncSpawnGroupPreview={openSyncSpawnGroupPreview} openRelocatePreview={openRelocatePreview}
+                            onJumpToGrid={onJumpToGrid}
                             expandedSections={expandedSections} setExpandedSections={setExpandedSections}
                         />
                     )}

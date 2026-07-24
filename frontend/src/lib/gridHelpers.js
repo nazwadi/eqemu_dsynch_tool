@@ -23,6 +23,24 @@ function waypointsEqual(a, b) {
         a.Pause === b.Pause && a.Centerpoint === b.Centerpoint
 }
 
+// Per-field src-vs-sink breakdown for one waypoint (x/y/z/heading/pause) — lets the detail panel
+// highlight exactly which field(s) actually differ instead of coloring a whole row because *some*
+// field is off, which is the difference that actually matters when deciding which side to keep
+// (a Z-only drift is probably terrain/elevation noise; an X/Y drift is a genuinely different spot).
+// `differs` is only ever true when BOTH sides have this waypoint — a field on a row where one side
+// is entirely missing isn't "this field differs", it's "this waypoint doesn't exist there yet",
+// already conveyed by the row itself rendering a bare '—' for the missing side.
+export function waypointFieldDiffs(src, sink) {
+    const fields = [
+        {key: 'X', srcVal: src?.X, sinkVal: sink?.X},
+        {key: 'Y', srcVal: src?.Y, sinkVal: sink?.Y},
+        {key: 'Z', srcVal: src?.Z, sinkVal: sink?.Z},
+        {key: 'Heading', srcVal: src?.Heading, sinkVal: sink?.Heading},
+        {key: 'Pause', srcVal: src?.Pause, sinkVal: sink?.Pause}
+    ]
+    return fields.map(f => ({...f, differs: !!src && !!sink && f.srcVal !== f.sinkVal}))
+}
+
 // Merges source/sink waypoints by Number so the detail panel can show one table with both
 // sides' coordinates/pause side by side — the same shape spawnEntryRows already uses for
 // spawn entries, keyed by Number (a waypoint's position in the patrol path) instead of NPCID.

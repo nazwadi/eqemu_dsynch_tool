@@ -1,4 +1,3 @@
-import {useState} from 'react';
 import {gridId, gridRowSelectable, gridWaypointSummary} from '../lib/gridHelpers';
 import ZoneMapView from './ZoneMapView';
 
@@ -7,21 +6,23 @@ import ZoneMapView from './ZoneMapView';
 // are typically a handful to a few dozen, nowhere near spawn2's scale, so the extra UI SpawnsTab
 // needed isn't earning its keep yet. Can add later if a zone turns out to need it.
 //
-// viewMode ('list' | 'map', added 2026-07-24) is local, pure UI state — nothing outside this tab
-// needs it, unlike selectedGridRow/selectedGridIds which are already threaded in from App.jsx.
-// Map mode replaces the diff-list body with ZoneMapView (a Brewall's Maps background + every
-// grid in the zone overlaid) plus a compact picker list, mirroring how the TODO/Loot tabs already
-// reclaim the detail panel's width when it isn't earning its keep.
+// viewMode ('list' | 'map', added 2026-07-24) started as local state here, then got lifted into
+// useGridSync.js (same day, follow-up) once App.jsx needed to switch straight to Map view from
+// outside this component — the Spawn Points detail panel's "view this grid on the map" pathgrid
+// navigation (see App.jsx's jumpToGrid). Map mode replaces the diff-list body with ZoneMapView (a
+// Brewall's Maps background + every grid in the zone overlaid) plus a compact picker list,
+// mirroring how the TODO/Loot tabs already reclaim the detail panel's width when it isn't earning
+// its keep.
 function GridsTab({
     gridDiffRows, gridDiffLoading, gridDiffFilter, setGridDiffFilter,
     selectedGridIds, setSelectedGridIds, selectedGridRow, setSelectedGridRow,
+    viewMode, setViewMode,
     selectedWaypointNumber, onSelectWaypoint,
     selectedZoneShortName,
     showGridSyncPreview, setShowGridSyncPreview, gridSyncPreview, gridSyncing, gridSyncOutcome,
     setShowGridSyncConfirm,
     zoneMap, zoneMapLoading
 }) {
-    const [viewMode, setViewMode] = useState('list')
     const selectableGridRows = gridDiffRows.filter(gridRowSelectable)
     return (
         <div className="flex-1 relative overflow-hidden">

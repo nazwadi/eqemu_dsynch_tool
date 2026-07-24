@@ -4,6 +4,7 @@ import {fmtCoord, spawnBehaviorFields, spawnEntryRows} from '../lib/spawnHelpers
 // this plugs into.
 function SpawnDetailPanel({
     selectedSpawnRow, selectAllSharingSpawngroup, openSyncSpawnGroupPreview, openRelocatePreview,
+    onJumpToGrid,
     expandedSections, setExpandedSections
 }) {
     return (
@@ -101,17 +102,37 @@ function SpawnDetailPanel({
                                 // reference (to `grid`) — flagged the same way spawngroupID
                                 // is, just inline on its own row instead of a top banner,
                                 // since (unlike spawngroupID) a missing pathgrid target
-                                // doesn't block anything this tab can sync.
+                                // doesn't block anything this tab can sync. Each side is
+                                // independently clickable — jumps to the Grids tab's Map view
+                                // with that grid selected (see App.jsx's jumpToGrid) — only
+                                // when it's a real, nonzero value that actually resolves on
+                                // that side; 0 means "no patrol" and a missing/dangling value
+                                // has nothing to navigate to, so both stay plain text.
                                 const srcMissing = field === 'pathgrid' && selectedSpawnRow.Source?.PathgridMissing
                                 const sinkMissing = field === 'pathgrid' && selectedSpawnRow.Sink?.PathgridMissing
+                                const srcClickable = field === 'pathgrid' && !srcMissing && Number(srcVal) > 0
+                                const sinkClickable = field === 'pathgrid' && !sinkMissing && Number(sinkVal) > 0
+                                const valueClass = differs ? 'text-yellow-400' : 'text-gray-400'
                                 return (
                                     <div key={field} className="flex justify-between px-2 py-0.5">
                                         <span className="text-gray-500 w-24 shrink-0">{field}</span>
-                                        <span className={srcMissing ? 'text-red-400' : differs ? 'text-yellow-400' : 'text-gray-400'}
-                                              title={srcMissing ? "References a grid that doesn't exist in source for this zone" : undefined}>{srcVal ?? '—'}</span>
+                                        {srcClickable ? (
+                                            <span onClick={() => onJumpToGrid(Number(srcVal))}
+                                                  className={`${valueClass} cursor-pointer hover:text-cyan-300 hover:underline`}
+                                                  title="View this grid on the Grids map →">{srcVal}</span>
+                                        ) : (
+                                            <span className={srcMissing ? 'text-red-400' : valueClass}
+                                                  title={srcMissing ? "References a grid that doesn't exist in source for this zone" : undefined}>{srcVal ?? '—'}</span>
+                                        )}
                                         <span className="text-gray-600 px-1">→</span>
-                                        <span className={sinkMissing ? 'text-red-400' : differs ? 'text-yellow-400' : 'text-gray-400'}
-                                              title={sinkMissing ? "References a grid that doesn't exist in the sink for this zone yet" : undefined}>{sinkVal ?? '—'}</span>
+                                        {sinkClickable ? (
+                                            <span onClick={() => onJumpToGrid(Number(sinkVal))}
+                                                  className={`${valueClass} cursor-pointer hover:text-cyan-300 hover:underline`}
+                                                  title="View this grid on the Grids map →">{sinkVal}</span>
+                                        ) : (
+                                            <span className={sinkMissing ? 'text-red-400' : valueClass}
+                                                  title={sinkMissing ? "References a grid that doesn't exist in the sink for this zone yet" : undefined}>{sinkVal ?? '—'}</span>
+                                        )}
                                     </div>
                                 )
                             })}

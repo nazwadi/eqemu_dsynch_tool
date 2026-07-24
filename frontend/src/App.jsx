@@ -167,6 +167,21 @@ function App() {
         loot.lookupLootByNpc(npcSync.selectedNpc)
     }
 
+    // Triggered from the Spawn Points detail panel's pathgrid row (see SpawnDetailPanel.jsx) —
+    // pathgrid is only ever clickable there when it resolves (SpawnPoint.PathgridMissing false on
+    // that side), so a matching row is always expected to exist in gridSync's already-loaded diff
+    // list (grid diffs load eagerly on every zone switch via selectZone below, same as every other
+    // tab, not lazily when the Grids tab is first opened). Matches on either side's Id, not just
+    // one — a source-side pathgrid click and a sink-side pathgrid click for the "same" grid number
+    // land on the same GridDiffRow either way, since CompareGrids already pairs source/sink by Id.
+    function jumpToGrid(id) {
+        const row = gridSync.gridDiffRows.find(r => r.Source?.Id === id || r.Sink?.Id === id)
+        if (!row) return
+        setActiveView('grids')
+        gridSync.setSelectedGridRow(row)
+        gridSync.setViewMode('map')
+    }
+
     // Triggered from the Spawn Points detail panel's per-row action — wraps the shared opener with
     // the coordinate/entries extraction specific to a SpawnDiffRow shape, and refreshes the Spawn
     // Points tab's own selection/diff-list on success.
@@ -591,6 +606,7 @@ function App() {
                             gridDiffFilter={gridSync.gridDiffFilter} setGridDiffFilter={gridSync.setGridDiffFilter}
                             selectedGridIds={gridSync.selectedGridIds} setSelectedGridIds={gridSync.setSelectedGridIds}
                             selectedGridRow={gridSync.selectedGridRow} setSelectedGridRow={gridSync.setSelectedGridRow}
+                            viewMode={gridSync.viewMode} setViewMode={gridSync.setViewMode}
                             selectedWaypointNumber={gridSync.selectedWaypointNumber} onSelectWaypoint={gridSync.setSelectedWaypointNumber}
                             selectedZoneShortName={selectedZoneShortName}
                             showGridSyncPreview={gridSync.showGridSyncPreview} setShowGridSyncPreview={gridSync.setShowGridSyncPreview}
@@ -661,6 +677,7 @@ function App() {
                                 selectAllSharingSpawngroup={spawnSync.selectAllSharingSpawngroup}
                                 openSyncSpawnGroupPreview={openSyncSpawnGroupPreviewFromSpawn}
                                 openRelocatePreview={relocateSpawnGroup.openRelocatePreview}
+                                onJumpToGrid={jumpToGrid}
                                 selectedGridRow={gridSync.selectedGridRow}
                                 selectedWaypointNumber={gridSync.selectedWaypointNumber} onSelectWaypoint={gridSync.setSelectedWaypointNumber}
                                 selectedSpawnGroupRow={spawnGroupsTab.selectedSpawnGroupRow}

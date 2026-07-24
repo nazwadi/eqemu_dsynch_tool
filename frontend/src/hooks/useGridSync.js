@@ -11,6 +11,11 @@ export function useGridSync({zoneIdNumber}) {
     const [gridDiffFilter, setGridDiffFilter] = useState('all')
     const [selectedGridIds, setSelectedGridIds] = useState(new Set())
     const [selectedGridRow, setSelectedGridRow] = useState(null)
+    // List/Map toggle (originally local state in GridsTab.jsx, lifted here 2026-07-24 so
+    // App.jsx's jumpToGrid — the pathgrid "view on map" navigation from the Spawn Points detail
+    // panel — can switch straight to Map view instead of leaving the user on List after landing
+    // on the right grid).
+    const [viewMode, setViewMode] = useState('list')
     // Map-view waypoint selection (see ZoneMapView.jsx/GridDetailPanel.jsx) — lives here alongside
     // selectedGridRow rather than as local state in either component, since both need to read AND
     // write it for the bidirectional map<->table cross-highlight. Cleared whenever the selected
@@ -72,6 +77,7 @@ export function useGridSync({zoneIdNumber}) {
         gridDiffFilter, setGridDiffFilter,
         selectedGridIds, setSelectedGridIds,
         selectedGridRow, setSelectedGridRow,
+        viewMode, setViewMode,
         selectedWaypointNumber, setSelectedWaypointNumber,
         showGridSyncPreview, setShowGridSyncPreview,
         gridSyncPreview, setGridSyncPreview,

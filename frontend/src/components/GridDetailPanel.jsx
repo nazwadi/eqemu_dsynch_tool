@@ -1,6 +1,6 @@
 import {useEffect, useRef} from 'react';
 import {fmtCoord} from '../lib/spawnHelpers';
-import {gridEntryRows} from '../lib/gridHelpers';
+import {gridEntryRows, waypointFieldDiffs} from '../lib/gridHelpers';
 
 // Grids branch of the shared detail panel — see DetailPanel.jsx for the dispatcher/chrome this
 // plugs into. selectedWaypointNumber/onSelectWaypoint (added 2026-07-24) cross-link this table
@@ -62,9 +62,25 @@ function GridDetailPanel({selectedGridRow, selectedWaypointNumber, onSelectWaypo
                                         <span className="w-8">#</span>
                                         <span className="flex-1">x, y, z, heading, pause</span>
                                     </div>
-                                    {gridEntryRows(selectedGridRow).map(({number, src, sink, differs}) => {
-                                        const fmt = e => e ? `${fmtCoord(e.X)}, ${fmtCoord(e.Y)}, ${fmtCoord(e.Z)}, ${fmtCoord(e.Heading)}, ${e.Pause}` : '—'
+                                    {gridEntryRows(selectedGridRow).map(({number, src, sink}) => {
+                                        // Per-field diff, not row-level — a Z-only drift (likely
+                                        // terrain/elevation) reads very differently from an X/Y
+                                        // drift (a genuinely different spot), and that's exactly
+                                        // the distinction that matters when deciding which side to
+                                        // keep. See waypointFieldDiffs's own comment.
+                                        const fields = waypointFieldDiffs(src, sink)
                                         const isSelected = number === selectedWaypointNumber
+                                        const renderSide = entry => {
+                                            if (!entry) return <span className="text-gray-600">—</span>
+                                            return fields.map((f, i) => (
+                                                <span key={f.key}>
+                                                    <span className={f.differs ? 'text-yellow-400 font-medium' : 'text-gray-400'}>
+                                                        {f.key === 'Pause' ? entry.Pause : fmtCoord(entry[f.key])}
+                                                    </span>
+                                                    {i < fields.length - 1 && <span className="text-gray-600">, </span>}
+                                                </span>
+                                            ))
+                                        }
                                         return (
                                             <div key={number}
                                                  ref={el => {
@@ -74,13 +90,13 @@ function GridDetailPanel({selectedGridRow, selectedWaypointNumber, onSelectWaypo
                                                  onClick={() => onSelectWaypoint(number)}
                                                  className={`flex text-xs cursor-pointer rounded px-1 -mx-1 ${
                                                      isSelected ? 'bg-blue-900/40' : 'hover:bg-gray-800'
-                                                 } ${differs ? 'text-yellow-400' : 'text-gray-400'}`}>
-                                                <span className="w-8 shrink-0">{number}</span>
-                                                <span className="flex-1">{fmt(src)}</span>
+                                                 }`}>
+                                                <span className="w-8 shrink-0 text-gray-500">{number}</span>
+                                                <span className="flex-1">{renderSide(src)}</span>
                                                 {sink && (
                                                     <>
                                                         <span className="text-gray-600 px-1 shrink-0">→</span>
-                                                        <span className="flex-1">{fmt(sink)}</span>
+                                                        <span className="flex-1">{renderSide(sink)}</span>
                                                     </>
                                                 )}
                                             </div>
