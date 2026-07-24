@@ -38,7 +38,17 @@ function Disclosure({expanded}) {
 // it, source doesn't, i.e. "extra, not in source"). Collapsed by default when there IS a
 // difference to review — expanded by default would be a lot of names dumped in your face before
 // you've even looked at the tree below; the header's own counts already tell you whether it's
-// worth opening.
+// worth opening. Each side's list is its own bordered, independently-scrollable box (not just a
+// bare max-height div) — a real, reported bug: an unbordered overflow-y-auto with no visible
+// boundary just silently clipped once a side had a lot of items, reading as "broken/too small"
+// rather than "scroll for more," since nothing hinted more content existed below the fold.
+// **Second bug, same feature:** the scrollable box was originally `flex flex-col` with the rows
+// as its flex-item children — with 30+ rows, flex items' default `min-height: auto` let the
+// browser shrink every row down to fit the box instead of actually scrolling, squashing all of
+// them into overlapping, illegible text. Rows are deliberately plain block-level divs with
+// `space-y-0.5` on the parent instead of `flex flex-col gap-0.5` — outside flex layout entirely,
+// a block element can never be shrunk to fit like this, so overflow-y-auto's scrollbar is the
+// only way to see content that doesn't fit, exactly as intended.
 function ItemDiffSummary({sourceTable, sinkTable}) {
     const [expanded, setExpanded] = useState(false)
     const {onlyInSource, onlyInSink, sharedCount} = lootItemSetDiff(sourceTable, sinkTable)
@@ -64,10 +74,10 @@ function ItemDiffSummary({sourceTable, sinkTable}) {
                 </span>
             </div>
             {expanded && (
-                <div className="flex px-3 pb-2 gap-4 text-xs">
+                <div className="flex px-3 pb-3 gap-4 text-xs">
                     <div className="flex-1 min-w-0">
                         <div className="text-green-400 mb-1">Only in source — missing from sink ({onlyInSource.length})</div>
-                        <div className="flex flex-col gap-0.5 max-h-40 overflow-y-auto">
+                        <div className="max-h-72 overflow-y-auto rounded border border-gray-700 bg-gray-900/40 p-2 space-y-0.5">
                             {onlyInSource.length === 0 ? <div className="text-gray-600">—</div> : onlyInSource.map(({itemId, itemName}) => (
                                 <div key={itemId} className="text-gray-300 truncate">{itemName} <span className="text-gray-600">({itemId})</span></div>
                             ))}
@@ -75,7 +85,7 @@ function ItemDiffSummary({sourceTable, sinkTable}) {
                     </div>
                     <div className="flex-1 min-w-0">
                         <div className="text-red-400 mb-1">Only in sink — extra, not in source ({onlyInSink.length})</div>
-                        <div className="flex flex-col gap-0.5 max-h-40 overflow-y-auto">
+                        <div className="max-h-72 overflow-y-auto rounded border border-gray-700 bg-gray-900/40 p-2 space-y-0.5">
                             {onlyInSink.length === 0 ? <div className="text-gray-600">—</div> : onlyInSink.map(({itemId, itemName}) => (
                                 <div key={itemId} className="text-gray-300 truncate">{itemName} <span className="text-gray-600">({itemId})</span></div>
                             ))}
