@@ -24,6 +24,17 @@ export const referenceComparisonTypes = {
     merchant_id: 'merchant'
 }
 
+// loottable_id is clickable too, but doesn't open the shared ReferenceDrawer the way the three
+// above do — loot's own comparison is one level deeper (loottable -> loottable_entries ->
+// lootdrop -> lootdrop_entries) and already has its own richer tab (LootTab.jsx, including the
+// ID-alignment action) rather than a read-only drawer, so clicking it navigates there with this
+// NPC preloaded instead of duplicating that tree UI in a slide-over. Kept as its own map (not
+// folded into referenceComparisonTypes) since the two are genuinely different actions — open a
+// drawer vs. switch tabs — not two flavors of the same click.
+export const referenceNavigationTypes = {
+    loottable_id: 'loot'
+}
+
 // Mirrors spawnRowMatchesSearch's shape for the NPCs tab — matches either side's name, since a
 // "removed" row only has a Sink name and a "new" row only has a Source one.
 export function npcRowMatchesSearch(row, query) {

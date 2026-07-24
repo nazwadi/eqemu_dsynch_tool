@@ -20,7 +20,7 @@ const detailPanelTitles = {
 // lose that).
 function DetailPanel({
     activeView, setShowSpawnHelp, detailWidth,
-    selectedNpc, openReferenceComparison,
+    selectedNpc, openReferenceComparison, onInspectLoot,
     selectedSpawnRow, selectAllSharingSpawngroup, openSyncSpawnGroupPreview, openRelocatePreview,
     selectedGridRow,
     selectedSpawnGroupRow, openSyncSpawnGroupPreviewFromSpawnGroup,
@@ -45,6 +45,7 @@ function DetailPanel({
                     {activeView === 'npcs' && (
                         <NpcDetailPanel
                             selectedNpc={selectedNpc} openReferenceComparison={openReferenceComparison}
+                            onInspectLoot={onInspectLoot}
                             expandedSections={expandedSections} setExpandedSections={setExpandedSections}
                         />
                     )}

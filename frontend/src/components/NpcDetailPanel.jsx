@@ -1,9 +1,9 @@
-import {fieldGroups, referenceComparisonTypes} from '../lib/npcHelpers';
+import {fieldGroups, referenceComparisonTypes, referenceNavigationTypes} from '../lib/npcHelpers';
 
 // NPC branch of the shared detail panel — see DetailPanel.jsx for the dispatcher/chrome this
 // plugs into. expandedSections is the parent's shared state object (NPC keys here never collide
 // with the other tabs' own keys — see DetailPanel.jsx's comment for why that's kept as one object).
-function NpcDetailPanel({selectedNpc, openReferenceComparison, expandedSections, setExpandedSections}) {
+function NpcDetailPanel({selectedNpc, openReferenceComparison, onInspectLoot, expandedSections, setExpandedSections}) {
     return (
         <>
             {!selectedNpc && (
@@ -34,14 +34,15 @@ function NpcDetailPanel({selectedNpc, openReferenceComparison, expandedSections,
                         const srcVal = selectedNpc.Source?.Fields?.[field]
                         const sinkVal = selectedNpc.Sink?.Fields?.[field]
                         const differs = srcVal !== sinkVal
-                        // References fields with a working comparison (see
-                        // lib/npcHelpers.js's referenceComparisonTypes) become
-                        // clickable once at least one side actually points at
-                        // something — a reference that's 0 on both sides has
-                        // nothing to compare, so it stays a plain row like any
+                        // References fields with a working comparison (drawer, see
+                        // lib/npcHelpers.js's referenceComparisonTypes) or a navigation target
+                        // (loottable_id, see referenceNavigationTypes) become clickable once at
+                        // least one side actually points at something — a reference that's 0 on
+                        // both sides has nothing to compare, so it stays a plain row like any
                         // other field.
+                        const isNavigation = field in referenceNavigationTypes
                         const comparable = section === 'references' &&
-                            referenceComparisonTypes[field] && (srcVal || sinkVal)
+                            (referenceComparisonTypes[field] || isNavigation) && (srcVal || sinkVal)
                         // These FK columns are local surrogate IDs (see CLAUDE.md's
                         // identity trust model) copied verbatim by npc_types sync — a
                         // nonzero value that doesn't resolve in its OWN database is the
@@ -53,8 +54,8 @@ function NpcDetailPanel({selectedNpc, openReferenceComparison, expandedSections,
                         return (
                             <div key={field}
                                  className={`flex justify-between px-2 py-0.5 ${comparable ? 'cursor-pointer hover:bg-gray-700 rounded' : ''}`}
-                                 onClick={comparable ? () => openReferenceComparison(referenceComparisonTypes[field], srcVal, sinkVal) : undefined}
-                                 title={comparable ? 'View source vs sink comparison' : undefined}>
+                                 onClick={!comparable ? undefined : isNavigation ? onInspectLoot : () => openReferenceComparison(referenceComparisonTypes[field], srcVal, sinkVal)}
+                                 title={comparable ? (isNavigation ? 'View in Loot tab' : 'View source vs sink comparison') : undefined}>
                                 <span className={`w-24 shrink-0 ${comparable ? 'text-cyan-400 underline decoration-dotted' : 'text-gray-500'}`}>{field}</span>
                                 <span
                                     className={srcMissing ? 'text-red-400' : differs ? 'text-yellow-400' : 'text-gray-400'}

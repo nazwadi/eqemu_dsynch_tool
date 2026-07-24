@@ -111,6 +111,16 @@ function App() {
         loot.refreshWithIds(sourceId, sinkId)
     }
 
+    // Triggered from the NPC detail panel's References section — loottable_id is clickable like
+    // the other three reference fields, but jumps to the Loot tab with this NPC's comparison
+    // preloaded instead of opening the shared drawer (see referenceNavigationTypes in
+    // lib/npcHelpers.js for why loot doesn't use the drawer). Reuses lookupLootByNpc as-is — it
+    // already takes an NPC diff row directly, the same shape npcSync.selectedNpc already is.
+    function jumpToLoot() {
+        setActiveView('loot')
+        loot.lookupLootByNpc(npcSync.selectedNpc)
+    }
+
     // Triggered from the Spawn Points detail panel's per-row action — wraps the shared opener with
     // the coordinate/entries extraction specific to a SpawnDiffRow shape, and refreshes the Spawn
     // Points tab's own selection/diff-list on success.
@@ -599,6 +609,7 @@ function App() {
                                 selectedSpawnGroupRow={spawnGroupsTab.selectedSpawnGroupRow}
                                 openSyncSpawnGroupPreviewFromSpawnGroup={openSyncSpawnGroupPreviewFromSpawnGroup}
                                 openReferenceComparison={referenceDrawer.openReferenceComparison}
+                                onInspectLoot={jumpToLoot}
                                 expandedSections={expandedSections} setExpandedSections={setExpandedSections}
                             />
                         </>
