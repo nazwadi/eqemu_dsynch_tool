@@ -36,6 +36,9 @@ eqemu_dsynch_tool/
 │                     fetch, collision-risk detection
 ├── spawngroup.go    # Spawngroups tab: CompareSpawnGroups, SyncSpawnGroup, RelocateSpawnGroup
 ├── grid.go          # Grids tab: CompareGrids, SyncGrids, grid/grid_entries fetch
+├── idalign.go       # Generic "ID alignment" primitive (AlignId) — renumbers a sink row's local
+│                     surrogate id to match source's, for lootdrop/loottable/npc_faction/
+│                     npc_spells (added 2026-07-23, see Sync Design)
 ├── app_test.go      # (superseded — see dbutil_test.go/spawn_test.go/grid_test.go below)
 ├── dbutil_test.go   # Table-driven tests for dbutil.go's pure helpers (toFloat64/toInt64/
 │                     mapsEqual/inClausePlaceholders)
@@ -63,8 +66,10 @@ eqemu_dsynch_tool/
         │   ├── useRelocateSpawnGroup.js # Relocate-and-reclaim confirm flow
         │   ├── useGridSync.js           # Grids tab
         │   ├── useLoot.js               # Loot tab
+        │   ├── useAlignId.js            # Confirm flow for the generic AlignId primitive,
+        │   │                             triggered from the Loot tab (added 2026-07-23)
         │   └── useModalFocusTrap.js     # Shared focus-on-open + Escape-to-close behavior,
-        │                                 used by all 8 modal/drawer components below
+        │                                 used by all 9 modal/drawer components below
         ├── lib/            # Pure helpers/constants, no React or component state
         │   ├── constants.js
         │   ├── npcHelpers.js
@@ -75,7 +80,7 @@ eqemu_dsynch_tool/
         └── components/     # Presentational components, one per modal/drawer/tab/panel
             ├── ConnectModal.jsx, ConfirmSyncModal.jsx, ConfirmSpawnSyncModal.jsx,
             │   SpawnHelpDrawer.jsx, ConfirmSpawnGroupSyncModal.jsx, ConfirmGridSyncModal.jsx,
-            │   ConfirmRelocateSpawnGroupModal.jsx, ReferenceDrawer.jsx
+            │   ConfirmRelocateSpawnGroupModal.jsx, ConfirmAlignIdModal.jsx, ReferenceDrawer.jsx
             ├── FactionComparison.jsx, SpellsComparison.jsx, MerchantComparison.jsx
             ├── Sidebar.jsx
             ├── NpcsTab.jsx, SpawnsTab.jsx, TodoTab.jsx, GridsTab.jsx, SpawngroupsTab.jsx,
@@ -517,6 +522,41 @@ type SyncGridsResult struct {
     Updated int
     Errors  []string
 }
+
+// idAlignmentTarget (idalign.go, added 2026-07-23) describes one local-surrogate-ID table the
+// generic AlignId primitive can operate on: its own child-entries table (fully owned content,
+// moved wholesale with the row when relocating a squatter) and every external table/column that
+// merely references the id (repointed in place, content untouched). spawngroup is deliberately
+// NOT one of these — it keeps its own dedicated RelocateSpawnGroup, which has a zone-scoped
+// carve-out these four targets have no equivalent for (see AlignId's own comment / Sync Design
+// for why unconditional repoint is correct here, not just simpler).
+type idAlignmentTarget struct {
+    table          string  // e.g. "lootdrop"
+    childTable     string  // e.g. "lootdrop_entries" — this row's own content
+    childParentCol string  // e.g. "lootdrop_id" — the FK column in childTable pointing back at table.id
+    externalRefs   []fkRef // other tables/columns referencing table.id, e.g. loottable_entries.lootdrop_id
+}
+
+type fkRef struct{ table, column string }
+
+// AlignIdOptions requests renumbering a sink row's local surrogate ID (SinkId) to match source's
+// id for the same logical content (SourceId) — see AlignId's doc comment for the full semantics
+// (a rename, not a content overwrite like RelocateSpawnGroup).
+type AlignIdOptions struct {
+    Target   string // key into idAlignmentTargets: "lootdrop" | "loottable" | "npc_faction" | "npc_spells"
+    SourceId int64  // sink's row will be renumbered to this
+    SinkId   int64  // sink's current id for the same logical content, being renamed away from
+    DryRun   bool
+}
+
+type AlignIdResult struct {
+    DryRun                 bool
+    RenamedFrom, RenamedTo int64
+    SquatterSummary        string // best-effort label ("name" field if the target row has one, else "record #N") — "" if SourceId was free, nothing evicted
+    SquatterEvicted        bool
+    NewSquatterId          int64 // where the squatter ends up — 0 on dry run or if no squatter
+    ReferencesRepointed    int   // rows across childTable + externalRefs currently pointing at SinkId that will move to SourceId
+}
 ```
 
 ## Go Backend — Key Functions
@@ -564,6 +604,9 @@ following each function's own domain; see Project Structure for the full file li
 - `CompareGrids(zoneIdNumber int64) ([]GridDiffRow, error)` — App method backing the Grids tab; matches source/sink `GridPoint`s by `Id` (not coordinate — a grid is a path, not a point), computes `FieldsDiffer`/`EntriesDiffer` independently before deriving `Status`, same two-flag shape as `SpawnDiffRow`
 - `insertGridEntry`/`createGrid`/`updateGrid` — shared grid-writing helpers, mirroring the create/update split `SyncSpawnPoints`'s two row paths use, but simpler: `createGrid` reuses source's own `grid.id` directly (safe here — see `GridPoint`), and `updateGrid` replaces both a grid's own fields *and* its full waypoint list (delete-then-reinsert `grid_entries`) in one call, since unlike spawn2/spawngroup there's no shared-data risk splitting fields from entries
 - `SyncGrids(options SyncGridsOptions) (SyncGridsResult, error)` — dry-run/execute for the Grids tab, own transaction. Simpler than `SyncSpawnPoints`/`SyncSpawnGroupEntries`: no coordinate-conflict or shared-pool checks needed, since `grid.id` is zone-scoped (not a global auto-increment) and a grid isn't reused across unrelated things the way a spawngroup is
+- `fetchRowById(ctx, q queryer, table string, id int64) (map[string]interface{}, error)` (`dbutil.go`, added 2026-07-23) — generic "fetch one row's own fields by primary key" helper, the shape `fetchSpawnGroupById`/`fetchLootTableHeader`/`fetchNPCFactionHeader` each independently duplicated; those weren't refactored to use it (out of scope, low risk either way), but new code should prefer this over another one-off copy. `queryer` is a small local interface (`QueryContext`) satisfied by both `*sql.DB` and `*sql.Tx`, so the same helper works for a pre-transaction dry-run read and a read mid-transaction — `getSinkColumns` was widened to accept `queryer` too, for the same reason (`idalign.go`'s `copyChildRows` needs it mid-transaction)
+- `fetchChildRows(ctx, q queryer, childTable, parentCol string, parentId int64) ([]map[string]interface{}, error)` (`dbutil.go`, added 2026-07-23) — fetches every row of `childTable` referencing `parentId`, as dynamic field maps; used by `idalign.go` to copy a squatter's own child-entries rows to its new id during a relocate
+- `AlignId(options AlignIdOptions) (AlignIdResult, error)` (`idalign.go`, added 2026-07-23) — the generic "ID alignment" primitive: renumbers `options.SinkId` to `options.SourceId` in `idAlignmentTargets[options.Target]`'s table, preserving the sink row's own field content untouched (a rename, not a content overwrite — see Sync Design for why this differs from `RelocateSpawnGroup`). Rejects `SourceId == SinkId` (nothing to do) and a missing `SinkId` row (nothing to rename) up front. If `SourceId` already exists as a different row (a squatter), `relocateRow` moves it to a fresh id first (copies its own fields via `insertRow`, its child rows via `copyChildRows`, repoints `externalRefs` off the vacated id, deletes the old row+children) — then the target row is renamed onto the now-free `SourceId` with a plain `UPDATE ... SET id = ?`, and `repointReferences` moves every row that referenced the old `SinkId` (across `childTable` and every `externalRef`) onto the new id. `countReferences` computes `ReferencesRepointed` for the dry-run preview before anything is written. Known accepted edge case, not solved: if some `loottable` already references both the old and new lootdrop ids as separate `loottable_entries` rows, the final repoint step collides with `loottable_entries`' composite primary key and fails loudly with a wrapped SQL error, rather than silently merging — rare enough (a loottable listing the same drop twice under different ids) not to special-case
 - `shutdown(ctx)` — closes both DB connections and both SSH tunnels, if open
 
 ## Important Go Implementation Details
@@ -760,7 +803,7 @@ const [showReferenceDrawer, setShowReferenceDrawer] = useState(false)
 const [referenceDrawerType, setReferenceDrawerType] = useState(null)  // 'faction' | 'spells' | 'merchant'
 const [referenceDrawerData, setReferenceDrawerData] = useState(null)  // null while loading
 
-// Loot tab (useLoot.js) — read-only (phase 1), no bulk selection or diff-list like the other tabs, closer in
+// Loot tab (useLoot.js) — no bulk selection or diff-list like the other tabs, closer in
 // shape to the reference drawers than to a zone-scoped diff table. An NPC search (reusing
 // diffRows, already zone-scoped, so picking an NPC costs no extra Go call — both sides'
 // loottable_id are already sitting in that data) drives the normal two-sided lookup;
@@ -769,12 +812,25 @@ const [referenceDrawerData, setReferenceDrawerData] = useState(null)  // null wh
 // surrogate, not portable). lootComparison holds whichever of CompareNPCLoot's/GetLootTable's
 // result shapes was last looked up, normalized to {SourceId, SinkId, SourceTable, SinkTable}
 // either way so LootTab only needs one render path regardless of which lookup mode produced it.
+// No longer strictly read-only as of 2026-07-23 — see the AlignId block below; the raw-ID lookup
+// mode stays read-only-only (it's one-sided by construction, nothing to align against).
 const [lootSearchFilter, setLootSearchFilter] = useState('')
 const [lootRawSide, setLootRawSide] = useState('source')  // 'source' | 'sink'
 const [lootRawId, setLootRawId] = useState('')
 const [lootComparison, setLootComparison] = useState(null)
 const [lootLoading, setLootLoading] = useState(false)
 const [lootError, setLootError] = useState(null)
+
+// AlignId confirm flow (useAlignId.js, added 2026-07-23) — triggered from the Loot tab's
+// loottable-level "Align loottable ID to source" button (ids already known, no pairing needed)
+// and its lootdrop-level two-step cross-column click (see LootTab.jsx's armedSourceDrop/
+// armedSinkDrop, local to that component, not part of this hook — the pairing is pure UI
+// interaction state, only the confirmed {target, sourceId, sinkId} pair reaches this hook).
+const [showAlignConfirm, setShowAlignConfirm] = useState(false)
+const [alignPreview, setAlignPreview] = useState(null)  // dry-run AlignIdResult, null while loading
+const [alignError, setAlignError] = useState(null)
+const [aligning, setAligning] = useState(false)
+const [alignTarget, setAlignTarget] = useState(null)  // {target, sourceId, sinkId, label}
 
 // NPC / Spawn Point / Grid / Spawngroup Detail panel (shared panel, content switches on
 // activeView) — detailWidth is useUIPrefs.js's; expandedSections stays in App.jsx, since it's
@@ -879,6 +935,7 @@ center panel reclaims that width instead of it sitting idle.
 - **Shared reference table comparison, phase 1 — complete as of the Loot tab, built incrementally across faction → spells → merchant → loot.** All four are read-only source-vs-sink views, anchored via the NPC that led there rather than any cross-database ID matching: `npc_types.id` is portable, so each side's own raw FK value (`npc_faction_id`/`npc_spells_id`/`merchant_id`/`loottable_id`) is read independently and used to fetch that side's own data — no attempt to match `npc_faction.id`/`npc_spells.id`/`loottable.id` values against each other, since all three are local surrogates (see EQEmu Schema Notes). Faction/spells/merchant share one mechanism: clicking a clickable References-section row (`referenceComparisonTypes` in `lib/npcHelpers.js` decides which fields qualify) opens `ReferenceDrawer.jsx`, a right-edge slide-over whose content switches between `FactionComparison`/`SpellsComparison`/`MerchantComparison.jsx` on `referenceDrawerType`. **Loot deliberately does not use this drawer** — it's one level deeper (`loottable → loottable_entries → lootdrop → lootdrop_entries`, `lootdrop` itself a shared, reusable middle layer with no anchor of its own), and the intended workflow ("do comparable NPCs drop the same loot") needs picking an NPC you *don't* already have open, not just reacting to one you do — so it got its own tab (`LootTab.jsx`) with an NPC search plus a one-sided raw-`loottable_id` lookup fallback (necessarily one-sided, same reasoning as the ID itself not being portable). `NPCLootComparison` renders `SourceTable`/`SinkTable` as two independent trees rather than pairing individual lootdrops across databases — there's no anchor to pair them on (unlike spawngroup, which at least has spawn2 coordinates), so claiming a correspondence would mean guessing, not comparing. `LootDrop.SharedCount` (a lootdrop referenced by other loottables in the same database) mirrors `SpawnPoint.LocationSharedCount`'s "shared ×N" signal, added after checking the official PEQ editor's per-object lootdrop navigation for ideas — the object-oriented drill-down suits *content authoring* (managing a reusable lootdrop as its own asset) better than this tool's *diagnostic comparison* task, but the reuse-visibility it provides was worth keeping. A UI/UX pass after the disclosure triangles turned out too subtle to notice moved every expand/collapse control to the left of its row (reading-order convention — Finder, VS Code's file tree — instead of trailing after other text on the right) and added an Expand All/Collapse All toggle per column, which also makes the row-level affordance obvious by association. `alt_currency` stayed out of scope entirely (confirmed unused, 0 rows on both databases checked).
 - **Per-item deselection within the sync preview — decided against, 2026-07-21.** Considered (the preview reflects exactly what was checked in the diff view; there's no way to uncheck one NPC from the preview panel itself) and rejected: the existing "← Back to Diff" round-trip is deliberate friction, not a missing shortcut — same category as the app's other "make risky things a little harder to do by accident" choices (e.g. the zone list locking during a preview). Making it trivially easy to fine-tune a selection from inside the preview screen undermines the point of the preview being a stable, reviewed snapshot of what you're about to commit.
 - **Shared reference table sync, phase 2 — safely writing** `loottable`, `npc_faction`, `npc_spells`, `merchantlist` (and skipping `alt_currency`, unused) instead of only comparing them and flagging via the TODO queue. Not started. Deferred because these tables are *shared across many NPCs* — blindly overwriting one on sync risks corrupting loot/faction/spells for every other NPC that also references the same row. Needs a design for detecting "is this shared row actually different, and is it safe to touch" before it can replace the TODO-queue approach — phase 1 (comparison) exists now specifically to make that judgment call visible to a human first, the same "see it before you can touch it" step every sync-capable tab in this app went through before gaining a sync action.
+- **ID alignment, added 2026-07-23 — a third category, distinct from both phases above, though it touches the same tables.** Direct response to the user's actual manual workflow: comparing loot tables almost always shows the same real content living under different `lootdrop.id`/`loottable.id` numbers (local surrogates, no cross-database meaning — same trust category as `spawngroup.id`), fixed by hand with `UPDATE lootdrop SET id = X WHERE id = y` and matching updates to every table referencing it. The one danger named: if `X` is already occupied by unrelated sink content, the rename collides — exactly the `SpawnGroupCollisionRisk`/`RelocateSpawnGroup` problem, generalized. **This is a rename, not a content overwrite** — the key distinction from both phase 1 (never writes) and phase 2 (would overwrite a shared row's *content* with source's). `AlignId` (`idalign.go`) renumbers the sink's *existing* row to source's id, preserving that row's own current field content untouched; only a pre-existing squatter at the target id gets its content relocated. Covers `lootdrop`/`loottable`/`npc_faction`/`npc_spells` (confirmed with the user: "I'm doing this across all tables... build the general primitive covering all four") — deliberately NOT `spawngroup`, which keeps its own `RelocateSpawnGroup` with its zone-scoped carve-out (see `idAlignmentTarget`'s own comment in Key Types for why the four new targets get unconditional repoint instead: none of them have spawn2/spawngroup's zone-scoped "same recent sync batch" signal, and by construction any existing reference to a colliding id is already showing the squatter's real content — repointing it to follow the squatter preserves exactly what it shows today, so there's no case where leaving it un-repointed is safer). Frontend wiring is Loot-tab-only for now (`LootTab.jsx`'s loottable-level button — ids already known via the NPC anchor, no pairing needed — and lootdrop-level two-step cross-column click, since `lootdrop.id` has no cross-database anchor the way spawngroup has spawn2 coordinates); `npc_faction`/`npc_spells` triggers in `FactionComparison.jsx`/`SpellsComparison.jsx` are a deliberately deferred follow-up using the same `useAlignId.js`/`ConfirmAlignIdModal.jsx`, not built this pass. `useLoot.js`'s `refreshWithIds` exists specifically because a loottable-level align changes `npc_types.loottable_id` in the database in a way the NPCs tab's cached `diffRows` won't reflect — replaying the stale NPC row after align would look up an id that no longer exists, so the refresh uses the known-correct post-align ids directly instead.
 
 ### What gets queued as TODO (not synced):
 - `loottable` / `loottable_entries` / `lootdrop` / `lootdrop_entries` (via `loottable_id`)
@@ -942,6 +999,7 @@ center panel reclaims that width instead of it sitting idle.
   2. **`DetailPanel.jsx` (483 lines, 5-way branch on `activeView`) split into a thin dispatcher + `NpcDetailPanel.jsx`/`SpawnDetailPanel.jsx`/`GridDetailPanel.jsx`/`SpawnGroupDetailPanel.jsx`**, mirroring the `NpcsTab`/`SpawnsTab`/`GridsTab`/`SpawngroupsTab` split that tab-level components already went through — `DetailPanel` never got the same treatment until now. Each panel takes only the props its own branch actually used, a strict subset of the old single 13-prop signature.
   3. **8 modal/drawer components' duplicated focus-on-open + Escape-to-close block extracted into `frontend/src/hooks/useModalFocusTrap.js`** — each had its own near-identical `useRef`/`useEffect`/inline `onKeyDown` (~6-7 lines apiece); now one hook, one place to fix the WKWebView-alert-sound-suppression behavior if it ever needs to change again.
   4. **`App.jsx` (1125 lines — grown back from the 558-line 2026-07-19 low, per that entry's own note flagging the regrowth) decomposed into 11 custom hooks** under `frontend/src/hooks/` (`useUIPrefs`/`useConnections`/`useReferenceDrawer`/`useNpcSync`/`useTodo`/`useSpawnSync`/`useSpawnGroupsTab`/`useSpawnGroupSync`/`useRelocateSpawnGroup`/`useGridSync`/`useLoot`), one per tab/domain — same domain boundaries as the Go split, so the two sides of the codebase now mirror each other. `App.jsx` dropped to 576 lines: zone-identity state, `activeView`, `expandedSections` (all genuinely cross-tab, stay put — see Key State above for why each), the `selectZone` fan-out (each hook now owns its own `onZoneChange`, so this shrank from ~50 inlined `setX(...)` calls to five one-line delegations), and the JSX layout. The one real design question this phase raised — several hooks need things from *each other* (e.g. `useTodo`'s `jumpToNpc` needs `useNpcSync`'s `diffRows`/`setSelectedNpc`; `useNpcSync`'s `executeSync` wants to call `useTodo`'s `refreshTodoItems`) — was resolved two ways depending on direction: a hook created *later* can freely take an earlier hook's return values as constructor-time parameters (no cycle); the one genuine cycle (`useNpcSync` ⇄ `useTodo`) was broken by having `executeSync` accept its `onSuccess` callback *at call time* instead of at hook-creation time, so `App.jsx` wires `executeSync={() => npcSync.executeSync(todo.refreshTodoItems)}`. The same call-time-callback pattern replaced `useSpawnGroupSync`'s old string-tagged `spawnGroupSyncSource` ('spawns' | 'spawngroups') dispatch — `openPreview` now takes the actual refresh callback directly, which is both simpler and removes a whole category of "forgot to handle a source string" bug. Verification for this phase specifically: `vite build` clean, plus (since there's no frontend test runner and Wails renders a native window this session couldn't drive) two static-analysis passes before considering it done — a script diffing every `hookVar.property` access in `App.jsx` against that hook's actual `return {...}` keys (zero mismatches), and a second diffing the full ordered list of JSX prop *names* (not values) between the pre-change and post-change `App.jsx` (identical, confirming no prop got renamed or dropped in transit, only its value source changed). **The user still needs to run `wails dev` and click through each tab plus a couple of modals as the real acceptance test** — this phase's static checks confirm the wiring is shaped correctly, not that the running app behaves identically.
+- **Generic "ID alignment" primitive, 2026-07-23 (same day, direct follow-up).** Built in response to the user naming their actual recurring manual workflow (hand-written `UPDATE lootdrop SET id = X WHERE id = y` plus matching updates to every referencing table) and confirming they wanted it generalized across all four applicable tables, not just loot. See the "ID alignment" bullet under Sync Design for the full design (why it's a rename, not a content overwrite; why unconditional repoint is correct for these four targets when `RelocateSpawnGroup`'s zone carve-out isn't available; why `spawngroup` itself was deliberately left untouched). New `idalign.go` (`idAlignmentTarget`/`fkRef`/`idAlignmentTargets`, `AlignId`, `relocateRow`/`copyChildRows`/`repointReferences`/`countReferences`), two new generic `dbutil.go` helpers (`fetchRowById`/`fetchChildRows`, both accepting the new `queryer` interface so they work both pre-transaction and mid-transaction — `getSinkColumns` was widened to accept `queryer` too rather than adding a near-duplicate transaction-aware copy). Frontend: `useAlignId.js` + `ConfirmAlignIdModal.jsx` (summary-level confirm, not a per-entry table — the four targets' child-row shapes are too heterogeneous to force into one generic table the way spawn entries could), wired into `LootTab.jsx` per a UX decision confirmed with the user via explicit options (two-step cross-column click to pair a source lootdrop with its sink counterpart, vs. a click-then-pick-from-a-dropdown alternative — the former was chosen as more consistent with how the two-column tree already invites visual comparison). Surfaced a real correctness subtlety caught during design, not after: a loottable-level align changes `npc_types.loottable_id` in the database, but the NPCs tab's cached `diffRows` has no way to know that, so simply "replaying the NPC row that led here" after a successful align would look up an id that no longer exists — `useLoot.js`'s `refreshWithIds` sidesteps this by refetching with the known-correct post-align ids directly instead of re-deriving them from the (now stale) row. `go build`/`vet`/`test` and `vite build` clean; `wails generate module` run to bind the new `AlignId` method. Not yet manually smoke-tested against real source/sink databases — flagged to the user as the outstanding verification step, same as the hooks-split phase above.
 
 ## Git
 - Repo: `git@github.com:nazwadi/eqemu_dsynch_tool.git`

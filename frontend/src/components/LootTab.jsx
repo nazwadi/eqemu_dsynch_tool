@@ -1,6 +1,23 @@
 import {useState} from 'react';
 import {lootDropEntryFieldNames, lootNpcMatchesSearch, lootTableFieldNames} from '../lib/lootHelpers';
 
+// Small "align to source" link — cyan like the app's other inline action links ("Select all N →",
+// "Sync spawngroup from source →"), armed state shown as a filled dot so a mid-pairing click is
+// visually obvious across both columns at once, not just within the row it was clicked in.
+function AlignTrigger({armed, onClick, label}) {
+    return (
+        <button
+            onClick={e => {
+                e.stopPropagation()
+                onClick()
+            }}
+            title={armed ? `Cancel — click to un-arm` : `Mark this ${label} to align its ID`}
+            className={`text-xs ml-1 shrink-0 underline ${armed ? 'text-yellow-400' : 'text-cyan-400 hover:text-cyan-300'}`}>
+            {armed ? '● armed' : 'align'}
+        </button>
+    )
+}
+
 // Shared disclosure-triangle button used by every collapsible row in this tab. Left-aligned in
 // its own fixed-width slot, in reading order — the convention essentially every hierarchical UI
 // uses (Finder, VS Code's file tree, GitHub's PR file list) puts the expand/collapse control
@@ -48,13 +65,13 @@ function LootDropEntryRow({entry}) {
 // drop a dangling reference" treatment as SpawnPoint.SpawnGroupMissing. Expand state is
 // controlled by the parent column (not local), so "Expand All"/"Collapse All" can drive every row
 // at once.
-function LootTableEntryRow({entry, expanded, onToggle}) {
+function LootTableEntryRow({entry, expanded, onToggle, armed, onArm}) {
     const drop = entry.Drop
     const itemCount = drop?.Entries?.length ?? 0
     const sharedCount = drop?.SharedCount ?? 0
     return (
         <div>
-            <div className="flex items-center gap-2 py-1 px-2 rounded cursor-pointer hover:bg-gray-700 bg-gray-850"
+            <div className={`flex items-center gap-2 py-1 px-2 rounded cursor-pointer hover:bg-gray-700 ${armed ? 'bg-yellow-950' : 'bg-gray-850'}`}
                  onClick={onToggle}>
                 <Disclosure expanded={expanded}/>
                 <span className="text-xs text-gray-300 min-w-0 truncate flex-1">
@@ -67,6 +84,7 @@ function LootTableEntryRow({entry, expanded, onToggle}) {
                         </span>
                     )}
                 </span>
+                {drop && onArm && <AlignTrigger armed={armed} onClick={() => onArm(entry.LootDropId, drop.Fields?.name)} label="lootdrop"/>}
                 <span className="text-xs text-gray-500 shrink-0">
                     {entry.Fields?.probability}% · ×{entry.Fields?.multiplier ?? 1}
                 </span>
@@ -88,7 +106,7 @@ function LootTableEntryRow({entry, expanded, onToggle}) {
 // column's — see NPCLootComparison in app.go for why: lootdrop.id has no anchor to match across
 // databases the way spawn2 coordinates give spawngroup, so this renders exactly what's on this
 // side, independent of the other column, rather than claiming a correspondence it can't verify.
-function LootTableColumn({label, dbName, table, lookedUp}) {
+function LootTableColumn({label, dbName, table, lookedUp, armedDropId, onArmDrop}) {
     const [expandedDrops, setExpandedDrops] = useState(new Set())
     const allDropIds = table?.Entries?.map(e => e.LootDropId) ?? []
     const allExpanded = allDropIds.length > 0 && allDropIds.every(id => expandedDrops.has(id))
@@ -139,7 +157,9 @@ function LootTableColumn({label, dbName, table, lookedUp}) {
                             table.Entries.map(entry => (
                                 <LootTableEntryRow key={entry.LootDropId} entry={entry}
                                                     expanded={expandedDrops.has(entry.LootDropId)}
-                                                    onToggle={() => toggleDrop(entry.LootDropId)}/>
+                                                    onToggle={() => toggleDrop(entry.LootDropId)}
+                                                    armed={armedDropId === entry.LootDropId}
+                                                    onArm={onArmDrop}/>
                             ))
                         ) : (
                             <div className="text-xs text-gray-600 px-2">No lootdrops in this table.</div>
@@ -164,7 +184,8 @@ function LootTab({
     lootRawSide, setLootRawSide, lootRawId, setLootRawId,
     lootComparison, lootLoading, lootError,
     onSelectNpc, onLookupRawId,
-    dbSourceName, dbSinkName, selectedZoneShortName
+    dbSourceName, dbSinkName, selectedZoneShortName,
+    onAlignLoottable, onAlignLootdrop
 }) {
     // Always browsable, not just once you start typing — a dev reviewing a zone they don't have
     // memorized shouldn't have to already know an NPC's name to find it. The search box narrows
@@ -174,6 +195,27 @@ function LootTab({
         .filter(row => lootNpcMatchesSearch(row, lootSearchFilter))
         .sort((a, b) => (a.Source?.Fields?.name ?? a.Sink?.Fields?.name ?? '')
             .localeCompare(b.Source?.Fields?.name ?? b.Sink?.Fields?.name ?? ''))
+
+    // Lootdrop-level alignment pairing — unlike the loottable itself (anchored via the NPC, so
+    // both ids are already known), lootdrop.id has no cross-database anchor (see LootTableColumn's
+    // comment), so the user has to identify the pairing by hand: click the source row, then the
+    // matching sink row. Cleared after a successful align or by clicking either armed row again.
+    const [armedSourceDrop, setArmedSourceDrop] = useState(null) // {id, name} | null
+    const [armedSinkDrop, setArmedSinkDrop] = useState(null)
+
+    function armSourceDrop(id, name) {
+        setArmedSourceDrop(prev => prev?.id === id ? null : {id, name})
+    }
+    function armSinkDrop(id, name) {
+        setArmedSinkDrop(prev => prev?.id === id ? null : {id, name})
+    }
+    function confirmDropAlign() {
+        onAlignLootdrop(armedSourceDrop.id, armedSinkDrop.id)
+        setArmedSourceDrop(null)
+        setArmedSinkDrop(null)
+    }
+
+    const loottableAlignable = lootComparison?.SourceId > 0 && lootComparison?.SinkId > 0 && lootComparison.SourceId !== lootComparison.SinkId
 
     return (
         <div className="flex-1 flex flex-col overflow-hidden">
@@ -232,6 +274,31 @@ function LootTab({
             {lootError && (
                 <div className="px-3 py-2 text-xs text-red-400">{lootError}</div>
             )}
+            {loottableAlignable && (
+                <div className="flex items-center justify-between px-3 py-1.5 bg-gray-800 border-b border-gray-700 text-xs">
+                    <span className="text-gray-400">
+                        Sink's loottable is #{lootComparison.SinkId}, source's is #{lootComparison.SourceId} — same NPC, different id.
+                    </span>
+                    <button
+                        onClick={() => onAlignLoottable(lootComparison.SourceId, lootComparison.SinkId)}
+                        className="text-cyan-400 hover:text-cyan-300 underline shrink-0 ml-2">
+                        Align loottable ID to source →
+                    </button>
+                </div>
+            )}
+            {armedSourceDrop && armedSinkDrop && (
+                <div className="flex items-center justify-between px-3 py-1.5 bg-yellow-950 border-b border-gray-700 text-xs">
+                    <span className="text-yellow-400">
+                        Align sink's lootdrop #{armedSinkDrop.id} ("{armedSinkDrop.name || 'Unnamed'}") → #{armedSourceDrop.id} ("{armedSourceDrop.name || 'Unnamed'}")?
+                    </span>
+                    <div className="flex items-center gap-2 shrink-0 ml-2">
+                        <button onClick={() => { setArmedSourceDrop(null); setArmedSinkDrop(null) }}
+                                className="text-gray-400 hover:text-white">Cancel</button>
+                        <button onClick={confirmDropAlign}
+                                className="text-yellow-400 hover:text-yellow-300 underline font-medium">Align →</button>
+                    </div>
+                </div>
+            )}
             {!selectedZoneShortName ? (
                 <div className="flex-1 flex items-center justify-center text-gray-600 text-sm">
                     Select a zone to search its NPCs
@@ -242,8 +309,10 @@ function LootTab({
                 </div>
             ) : (
                 <div className="flex flex-1 min-h-0 overflow-hidden">
-                    <LootTableColumn label="Source" dbName={dbSourceName} table={lootComparison?.SourceTable} lookedUp={!!lootComparison}/>
-                    <LootTableColumn label="Sink" dbName={dbSinkName} table={lootComparison?.SinkTable} lookedUp={!!lootComparison}/>
+                    <LootTableColumn label="Source" dbName={dbSourceName} table={lootComparison?.SourceTable} lookedUp={!!lootComparison}
+                                      armedDropId={armedSourceDrop?.id} onArmDrop={armSourceDrop}/>
+                    <LootTableColumn label="Sink" dbName={dbSinkName} table={lootComparison?.SinkTable} lookedUp={!!lootComparison}
+                                      armedDropId={armedSinkDrop?.id} onArmDrop={armSinkDrop}/>
                 </div>
             )}
         </div>

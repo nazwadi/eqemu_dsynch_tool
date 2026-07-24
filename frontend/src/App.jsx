@@ -11,6 +11,7 @@ import MerchantComparison from './components/MerchantComparison';
 import ConfirmSpawnGroupSyncModal from './components/ConfirmSpawnGroupSyncModal';
 import ConfirmRelocateSpawnGroupModal from './components/ConfirmRelocateSpawnGroupModal';
 import ConfirmGridSyncModal from './components/ConfirmGridSyncModal';
+import ConfirmAlignIdModal from './components/ConfirmAlignIdModal';
 import Sidebar from './components/Sidebar';
 import NpcsTab from './components/NpcsTab';
 import SpawnsTab from './components/SpawnsTab';
@@ -32,6 +33,7 @@ import {useSpawnGroupSync} from './hooks/useSpawnGroupSync';
 import {useRelocateSpawnGroup} from './hooks/useRelocateSpawnGroup';
 import {useGridSync} from './hooks/useGridSync';
 import {useLoot} from './hooks/useLoot';
+import {useAlignId} from './hooks/useAlignId';
 
 // Title shown in the shared ReferenceDrawer — one more entry per reference type as they're built,
 // mirroring detailPanelTitles' shape in DetailPanel.jsx.
@@ -81,6 +83,33 @@ function App() {
     })
     const gridSync = useGridSync(zoneIdentity)
     const loot = useLoot()
+    const alignId = useAlignId()
+
+    // Triggered from the Loot tab's loottable-level "Align loottable ID to source" button —
+    // ids are already known (anchored via the same NPC on both sides), no pairing needed.
+    function alignLoottable(sourceId, sinkId) {
+        alignId.openAlignPreview({target: 'loottable', sourceId, sinkId, label: 'loottable'})
+    }
+
+    // Triggered once the user has armed one row in each Loot tab column (see LootTab.jsx's
+    // two-step cross-column click) — lootdrop.id has no cross-database anchor, so the pairing
+    // itself is the user's own judgment call, not something this app guesses at.
+    function alignLootdrop(sourceId, sinkId) {
+        alignId.openAlignPreview({target: 'lootdrop', sourceId, sinkId, label: 'lootdrop'})
+    }
+
+    // Refreshes the currently-loaded Loot tab comparison after a successful align — see
+    // useLoot.js's refreshWithIds for why this can't just replay the NPC row that led here
+    // (npc_types.loottable_id changes in the database on a loottable-level align, but the
+    // NPCs tab's cached diffRows wouldn't reflect that). Source's own id is never touched by
+    // either align target; sink's becomes source's id after a loottable align, or is unchanged
+    // after a lootdrop-only align (the loottable itself wasn't touched).
+    function refreshLootAfterAlign() {
+        if (!loot.lootComparison) return
+        const sourceId = loot.lootComparison.SourceId
+        const sinkId = alignId.alignTarget?.target === 'loottable' ? sourceId : loot.lootComparison.SinkId
+        loot.refreshWithIds(sourceId, sinkId)
+    }
 
     // Triggered from the Spawn Points detail panel's per-row action — wraps the shared opener with
     // the coordinate/entries extraction specific to a SpawnDiffRow shape, and refreshes the Spawn
@@ -227,6 +256,13 @@ function App() {
             <ConfirmGridSyncModal
                 showGridSyncConfirm={gridSync.showGridSyncConfirm} setShowGridSyncConfirm={gridSync.setShowGridSyncConfirm}
                 dbSinkName={connections.dbSinkName} gridSyncPreview={gridSync.gridSyncPreview} executeGridSync={gridSync.executeGridSync}
+            />
+            <ConfirmAlignIdModal
+                showAlignConfirm={alignId.showAlignConfirm} setShowAlignConfirm={alignId.setShowAlignConfirm}
+                alignError={alignId.alignError} alignPreview={alignId.alignPreview} alignTarget={alignId.alignTarget}
+                aligning={alignId.aligning}
+                executeAlign={() => alignId.executeAlign(refreshLootAfterAlign)}
+                dbSinkName={connections.dbSinkName}
             />
             <div className="flex flex-1 min-h-0">
                 {uiPrefs.sidebarCollapsed ? (
@@ -519,6 +555,7 @@ function App() {
                             onSelectNpc={loot.lookupLootByNpc} onLookupRawId={loot.lookupLootByRawId}
                             dbSourceName={connections.dbSourceName} dbSinkName={connections.dbSinkName}
                             selectedZoneShortName={selectedZoneShortName}
+                            onAlignLoottable={alignLoottable} onAlignLootdrop={alignLootdrop}
                         />
                     )}
                     </div>

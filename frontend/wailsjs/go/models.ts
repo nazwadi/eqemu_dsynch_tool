@@ -1,5 +1,47 @@
 export namespace main {
 	
+	export class AlignIdOptions {
+	    Target: string;
+	    SourceId: number;
+	    SinkId: number;
+	    DryRun: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new AlignIdOptions(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.Target = source["Target"];
+	        this.SourceId = source["SourceId"];
+	        this.SinkId = source["SinkId"];
+	        this.DryRun = source["DryRun"];
+	    }
+	}
+	export class AlignIdResult {
+	    DryRun: boolean;
+	    RenamedFrom: number;
+	    RenamedTo: number;
+	    SquatterSummary: string;
+	    SquatterEvicted: boolean;
+	    NewSquatterId: number;
+	    ReferencesRepointed: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new AlignIdResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.DryRun = source["DryRun"];
+	        this.RenamedFrom = source["RenamedFrom"];
+	        this.RenamedTo = source["RenamedTo"];
+	        this.SquatterSummary = source["SquatterSummary"];
+	        this.SquatterEvicted = source["SquatterEvicted"];
+	        this.NewSquatterId = source["NewSquatterId"];
+	        this.ReferencesRepointed = source["ReferencesRepointed"];
+	    }
+	}
 	export class UIPrefs {
 	    SidebarWidth: number;
 	    SidebarCollapsed: boolean;

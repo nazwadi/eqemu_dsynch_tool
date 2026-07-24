@@ -112,7 +112,10 @@ func withoutFields(m map[string]interface{}, fields ...string) map[string]interf
 	return out
 }
 
-func getSinkColumns(ctx context.Context, db *sql.DB, table string) (map[string]bool, error) {
+// getSinkColumns accepts the queryer interface (not a concrete *sql.DB) so callers can also use
+// it mid-transaction (e.g. idalign.go's copyChildRows, run through an open *sql.Tx) without a
+// second near-identical copy of this function.
+func getSinkColumns(ctx context.Context, db queryer, table string) (map[string]bool, error) {
 	rows, err := db.QueryContext(ctx, "SHOW COLUMNS FROM "+table)
 	if err != nil {
 		return nil, err
@@ -195,6 +198,49 @@ func inClausePlaceholders(ids []int64) (string, []interface{}) {
 		args[i] = id
 	}
 	return placeholders, args
+}
+
+// queryer is satisfied by both *sql.DB and *sql.Tx — lets fetchRowById/fetchChildRows read either
+// before a transaction has started (dry-run preview) or through one already open (mid-execute),
+// without duplicating the query for each case. Mirrors how RelocateSpawnGroup already reads
+// through tx.QueryContext mid-transaction — same pattern, just named so it can be shared.
+type queryer interface {
+	QueryContext(ctx context.Context, query string, args ...interface{}) (*sql.Rows, error)
+}
+
+// fetchRowById fetches one row's own fields (minus id) by primary key, or nil if that id doesn't
+// exist — the generic version of fetchSpawnGroupById/fetchLootTableHeader/fetchNPCFactionHeader,
+// all of which are near-identical one-off copies of this same query shape.
+func fetchRowById(ctx context.Context, q queryer, table string, id int64) (map[string]interface{}, error) {
+	rows, err := q.QueryContext(ctx, fmt.Sprintf("SELECT * FROM %s WHERE id = ?", table), id)
+	if err != nil {
+		return nil, err
+	}
+	result, err := scanDynamicRows(rows)
+	_ = rows.Close()
+	if err != nil {
+		return nil, err
+	}
+	if len(result) == 0 {
+		return nil, nil
+	}
+	delete(result[0], "id")
+	return result[0], nil
+}
+
+// fetchChildRows fetches every row of childTable referencing parentId via parentCol, as dynamic
+// field maps — used to copy a squatter's own child-entries rows to its new id during a relocate.
+// Callers must strip "id" (and parentCol, supplied separately via insertRow's overrides) from
+// each returned map before reinserting — see idalign.go's copyChildRows for why unconditionally,
+// regardless of whether childTable happens to have its own surrogate id column.
+func fetchChildRows(ctx context.Context, q queryer, childTable, parentCol string, parentId int64) ([]map[string]interface{}, error) {
+	rows, err := q.QueryContext(ctx, fmt.Sprintf("SELECT * FROM %s WHERE %s = ?", childTable, parentCol), parentId)
+	if err != nil {
+		return nil, err
+	}
+	result, err := scanDynamicRows(rows)
+	_ = rows.Close()
+	return result, err
 }
 
 const mysqlErrDupEntry = 1062
