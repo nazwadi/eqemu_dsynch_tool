@@ -19,7 +19,7 @@ const detailPanelTitles = {
 // persists per section across tab switches without extra plumbing — splitting it per panel would
 // lose that).
 function DetailPanel({
-    activeView, setShowSpawnHelp, detailWidth,
+    activeView, setShowSpawnHelp, setShowNpcHelp, setShowSpawngroupHelp, detailWidth,
     selectedNpc, openReferenceComparison, onInspectLoot,
     selectedSpawnRow, selectAllSharingSpawngroup, openSyncSpawnGroupPreview, openRelocatePreview,
     onJumpToGrid,
@@ -27,16 +27,25 @@ function DetailPanel({
     selectedSpawnGroupRow, openSyncSpawnGroupPreviewFromSpawnGroup,
     expandedSections, setExpandedSections
 }) {
+    // One "?" help-drawer trigger per tab that has one — keyed the same way detailPanelTitles is,
+    // so adding a tab's drawer later is a one-line addition here instead of another hand-copied
+    // conditional block.
+    const helpButtons = {
+        npcs: {onClick: () => setShowNpcHelp(true), title: 'How references and sync scope work'},
+        spawns: {onClick: () => setShowSpawnHelp(true), title: 'How spawn2, spawngroup, and spawn entries relate'},
+        spawngroups: {onClick: () => setShowSpawngroupHelp(true), title: 'How this tab relates to Spawn Points, and what "ambiguous" means'}
+    }
+    const helpButton = helpButtons[activeView]
     return (
         <div style={{width: detailWidth, minWidth: detailWidth}} className="bg-gray-800 flex flex-col">
             <div className="flex flex-col overflow-hidden h-full">
                 <div
                     className="px-3 py-2 text-xs font-medium text-gray-400 uppercase tracking-wider border-b border-gray-700 flex items-center justify-between">
                     <span>{detailPanelTitles[activeView] ?? 'Detail'}</span>
-                    {activeView === 'spawns' && (
+                    {helpButton && (
                         <button
-                            onClick={() => setShowSpawnHelp(true)}
-                            title="How spawn2, spawngroup, and spawn entries relate"
+                            onClick={helpButton.onClick}
+                            title={helpButton.title}
                             className="w-4 h-4 flex items-center justify-center rounded-full border border-gray-600 text-gray-400 text-[10px] normal-case tracking-normal hover:border-gray-400 hover:text-white">
                             ?
                         </button>

@@ -185,7 +185,8 @@ function LootTab({
     lootComparison, lootLoading, lootError,
     onSelectNpc, onLookupRawId,
     dbSourceName, dbSinkName, selectedZoneShortName,
-    onAlignLoottable, onAlignLootdrop
+    onAlignLoottable, onAlignLootdrop,
+    setShowLootHelp
 }) {
     // Always browsable, not just once you start typing — a dev reviewing a zone they don't have
     // memorized shouldn't have to already know an NPC's name to find it. The search box narrows
@@ -247,6 +248,12 @@ function LootTab({
                     disabled={!lootRawId}
                     className="text-xs px-3 py-1 rounded bg-gray-700 text-gray-300 hover:bg-gray-600 disabled:opacity-40 disabled:cursor-not-allowed">
                     Look Up
+                </button>
+                <button
+                    onClick={() => setShowLootHelp(true)}
+                    title="Why the two columns aren't paired, and how ID alignment works"
+                    className="ml-auto w-4 h-4 flex items-center justify-center rounded-full border border-gray-600 text-gray-400 text-[10px] hover:border-gray-400 hover:text-white shrink-0">
+                    ?
                 </button>
             </div>
             {diffRows.length > 0 && (

@@ -4,6 +4,10 @@ import ConnectModal from './components/ConnectModal';
 import ConfirmSyncModal from './components/ConfirmSyncModal';
 import ConfirmSpawnSyncModal from './components/ConfirmSpawnSyncModal';
 import SpawnHelpDrawer from './components/SpawnHelpDrawer';
+import NpcHelpDrawer from './components/NpcHelpDrawer';
+import SpawngroupHelpDrawer from './components/SpawngroupHelpDrawer';
+import GridMapHelpDrawer from './components/GridMapHelpDrawer';
+import LootHelpDrawer from './components/LootHelpDrawer';
 import ReferenceDrawer from './components/ReferenceDrawer';
 import FactionComparison from './components/FactionComparison';
 import SpellsComparison from './components/SpellsComparison';
@@ -63,6 +67,12 @@ function App() {
     const [selectedZoneIdNumber, setSelectedZoneIdNumber] = useState(null)
     const [activeView, setActiveView] = useState('npcs') // 'npcs' | 'todo' | 'spawns' | 'grids' | 'spawngroups' | 'loot'
     const [showSpawnHelp, setShowSpawnHelp] = useState(false) // right-edge drawer explaining spawn2→spawngroup→spawn entries; see the Spawn Point Detail panel's "?" button
+    // Same pattern as showSpawnHelp above, one per tab that has a "?" trigger — each too small
+    // (open/close only, static content) to warrant its own hook, see CLAUDE.md's Key State notes.
+    const [showNpcHelp, setShowNpcHelp] = useState(false)
+    const [showSpawngroupHelp, setShowSpawngroupHelp] = useState(false)
+    const [showGridMapHelp, setShowGridMapHelp] = useState(false)
+    const [showLootHelp, setShowLootHelp] = useState(false)
 
     const zoneIdentity = {zoneShortName: selectedZoneShortName, zoneVersion: selectedZoneVersion, zoneIdNumber: selectedZoneIdNumber}
 
@@ -300,6 +310,10 @@ function App() {
                 dbSinkName={connections.dbSinkName} spawnSyncPreview={spawnSync.spawnSyncPreview} executeSpawnSync={spawnSync.executeSpawnSync}
             />
             <SpawnHelpDrawer showSpawnHelp={showSpawnHelp} setShowSpawnHelp={setShowSpawnHelp}/>
+            <NpcHelpDrawer showNpcHelp={showNpcHelp} setShowNpcHelp={setShowNpcHelp}/>
+            <SpawngroupHelpDrawer showSpawngroupHelp={showSpawngroupHelp} setShowSpawngroupHelp={setShowSpawngroupHelp}/>
+            <GridMapHelpDrawer showGridMapHelp={showGridMapHelp} setShowGridMapHelp={setShowGridMapHelp}/>
+            <LootHelpDrawer showLootHelp={showLootHelp} setShowLootHelp={setShowLootHelp}/>
             {/* Shared reference comparison drawer — title/content dispatch on referenceDrawerType. */}
             <ReferenceDrawer
                 open={referenceDrawer.showReferenceDrawer}
@@ -606,7 +620,7 @@ function App() {
                             gridDiffFilter={gridSync.gridDiffFilter} setGridDiffFilter={gridSync.setGridDiffFilter}
                             selectedGridIds={gridSync.selectedGridIds} setSelectedGridIds={gridSync.setSelectedGridIds}
                             selectedGridRow={gridSync.selectedGridRow} setSelectedGridRow={gridSync.setSelectedGridRow}
-                            viewMode={gridSync.viewMode} setViewMode={gridSync.setViewMode}
+                            viewMode={gridSync.viewMode} setViewMode={gridSync.setViewMode} setShowGridMapHelp={setShowGridMapHelp}
                             selectedWaypointNumber={gridSync.selectedWaypointNumber} onSelectWaypoint={gridSync.setSelectedWaypointNumber}
                             selectedZoneShortName={selectedZoneShortName}
                             showGridSyncPreview={gridSync.showGridSyncPreview} setShowGridSyncPreview={gridSync.setShowGridSyncPreview}
@@ -638,6 +652,7 @@ function App() {
                             dbSourceName={connections.dbSourceName} dbSinkName={connections.dbSinkName}
                             selectedZoneShortName={selectedZoneShortName}
                             onAlignLoottable={alignLoottable} onAlignLootdrop={alignLootdrop}
+                            setShowLootHelp={setShowLootHelp}
                         />
                     )}
                     </div>
@@ -672,6 +687,7 @@ function App() {
                             {/* Detail panel (NPC / Spawn Point / Grid, depending on active tab) */}
                             <DetailPanel
                                 activeView={activeView} setShowSpawnHelp={setShowSpawnHelp} detailWidth={uiPrefs.detailWidth}
+                                setShowNpcHelp={setShowNpcHelp} setShowSpawngroupHelp={setShowSpawngroupHelp}
                                 selectedNpc={npcSync.selectedNpc}
                                 selectedSpawnRow={spawnSync.selectedSpawnRow}
                                 selectAllSharingSpawngroup={spawnSync.selectAllSharingSpawngroup}

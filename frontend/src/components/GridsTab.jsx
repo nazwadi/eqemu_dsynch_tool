@@ -16,7 +16,7 @@ import ZoneMapView from './ZoneMapView';
 function GridsTab({
     gridDiffRows, gridDiffLoading, gridDiffFilter, setGridDiffFilter,
     selectedGridIds, setSelectedGridIds, selectedGridRow, setSelectedGridRow,
-    viewMode, setViewMode,
+    viewMode, setViewMode, setShowGridMapHelp,
     selectedWaypointNumber, onSelectWaypoint,
     selectedZoneShortName,
     showGridSyncPreview, setShowGridSyncPreview, gridSyncPreview, gridSyncing, gridSyncOutcome,
@@ -54,6 +54,14 @@ function GridsTab({
                             className={`text-xs px-3 py-1 rounded border ${viewMode === 'map' ? 'border-yellow-400 text-yellow-400' : 'border-gray-600 text-gray-400 hover:border-gray-400'}`}>
                             Map
                         </button>
+                        {viewMode === 'map' && (
+                            <button
+                                onClick={() => setShowGridMapHelp(true)}
+                                title="Controls, marker legend, and the grid-ID-collision caveat"
+                                className="w-4 h-4 flex items-center justify-center rounded-full border border-gray-600 text-gray-400 text-[10px] hover:border-gray-400 hover:text-white">
+                                ?
+                            </button>
+                        )}
                     </div>
                 </div>
                 {viewMode === 'map' ? (
