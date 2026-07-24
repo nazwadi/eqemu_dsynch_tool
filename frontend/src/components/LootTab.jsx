@@ -368,6 +368,17 @@ function LootTab({
                     </button>
                 </div>
             )}
+            {(armedSourceDrop || armedSinkDrop) && !(armedSourceDrop && armedSinkDrop) && (
+                <div className="flex items-center justify-between px-3 py-1.5 bg-gray-800 border-b border-gray-700 text-xs">
+                    <span className="text-cyan-400">
+                        {armedSourceDrop
+                            ? <>Armed source lootdrop #{armedSourceDrop.id} ("{armedSourceDrop.name || 'Unnamed'}") — now click <span className="underline">align</span> on the matching drop in the <span className="text-gray-300">Sink</span> column below.</>
+                            : <>Armed sink lootdrop #{armedSinkDrop.id} ("{armedSinkDrop.name || 'Unnamed'}") — now click <span className="underline">align</span> on the matching drop in the <span className="text-gray-300">Source</span> column below.</>}
+                    </span>
+                    <button onClick={() => { setArmedSourceDrop(null); setArmedSinkDrop(null) }}
+                            className="text-gray-400 hover:text-white shrink-0 ml-2">Cancel</button>
+                </div>
+            )}
             {armedSourceDrop && armedSinkDrop && (
                 <div className="flex items-center justify-between px-3 py-1.5 bg-yellow-950 border-b border-gray-700 text-xs">
                     <span className="text-yellow-400">

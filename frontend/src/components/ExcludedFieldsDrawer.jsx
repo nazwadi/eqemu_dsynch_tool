@@ -7,7 +7,9 @@ import HelpDrawer from './HelpDrawer';
 // introducing a second slide-over chrome; HelpDrawer's own doc comment already says its content is
 // entirely up to the caller. Persists immediately on every add/remove (setExcludedNpcFields is
 // already a save-on-change setter, see useConnections.js), the same "no confirm step needed" shape
-// as the Maps folder setting — there's nothing destructive here to gate behind a confirm.
+// as the Maps folder setting — there's nothing destructive here to gate behind a confirm. Every
+// npc_types column is a valid candidate, References FK ids included (see NpcDetailPanel.jsx's own
+// comment for why an earlier version blocked those, and why that turned out wrong).
 function ExcludedFieldsDrawer({open, onClose, excludedFields, setExcludedFields, candidateFields}) {
     const [search, setSearch] = useState('')
 
@@ -32,6 +34,15 @@ function ExcludedFieldsDrawer({open, onClose, excludedFields, setExcludedFields,
                 <span className="text-gray-300"> existing</span> sink row, even when that NPC is selected and synced.
                 A brand-new NPC being created for the first time still gets these columns set from source — there's
                 no existing sink value to protect yet, so leaving them out would just start the new row half-initialized.
+            </p>
+            <p className="text-gray-500">
+                Reference fields (<span className="text-gray-300">loottable_id</span>, <span className="text-gray-300">npc_faction_id</span>,
+                <span className="text-gray-300"> npc_spells_id</span>, <span className="text-gray-300">merchant_id</span>,
+                <span className="text-gray-300"> alt_currency_id</span>) can be excluded too — useful when you want most of an
+                NPC's data to sync but aren't ready to touch its faction/loot table/spells yet, and don't want to lose track
+                of what sink is currently pointing to in the meantime. Excluding one only protects the id column itself; the
+                shared reference content it points at (faction values, spell lists, loot tables) is never written by Sync
+                regardless of exclusion — see the References section's comparison drawers and the Loot tab for that.
             </p>
             <div className="flex flex-col gap-1">
                 <input

@@ -6,10 +6,17 @@ import {fieldGroups, referenceComparisonTypes, referenceNavigationTypes} from '.
 // excludedFields/onToggleExcludedField (added 2026-07-24) let a field be excluded right where
 // you're already looking at it, the contextual complement to the NPCs tab's own "Excluded fields"
 // drawer — both read/write the same persisted list (see useConnections.js), this is just a second
-// entry point into it. Only offered on non-reference fields: the References section's fields
-// already have their own click meaning (open a comparison drawer / jump to Loot), and "exclude a
-// shared reference FK from sync" isn't really the same kind of decision as excluding e.g. scalerate
-// — those already have TODO-queue/ID-alignment workflows of their own.
+// entry point into it. Offered on every field, References included — the FK id columns
+// (loottable_id/npc_faction_id/npc_spells_id/merchant_id/alt_currency_id) are ordinary npc_types
+// columns exactly like scalerate, and excluding one keeps sink's current id untouched, which is a
+// real, distinct need from "I'm not ready to sync this NPC's faction/loot table content yet" — the
+// TODO queue and ID alignment answer *that* question, but do nothing to stop the id itself from
+// being clobbered on a plain npc_types sync in the meantime. (An earlier version of this comment
+// argued excluding a reference FK "wasn't the same kind of decision" — that reasoning didn't hold
+// up against the actual reason someone would want it: protecting what sink is currently pointing
+// to while deliberately deferring the reference content itself. The exclude toggle's own onClick
+// stopPropagation()s, so it doesn't conflict with a reference field's existing row-click behavior
+// (open the comparison drawer / jump to Loot) even though both live on the same row now.)
 function NpcDetailPanel({selectedNpc, openReferenceComparison, onInspectLoot, excludedFields, onToggleExcludedField, expandedSections, setExpandedSections}) {
     return (
         <>
@@ -58,17 +65,16 @@ function NpcDetailPanel({selectedNpc, openReferenceComparison, onInspectLoot, ex
                         // section can have up to three independently-dangling fields).
                         const srcMissing = section === 'references' && selectedNpc.Source?.MissingReferences?.[field]
                         const sinkMissing = section === 'references' && selectedNpc.Sink?.MissingReferences?.[field]
-                        const excludable = section !== 'references'
-                        const isExcluded = excludable && excludedFields.includes(field)
+                        const isExcluded = excludedFields.includes(field)
                         const valueClass = isExcluded ? 'text-gray-600' : differs ? 'text-yellow-400' : 'text-gray-400'
                         return (
                             <div key={field}
                                  className={`group flex items-center px-2 py-0.5 ${comparable ? 'cursor-pointer hover:bg-gray-700 rounded' : ''}`}
                                  onClick={!comparable ? undefined : isNavigation ? onInspectLoot : () => openReferenceComparison(referenceComparisonTypes[field], srcVal, sinkVal)}
                                  title={comparable ? (isNavigation ? 'View in Loot tab' : 'View source vs sink comparison') : undefined}>
-                                <span className={`w-24 shrink-0 flex items-center gap-1 ${comparable ? 'text-cyan-400 underline decoration-dotted' : 'text-gray-500'}`}>
-                                    {field}
-                                    {isExcluded && <span className="text-orange-500" title="Excluded from sync — won't be overwritten on an existing sink row">⊘</span>}
+                                <span className="w-24 shrink-0 flex items-center gap-1">
+                                    <span className={comparable ? 'text-cyan-400 underline decoration-dotted' : 'text-gray-500'}>{field}</span>
+                                    {isExcluded && <span className="text-orange-500 shrink-0" title="Excluded from sync — won't be overwritten on an existing sink row">⊘</span>}
                                 </span>
                                 <span
                                     className={`flex-1 ${srcMissing ? 'text-red-400' : valueClass}`}
@@ -77,19 +83,17 @@ function NpcDetailPanel({selectedNpc, openReferenceComparison, onInspectLoot, ex
                                 <span
                                     className={`flex-1 ${sinkMissing ? 'text-red-400' : valueClass}`}
                                     title={sinkMissing ? "Doesn't exist in sink's own table — likely copied verbatim by npc_types sync" : undefined}>{sinkVal ?? '—'}</span>
-                                {excludable && (
-                                    <button
-                                        onClick={e => {
-                                            e.stopPropagation()
-                                            onToggleExcludedField(field)
-                                        }}
-                                        title={isExcluded ? 'Include this field in sync again' : "Exclude this field — Sync won't overwrite it on an existing sink row"}
-                                        className={`text-[10px] ml-1 shrink-0 ${
-                                            isExcluded ? 'text-orange-400 hover:text-orange-300' : 'text-gray-600 opacity-0 group-hover:opacity-100 hover:text-gray-300'
-                                        }`}>
-                                        {isExcluded ? 'excluded' : 'exclude'}
-                                    </button>
-                                )}
+                                <button
+                                    onClick={e => {
+                                        e.stopPropagation()
+                                        onToggleExcludedField(field)
+                                    }}
+                                    title={isExcluded ? 'Include this field in sync again' : "Exclude this field — Sync won't overwrite it on an existing sink row"}
+                                    className={`text-[10px] ml-1 shrink-0 ${
+                                        isExcluded ? 'text-orange-400 hover:text-orange-300' : 'text-gray-600 opacity-0 group-hover:opacity-100 hover:text-gray-300'
+                                    }`}>
+                                    {isExcluded ? 'excluded' : 'exclude'}
+                                </button>
                             </div>
                         )
                     })}
