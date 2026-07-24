@@ -648,7 +648,7 @@ function App() {
                             lootRawSide={loot.lootRawSide} setLootRawSide={loot.setLootRawSide}
                             lootRawId={loot.lootRawId} setLootRawId={loot.setLootRawId}
                             lootComparison={loot.lootComparison} lootLoading={loot.lootLoading} lootError={loot.lootError}
-                            onSelectNpc={loot.lookupLootByNpc} onLookupRawId={loot.lookupLootByRawId}
+                            onSelectNpc={loot.lookupLootByNpc} onLookupRawId={loot.lookupLootByRawId} onRefresh={loot.refreshLoot}
                             dbSourceName={connections.dbSourceName} dbSinkName={connections.dbSinkName}
                             selectedZoneShortName={selectedZoneShortName}
                             onAlignLoottable={alignLoottable} onAlignLootdrop={alignLootdrop}

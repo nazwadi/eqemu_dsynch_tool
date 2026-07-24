@@ -249,7 +249,7 @@ function LootTab({
     lootSearchFilter, setLootSearchFilter,
     lootRawSide, setLootRawSide, lootRawId, setLootRawId,
     lootComparison, lootLoading, lootError,
-    onSelectNpc, onLookupRawId,
+    onSelectNpc, onLookupRawId, onRefresh,
     dbSourceName, dbSinkName, selectedZoneShortName,
     onAlignLoottable, onAlignLootdrop,
     setShowLootHelp
@@ -315,6 +315,15 @@ function LootTab({
                     className="text-xs px-3 py-1 rounded bg-gray-700 text-gray-300 hover:bg-gray-600 disabled:opacity-40 disabled:cursor-not-allowed">
                     Look Up
                 </button>
+                {lootComparison && (
+                    <button
+                        onClick={onRefresh}
+                        disabled={lootLoading}
+                        title="Re-fetch this comparison — useful after an ID alignment or a sync elsewhere that may have changed the underlying data"
+                        className="text-xs px-2 py-1 rounded bg-gray-700 text-gray-300 hover:bg-gray-600 disabled:opacity-40 disabled:cursor-not-allowed">
+                        ⟳ Refresh
+                    </button>
+                )}
                 <button
                     onClick={() => setShowLootHelp(true)}
                     title="Why the two columns aren't paired, and how ID alignment works"

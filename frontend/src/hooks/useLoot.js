@@ -12,40 +12,54 @@ export function useLoot() {
     const [lootComparison, setLootComparison] = useState(null)
     const [lootLoading, setLootLoading] = useState(false)
     const [lootError, setLootError] = useState(null)
+    // Describes whichever lookup last populated lootComparison — {type: 'npc', sourceId, sinkId}
+    // or {type: 'raw', isSource, id} — so refreshLoot() can replay the exact same fetch without
+    // needing to re-derive it from the NPC search UI or raw-ID form fields, either of which may
+    // have moved on since (the raw ID inputs in particular aren't cleared after an NPC pick, so
+    // they can't be trusted to reflect "what's currently shown").
+    const [lastLookup, setLastLookup] = useState(null)
 
-    // Picking an NPC needs no extra Go round trip to find out which loottable_id to compare — both
-    // sides' values are already sitting in the NPCs tab's diffRows (CompareZones already fetched
-    // them as part of npc_types.*). CompareNPCLoot's own result shape already matches what LootTab
-    // expects, so it's used as-is.
-    function lookupLootByNpc(row) {
+    // Single fetch path both lookup modes (and refreshLoot) share, so there's exactly one place
+    // that knows how to turn a lookup descriptor into a lootComparison — refreshing is just
+    // replaying the same descriptor, not a parallel implementation that could drift from the
+    // original lookup's behavior.
+    function runLookup(lookup) {
         setLootLoading(true)
         setLootError(null)
-        const {sourceId, sinkId} = lootTableIdsForRow(row)
-        CompareNPCLoot(sourceId, sinkId)
+        const promise = lookup.type === 'npc'
+            ? CompareNPCLoot(lookup.sourceId, lookup.sinkId)
+            // The raw-ID fallback only ever targets one side (see lib/lootHelpers.js for why), so
+            // its result is normalized into the same {SourceId, SinkId, SourceTable, SinkTable}
+            // shape CompareNPCLoot returns, with the untouched side left at its zero value —
+            // LootTab renders both lookup modes through the one path either way.
+            : GetLootTable(lookup.isSource, lookup.id).then(table => ({
+                SourceId: lookup.isSource ? lookup.id : 0,
+                SinkId: lookup.isSource ? 0 : lookup.id,
+                SourceTable: lookup.isSource ? table : null,
+                SinkTable: lookup.isSource ? null : table
+            }))
+        promise
             .then(setLootComparison)
             .catch(err => setLootError(String(err)))
             .finally(() => setLootLoading(false))
     }
 
-    // The raw-ID fallback only ever targets one side (see lib/lootHelpers.js for why), so its
-    // result is normalized into the same {SourceId, SinkId, SourceTable, SinkTable} shape
-    // CompareNPCLoot returns, with the untouched side left at its zero value — LootTab renders both
-    // lookup modes through the one path either way.
+    // Picking an NPC needs no extra Go round trip to find out which loottable_id to compare — both
+    // sides' values are already sitting in the NPCs tab's diffRows (CompareZones already fetched
+    // them as part of npc_types.*).
+    function lookupLootByNpc(row) {
+        const {sourceId, sinkId} = lootTableIdsForRow(row)
+        const lookup = {type: 'npc', sourceId, sinkId}
+        setLastLookup(lookup)
+        runLookup(lookup)
+    }
+
     function lookupLootByRawId() {
         const id = Number(lootRawId)
         if (!id) return
-        const isSource = lootRawSide === 'source'
-        setLootLoading(true)
-        setLootError(null)
-        GetLootTable(isSource, id)
-            .then(table => setLootComparison({
-                SourceId: isSource ? id : 0,
-                SinkId: isSource ? 0 : id,
-                SourceTable: isSource ? table : null,
-                SinkTable: isSource ? null : table
-            }))
-            .catch(err => setLootError(String(err)))
-            .finally(() => setLootLoading(false))
+        const lookup = {type: 'raw', isSource: lootRawSide === 'source', id}
+        setLastLookup(lookup)
+        runLookup(lookup)
     }
 
     // Re-fetches the currently-loaded NPC-anchored comparison using explicit ids, rather than
@@ -56,14 +70,21 @@ export function useLoot() {
     // no longer exists. The caller always knows the correct post-align ids directly (source's own
     // id is never touched; sink's becomes source's id after a loottable align, or is unchanged
     // after a lootdrop-only align — see the two call sites in App.jsx), so this only ever needs a
-    // plain two-id refetch, not the NPC-lookup path at all.
+    // plain two-id refetch, not the NPC-lookup path at all. Also updates lastLookup, so a manual
+    // refresh click right after an align continues to refetch the correct post-align ids instead
+    // of stale pre-align ones.
     function refreshWithIds(sourceId, sinkId) {
-        setLootLoading(true)
-        setLootError(null)
-        CompareNPCLoot(sourceId, sinkId)
-            .then(setLootComparison)
-            .catch(err => setLootError(String(err)))
-            .finally(() => setLootLoading(false))
+        const lookup = {type: 'npc', sourceId, sinkId}
+        setLastLookup(lookup)
+        runLookup(lookup)
+    }
+
+    // Manual "refresh" trigger — added directly next to the Item Diff summary work, since ID
+    // alignment or a sync elsewhere can change the underlying data out from under an already-open
+    // comparison with no other way to see the update short of re-searching for the same NPC/id.
+    // A no-op before anything's ever been looked up (nothing to refresh yet).
+    function refreshLoot() {
+        if (lastLookup) runLookup(lastLookup)
     }
 
     // Zone switch has no diff to reload here (nothing's selected until an NPC/ID is looked up),
@@ -73,6 +94,7 @@ export function useLoot() {
         setLootRawId('')
         setLootComparison(null)
         setLootError(null)
+        setLastLookup(null)
     }
 
     return {
@@ -80,7 +102,7 @@ export function useLoot() {
         lootRawSide, setLootRawSide,
         lootRawId, setLootRawId,
         lootComparison, lootLoading, lootError,
-        lookupLootByNpc, lookupLootByRawId, refreshWithIds,
+        lookupLootByNpc, lookupLootByRawId, refreshWithIds, refreshLoot,
         resetForZoneChange
     }
 }
