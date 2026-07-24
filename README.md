@@ -19,7 +19,7 @@ If you run an EQEmu server, you've lived this: you build and test content — NP
 
 **Diffing & sync**
 - Zone browser — searchable, version-aware (EQEmu zones are keyed by `short_name` + `version`)
-- NPCs — full `spawn2 → spawngroup → spawnentry → npc_types` diff, dry-run preview, transactional sync; detects quest-spawned NPCs that have no static spawn point
+- NPCs — full `spawn2 → spawngroup → spawnentry → npc_types` diff, dry-run preview, transactional sync; detects quest-spawned NPCs that have no static spawn point; specific `npc_types` columns (e.g. `scalerate`, `attack_speed`) can be excluded from sync so they're never overwritten on an existing sink row
 - Spawn Points — zone-scoped `spawn2` diffing and sync, matched by coordinate
 - Spawngroups — spawngroup fields (`spawn_limit`, wander box, timing) and rosters, source vs sink, synced together
 - Grids — patrol path (`grid`/`grid_entries`) diffing and sync, with an optional map view that plots every grid over your own Brewall's Maps files (point the app at your maps folder once, in the sidebar)

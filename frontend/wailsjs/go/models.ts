@@ -129,6 +129,7 @@ export namespace main {
 	    Sink: ConnectionConfig;
 	    UI: UIPrefs;
 	    MapsDirectory: string;
+	    ExcludedNPCFields: string[];
 	
 	    static createFrom(source: any = {}) {
 	        return new Config(source);
@@ -140,6 +141,7 @@ export namespace main {
 	        this.Sink = this.convertValues(source["Sink"], ConnectionConfig);
 	        this.UI = this.convertValues(source["UI"], UIPrefs);
 	        this.MapsDirectory = source["MapsDirectory"];
+	        this.ExcludedNPCFields = source["ExcludedNPCFields"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -429,6 +431,7 @@ export namespace main {
 	}
 	export class NPCDiffRow {
 	    Status: string;
+	    FieldsDiffer: boolean;
 	    Source?: NPC;
 	    Sink?: NPC;
 	
@@ -439,6 +442,7 @@ export namespace main {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.Status = source["Status"];
+	        this.FieldsDiffer = source["FieldsDiffer"];
 	        this.Source = this.convertValues(source["Source"], NPC);
 	        this.Sink = this.convertValues(source["Sink"], NPC);
 	    }
@@ -1129,6 +1133,7 @@ export namespace main {
 	    SyncNPCTypes: boolean;
 	    DryRun: boolean;
 	    NPCIds: number[];
+	    ExcludedFields: string[];
 	
 	    static createFrom(source: any = {}) {
 	        return new SyncOptions(source);
@@ -1142,6 +1147,7 @@ export namespace main {
 	        this.SyncNPCTypes = source["SyncNPCTypes"];
 	        this.DryRun = source["DryRun"];
 	        this.NPCIds = source["NPCIds"];
+	        this.ExcludedFields = source["ExcludedFields"];
 	    }
 	}
 	export class TODOItem {

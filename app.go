@@ -23,6 +23,13 @@ type Config struct {
 	Sink          ConnectionConfig
 	UI            UIPrefs
 	MapsDirectory string // folder of Brewall's Maps .txt files, looked up by zone short_name — see zonemap.go
+	// ExcludedNPCFields lists npc_types columns Sync should never overwrite on an existing sink
+	// row, even when selected and even though CompareZones still reports the NPC as "modified" —
+	// see NPCDiffRow.FieldsDiffer and upsertNPC's own comment for the full semantics (a column
+	// excluded here is still written on a brand-new INSERT; only an existing row's value is
+	// protected). Not gated behind Connect, same as MapsDirectory — a plain preference, saved
+	// immediately on change via the NPCs tab's "Excluded fields" drawer.
+	ExcludedNPCFields []string
 }
 
 // UIPrefs persists layout preferences (sidebar/detail panel width, sidebar collapsed state)

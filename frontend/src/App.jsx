@@ -8,6 +8,7 @@ import NpcHelpDrawer from './components/NpcHelpDrawer';
 import SpawngroupHelpDrawer from './components/SpawngroupHelpDrawer';
 import GridMapHelpDrawer from './components/GridMapHelpDrawer';
 import LootHelpDrawer from './components/LootHelpDrawer';
+import ExcludedFieldsDrawer from './components/ExcludedFieldsDrawer';
 import ReferenceDrawer from './components/ReferenceDrawer';
 import FactionComparison from './components/FactionComparison';
 import SpellsComparison from './components/SpellsComparison';
@@ -26,6 +27,7 @@ import LootTab from './components/LootTab';
 import DetailPanel from './components/DetailPanel';
 import {spawnCoords, spawnRowSelectable} from './lib/spawnHelpers';
 import {gridRowSelectable} from './lib/gridHelpers';
+import {npcAllFieldNames, npcRowSelectable} from './lib/npcHelpers';
 import {useUIPrefs} from './hooks/useUIPrefs';
 import {useConnections} from './hooks/useConnections';
 import {useReferenceDrawer} from './hooks/useReferenceDrawer';
@@ -73,10 +75,11 @@ function App() {
     const [showSpawngroupHelp, setShowSpawngroupHelp] = useState(false)
     const [showGridMapHelp, setShowGridMapHelp] = useState(false)
     const [showLootHelp, setShowLootHelp] = useState(false)
+    const [showExcludedFieldsDrawer, setShowExcludedFieldsDrawer] = useState(false)
 
     const zoneIdentity = {zoneShortName: selectedZoneShortName, zoneVersion: selectedZoneVersion, zoneIdNumber: selectedZoneIdNumber}
 
-    const npcSync = useNpcSync(zoneIdentity)
+    const npcSync = useNpcSync({...zoneIdentity, excludedNpcFields: connections.excludedNpcFields})
     const todo = useTodo({
         diffRows: npcSync.diffRows,
         setSelectedNpc: npcSync.setSelectedNpc, setSelectedRowKey: npcSync.setSelectedRowKey,
@@ -184,6 +187,17 @@ function App() {
     // tab, not lazily when the Grids tab is first opened). Matches on either side's Id, not just
     // one — a source-side pathgrid click and a sink-side pathgrid click for the "same" grid number
     // land on the same GridDiffRow either way, since CompareGrids already pairs source/sink by Id.
+    // Triggered from the NPC detail panel's own field rows (see NpcDetailPanel.jsx) — a second,
+    // contextual entry point into the same persisted list the NPCs tab's "Excluded fields" drawer
+    // manages (connections.excludedNpcFields/setExcludedNpcFields), so excluding a field you're
+    // already looking at doesn't require switching to a separate settings surface.
+    function toggleExcludedNpcField(field) {
+        const current = connections.excludedNpcFields
+        connections.setExcludedNpcFields(
+            current.includes(field) ? current.filter(f => f !== field) : [...current, field].sort()
+        )
+    }
+
     function jumpToGrid(id) {
         const row = gridSync.gridDiffRows.find(r => r.Source?.Id === id || r.Sink?.Id === id)
         if (!row) return
@@ -237,7 +251,9 @@ function App() {
     // diffRows.length — otherwise this number would count "removed"/"match" rows too, which
     // aren't actionable and are already visible via the +/~/- badges when this tab is active.
     const npcActionableCount = newCount + modifiedCount
-    const selectableRows = npcSync.diffRows.filter(row => npcSync.diffFilter === 'all' || row.Status !== 'match')
+    const selectableRows = npcSync.diffRows
+        .filter(row => npcSync.diffFilter === 'all' || row.Status !== 'match')
+        .filter(npcRowSelectable)
     const zoneTodoItems = todo.todoItems.filter(t => t.ZoneName === selectedZoneShortName && t.ZoneVersion === selectedZoneVersion)
     const openZoneTodoCount = zoneTodoItems.filter(t => !t.Dismissed).length
     const spawnNewCount = spawnSync.spawnDiffRows?.filter(r => r.Status === 'new').length
@@ -314,6 +330,9 @@ function App() {
             <SpawngroupHelpDrawer showSpawngroupHelp={showSpawngroupHelp} setShowSpawngroupHelp={setShowSpawngroupHelp}/>
             <GridMapHelpDrawer showGridMapHelp={showGridMapHelp} setShowGridMapHelp={setShowGridMapHelp}/>
             <LootHelpDrawer showLootHelp={showLootHelp} setShowLootHelp={setShowLootHelp}/>
+            <ExcludedFieldsDrawer open={showExcludedFieldsDrawer} onClose={() => setShowExcludedFieldsDrawer(false)}
+                                   excludedFields={connections.excludedNpcFields} setExcludedFields={connections.setExcludedNpcFields}
+                                   candidateFields={npcAllFieldNames(npcSync.diffRows)}/>
             {/* Shared reference comparison drawer — title/content dispatch on referenceDrawerType. */}
             <ReferenceDrawer
                 open={referenceDrawer.showReferenceDrawer}
@@ -487,6 +506,12 @@ function App() {
                                     }}
                                 >
                                     {npcSync.selectedNPCs.size > 0 ? `Sync ${npcSync.selectedNPCs.size} NPCs` : 'Sync NPCs'}
+                                </button>
+                                <button
+                                    onClick={() => setShowExcludedFieldsDrawer(true)}
+                                    title="Choose npc_types columns Sync should never overwrite on an existing sink row"
+                                    className="px-2 py-1 rounded text-xs border border-gray-600 text-gray-400 hover:border-gray-400 hover:text-white">
+                                    Excluded fields{connections.excludedNpcFields.length > 0 ? ` (${connections.excludedNpcFields.length})` : ''}
                                 </button>
                             </>
                         )}
@@ -689,6 +714,7 @@ function App() {
                                 activeView={activeView} setShowSpawnHelp={setShowSpawnHelp} detailWidth={uiPrefs.detailWidth}
                                 setShowNpcHelp={setShowNpcHelp} setShowSpawngroupHelp={setShowSpawngroupHelp}
                                 selectedNpc={npcSync.selectedNpc}
+                                excludedNpcFields={connections.excludedNpcFields} onToggleExcludedNpcField={toggleExcludedNpcField}
                                 selectedSpawnRow={spawnSync.selectedSpawnRow}
                                 selectAllSharingSpawngroup={spawnSync.selectAllSharingSpawngroup}
                                 openSyncSpawnGroupPreview={openSyncSpawnGroupPreviewFromSpawn}

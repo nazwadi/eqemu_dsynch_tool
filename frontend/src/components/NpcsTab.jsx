@@ -1,4 +1,4 @@
-import {npcRowHasMissingReferences, npcRowMatchesSearch} from '../lib/npcHelpers';
+import {npcFieldsOnlyExcluded, npcRowHasMissingReferences, npcRowMatchesSearch, npcRowSelectable} from '../lib/npcHelpers';
 import {statusOrder} from '../lib/constants';
 
 // NPCs tab body: the diff list (Show All/Differences/sort, checkbox selection) sliding to a sync
@@ -112,14 +112,16 @@ function NpcsTab({
                                 const npcId = row.Source?.Id ?? row.Sink?.Id
                                 const questSpawned = (row.Source ?? row.Sink)?.HasSpawnPoint === false
                                 const missingReferences = npcRowHasMissingReferences(row)
+                                const fieldsOnlyExcluded = npcFieldsOnlyExcluded(row)
                                 return (
                                     <div key={rowKey}
                                          className={`flex items-center border-b border-gray-800 cursor-pointer ${
                                              selectedRowKey === rowKey ? 'bg-blue-900/40 border-l-2 border-l-yellow-400' :
                                                  row.Status === 'new' ? 'bg-green-950 border-l-2 border-l-transparent' :
                                                      row.Status === 'removed' ? 'bg-red-950 border-l-2 border-l-transparent' :
-                                                         row.Status === 'modified' ? 'bg-yellow-950 border-l-2 border-l-transparent' :
-                                                             'bg-transparent border-l-2 border-l-transparent'
+                                                         fieldsOnlyExcluded ? 'bg-orange-950/60 border-l-2 border-l-transparent' :
+                                                             row.Status === 'modified' ? 'bg-yellow-950 border-l-2 border-l-transparent' :
+                                                                 'bg-transparent border-l-2 border-l-transparent'
                                          }`}
                                          onClick={() => {
                                              setSelectedNpc(row)
@@ -129,6 +131,8 @@ function NpcsTab({
                                         <input type="checkbox"
                                                className="accent-yellow-400 cursor-pointer w-3 h-3 mx-2 disabled:opacity-40 disabled:cursor-not-allowed"
                                                checked={selectedNPCs.has(npcId)}
+                                               disabled={!npcRowSelectable(row)}
+                                               title={fieldsOnlyExcluded ? "Only differs in fields excluded from sync — nothing for Sync to change" : undefined}
                                                onChange={(e) => {
                                                    e.stopPropagation()
                                                    const newSet = new Set(selectedNPCs)
@@ -148,6 +152,10 @@ function NpcsTab({
                                         {missingReferences && (
                                             <span className="text-red-400 text-xs px-1"
                                                   title="A faction/spells/merchant reference on this NPC doesn't exist in its own database — open the References section to see which">⚠</span>
+                                        )}
+                                        {fieldsOnlyExcluded && (
+                                            <span className="text-orange-400 text-xs px-1"
+                                                  title="Only differs in fields excluded from sync — nothing for Sync to change">⊘</span>
                                         )}
                                         <div
                                             className="flex-1 text-xs px-2 py-1">{row.Source?.Fields?.name ? `${row.Source.Fields.name} (${row.Source?.Id})` : '-'}</div>

@@ -18,7 +18,7 @@ export function CompareSpawnGroups(arg1:string,arg2:number):Promise<Array<main.S
 
 export function CompareSpawns(arg1:string,arg2:number,arg3:number):Promise<Array<main.SpawnDiffRow>>;
 
-export function CompareZones(arg1:string,arg2:number,arg3:number):Promise<Array<main.NPCDiffRow>>;
+export function CompareZones(arg1:string,arg2:number,arg3:number,arg4:Array<string>):Promise<Array<main.NPCDiffRow>>;
 
 export function Connect(arg1:main.ConnectionConfig,arg2:boolean):Promise<void>;
 

@@ -22,8 +22,15 @@ type NPC struct {
 
 type NPCDiffRow struct {
 	Status string
-	Source *NPC
-	Sink   *NPC
+	// FieldsDiffer is true if any column OUTSIDE ExcludedNPCFields differs — the only thing an
+	// UPDATE from Sync will actually change. Status itself stays computed from the FULL,
+	// unfiltered comparison (never hides a real difference), so a "modified" row with
+	// FieldsDiffer false means every difference is in an excluded column: something Sync
+	// deliberately won't touch, not nothing worth knowing about. Mirrors SpawnDiffRow's
+	// FieldsDiffer/SpawnEntriesDiffer split — same "modified doesn't always mean syncable" shape.
+	FieldsDiffer bool
+	Source       *NPC
+	Sink         *NPC
 }
 
 type SyncOptions struct {
@@ -33,6 +40,9 @@ type SyncOptions struct {
 	SyncNPCTypes  bool
 	DryRun        bool
 	NPCIds        []int64 // empty means all NPCs in zone
+	// ExcludedFields lists npc_types columns upsertNPC should never overwrite on an EXISTING sink
+	// row — see upsertNPC's own comment for why a new row still gets these columns set.
+	ExcludedFields []string
 }
 
 // SyncResult no longer carries any spawn-point-creation fields — Sync() only ever touches
@@ -134,7 +144,7 @@ func (a *App) GetNPCsForZone(shortName string, version int8, zoneIdNumber int64,
 	return npcs, nil
 }
 
-func (a *App) CompareZones(shortName string, version int8, zoneIdNumber int64) ([]NPCDiffRow, error) {
+func (a *App) CompareZones(shortName string, version int8, zoneIdNumber int64, excludedFields []string) ([]NPCDiffRow, error) {
 	// Call GetNPCsForZone for source and sink
 	sourceNpcs, err := a.GetNPCsForZone(shortName, version, zoneIdNumber, true)
 	if err != nil {
@@ -169,19 +179,25 @@ func (a *App) CompareZones(shortName string, version int8, zoneIdNumber int64) (
 		if exists {
 			seen[sinkNpc.Id] = true
 			result := mapsEqual(sourceNpc.Fields, sinkNpc.Fields)
+			// Computed from the SAME full field maps mapsEqual above just compared, minus
+			// excludedFields — a "modified" row where this comes back false differs only in
+			// columns Sync won't touch (see NPCDiffRow.FieldsDiffer's own comment).
+			fieldsDiffer := !mapsEqual(withoutFields(sourceNpc.Fields, excludedFields...), withoutFields(sinkNpc.Fields, excludedFields...))
 			if result {
 				// match
 				diff = append(diff, NPCDiffRow{
-					Status: "match",
-					Source: &sourceNpc,
-					Sink:   &sinkNpc,
+					Status:       "match",
+					FieldsDiffer: fieldsDiffer,
+					Source:       &sourceNpc,
+					Sink:         &sinkNpc,
 				})
 			} else {
 				// modified
 				diff = append(diff, NPCDiffRow{
-					Status: "modified",
-					Source: &sourceNpc,
-					Sink:   &sinkNpc,
+					Status:       "modified",
+					FieldsDiffer: fieldsDiffer,
+					Source:       &sourceNpc,
+					Sink:         &sinkNpc,
 				})
 			}
 		} else {
@@ -307,7 +323,14 @@ func buildTODOItems(sourceNpc NPC, sinkNpc *NPC, zoneShortName string, zoneVersi
 	return items
 }
 
-func upsertNPC(ctx context.Context, tx *sql.Tx, fields map[string]interface{}, sinkColumns map[string]bool) error {
+// excludedColumns are columns Sync should never overwrite on an EXISTING sink row (see
+// SyncOptions.ExcludedFields) — deliberately still included in the INSERT column/value list, so a
+// brand-new NPC still gets an accurate starting value from source. Only left out of the
+// ON DUPLICATE KEY UPDATE clause, the same way "id" already is: there's no existing sink value to
+// protect on a fresh insert, so excluding these there would only leave a new row half-initialized
+// for no benefit. This is what "excluded from sync" actually means in this app — don't clobber
+// whatever's already tuned on sink, not "this column may never have a value."
+func upsertNPC(ctx context.Context, tx *sql.Tx, fields map[string]interface{}, sinkColumns map[string]bool, excludedColumns map[string]bool) error {
 	var columns []string
 	for col := range fields {
 		if sinkColumns[col] {
@@ -322,9 +345,15 @@ func upsertNPC(ctx context.Context, tx *sql.Tx, fields map[string]interface{}, s
 	for i, col := range columns {
 		placeholders[i] = "?"
 		values[i] = fields[col]
-		if col != "id" {
+		if col != "id" && !excludedColumns[col] {
 			updateClauses = append(updateClauses, fmt.Sprintf("%s=VALUES(%s)", col, col))
 		}
+	}
+	// Defensive guard, not expected in practice: if every non-id column happened to be excluded,
+	// an empty ON DUPLICATE KEY UPDATE clause list would be invalid SQL. id=id is a standard
+	// MySQL no-op update idiom that keeps the statement valid without touching anything.
+	if len(updateClauses) == 0 {
+		updateClauses = append(updateClauses, "id=id")
 	}
 
 	query := fmt.Sprintf(
@@ -367,6 +396,11 @@ func (a *App) Sync(options SyncOptions) (SyncResult, error) {
 		sinkById[npc.Id] = npc
 	}
 
+	excludedColumns := make(map[string]bool, len(options.ExcludedFields))
+	for _, f := range options.ExcludedFields {
+		excludedColumns[f] = true
+	}
+
 	var sinkColumns map[string]bool
 	var tx *sql.Tx
 	if !options.DryRun {
@@ -402,7 +436,7 @@ func (a *App) Sync(options SyncOptions) (SyncResult, error) {
 			continue
 		}
 
-		if err := upsertNPC(a.ctx, tx, sourceNpc.Fields, sinkColumns); err != nil {
+		if err := upsertNPC(a.ctx, tx, sourceNpc.Fields, sinkColumns, excludedColumns); err != nil {
 			_ = tx.Rollback()
 			return result, fmt.Errorf("NPC %d: %w", id, err)
 		}

@@ -59,6 +59,7 @@ export function useConnections(uiPrefs) {
     const [sourceConnected, setSourceConnected] = useState(false)
     const [sinkConnected, setSinkConnected] = useState(false)
     const [mapsDirectory, setMapsDirectory] = useState('') // Brewall's Maps folder — see zonemap.go/useZoneMap.js
+    const [excludedNpcFields, setExcludedNpcFields] = useState([]) // npc_types columns Sync never overwrites on an existing sink row — see the NPCs tab's "Excluded fields" drawer
 
     // Builds one side's full ConnectionConfig (DB fields + SSH tunnel sub-config) from this hook's
     // state — shared by connect() and persistUIPrefs() so there's exactly one place that knows how
@@ -80,6 +81,7 @@ export function useConnections(uiPrefs) {
             Source: connectionConfigFor(sourceHost, sourcePort, sourceUsername, sourcePassword, dbSourceName, sourceSsh),
             Sink: connectionConfigFor(sinkHost, sinkPort, sinkUsername, sinkPassword, dbSinkName, sinkSsh),
             MapsDirectory: mapsDirectory,
+            ExcludedNPCFields: excludedNpcFields,
             UI: {
                 SidebarWidth: uiPrefs.sidebarWidth,
                 SidebarCollapsed: uiPrefs.sidebarCollapsed,
@@ -94,6 +96,14 @@ export function useConnections(uiPrefs) {
     function setAndPersistMapsDirectory(dir) {
         setMapsDirectory(dir)
         SaveConfig({...currentFullConfig(), MapsDirectory: dir}).catch(err => console.error("save maps directory failed:", err))
+    }
+
+    // Same immediate-persist shape as setAndPersistMapsDirectory — a plain preference, not gated
+    // behind Connect. Takes the full next list rather than one field at a time so ExcludedFieldsDrawer
+    // can add/remove without this hook needing separate add/remove entry points.
+    function setAndPersistExcludedNpcFields(fields) {
+        setExcludedNpcFields(fields)
+        SaveConfig({...currentFullConfig(), ExcludedNPCFields: fields}).catch(err => console.error("save excluded NPC fields failed:", err))
     }
 
     // Persists the current layout prefs (or an override taken mid-drag, before its setState has
@@ -143,6 +153,7 @@ export function useConnections(uiPrefs) {
                 setSourceSsh({...defaultSshConfig(), ...hydrateSshConfig(config.Source)})
                 setSinkSsh({...defaultSshConfig(), ...hydrateSshConfig(config.Sink)})
                 setMapsDirectory(config.MapsDirectory ?? '')
+                setExcludedNpcFields(config.ExcludedNPCFields ?? [])
 
                 // A config.json written before this field existed has no UI key at all; a zero
                 // value here (SidebarWidth: 0, etc.) means "never explicitly set" either way, so
@@ -187,6 +198,7 @@ export function useConnections(uiPrefs) {
         connectError, setConnectError,
         connecting, sourceConnected, sinkConnected,
         mapsDirectory, setMapsDirectory: setAndPersistMapsDirectory,
+        excludedNpcFields, setExcludedNpcFields: setAndPersistExcludedNpcFields,
         connect, persistUIPrefs
     }
 }

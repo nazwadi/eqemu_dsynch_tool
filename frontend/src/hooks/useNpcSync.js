@@ -6,7 +6,7 @@ import {CompareZones, Sync} from "../../wailsjs/go/main/App";
 // refreshTodoItems without the two hooks needing to know about each other at creation time —
 // useTodo already needs things FROM this hook (diffRows, setSelectedNpc), so a hook-time
 // dependency the other direction would be circular.
-export function useNpcSync({zoneShortName, zoneVersion, zoneIdNumber}) {
+export function useNpcSync({zoneShortName, zoneVersion, zoneIdNumber, excludedNpcFields}) {
     const [diffRows, setDiffRows] = useState([])
     const [diffLoading, setDiffLoading] = useState(false)
     const [diffFilter, setDiffFilter] = useState('all')
@@ -26,7 +26,7 @@ export function useNpcSync({zoneShortName, zoneVersion, zoneIdNumber}) {
         if (!targetShortName) return
         setDiffRows([])
         setDiffLoading(true)
-        CompareZones(targetShortName, targetVersion, targetIdNumber)
+        CompareZones(targetShortName, targetVersion, targetIdNumber, excludedNpcFields)
             .then(rows => setDiffRows(rows ?? []))
             .catch(err => console.error("compare zones failed:", err))
             .finally(() => setDiffLoading(false))
@@ -39,7 +39,8 @@ export function useNpcSync({zoneShortName, zoneVersion, zoneIdNumber}) {
             ZoneIdNumber: zoneIdNumber,
             SyncNPCTypes: true,
             DryRun: dryRun,
-            NPCIds: Array.from(selectedNPCs)
+            NPCIds: Array.from(selectedNPCs),
+            ExcludedFields: excludedNpcFields
         })
     }
 
@@ -55,7 +56,7 @@ export function useNpcSync({zoneShortName, zoneVersion, zoneIdNumber}) {
                 // Deliberately not loadDiffs() — this reload shouldn't blank the table behind a
                 // loading spinner the way a fresh zone switch does, since the existing rows are
                 // about to be replaced with fresh ones almost immediately either way.
-                return CompareZones(zoneShortName, zoneVersion, zoneIdNumber).then(rows => setDiffRows(rows ?? []))
+                return CompareZones(zoneShortName, zoneVersion, zoneIdNumber, excludedNpcFields).then(rows => setDiffRows(rows ?? []))
             })
             .catch(err => setSyncOutcome({Errors: [String(err)]}))
             .finally(() => setSyncing(false))
