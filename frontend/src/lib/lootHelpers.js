@@ -34,6 +34,43 @@ export function lootTableFieldNames(fields) {
     return [...priority, ...rest]
 }
 
+// Every item across a WHOLE loot table — every lootdrop it appears in, not just one — keyed by the
+// portable ItemID (items.id has no AUTO_INCREMENT, same trust tier as npc_types.id). Items often
+// move between lootdrops or get reorganized without the underlying "what drops here" actually
+// changing, so this dedups across the whole table rather than per-lootdrop.
+function allItemsInTable(table) {
+    const byId = new Map()
+    for (const entry of table?.Entries ?? []) {
+        for (const item of entry.Drop?.Entries ?? []) {
+            if (!byId.has(item.ItemID)) {
+                byId.set(item.ItemID, item.ItemName || `Item ${item.ItemID}`)
+            }
+        }
+    }
+    return byId
+}
+
+// Item-level source-vs-sink diff across an entire loot table. The tree view above deliberately
+// never pairs individual lootdrops across databases (no anchor to pair them on — see
+// NPCLootComparison's own comment in app.go), but "does the sink drop the same overall items as
+// source" is still a real, answerable question independent of which lootdrop each item happens to
+// live under on either side — table composition (which lootdrops exist, how items are grouped)
+// commonly diverges between two databases even when the intent ("this NPC drops item X") hasn't.
+export function lootItemSetDiff(sourceTable, sinkTable) {
+    const sourceItems = allItemsInTable(sourceTable)
+    const sinkItems = allItemsInTable(sinkTable)
+    const toSortedList = (items, otherItems) =>
+        Array.from(items)
+            .filter(([id]) => !otherItems.has(id))
+            .map(([itemId, itemName]) => ({itemId, itemName}))
+            .sort((a, b) => a.itemName.localeCompare(b.itemName))
+    return {
+        onlyInSource: toSortedList(sourceItems, sinkItems),
+        onlyInSink: toSortedList(sinkItems, sourceItems),
+        sharedCount: Array.from(sourceItems.keys()).filter(id => sinkItems.has(id)).length
+    }
+}
+
 // lootdrop_entries' own fields worth showing first — chance is the one everyone actually cares
 // about, the rest is secondary tuning data. Same drift-tolerant shape as above.
 const lootDropEntryPriorityFields = ['chance', 'item_charges', 'multiplier', 'equip_item']

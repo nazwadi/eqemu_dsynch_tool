@@ -1,5 +1,5 @@
 import {useState} from 'react';
-import {lootDropEntryFieldNames, lootNpcMatchesSearch, lootTableFieldNames} from '../lib/lootHelpers';
+import {lootDropEntryFieldNames, lootItemSetDiff, lootNpcMatchesSearch, lootTableFieldNames} from '../lib/lootHelpers';
 
 // Small "align to source" link — cyan like the app's other inline action links ("Select all N →",
 // "Sync spawngroup from source →"), armed state shown as a filled dot so a mid-pairing click is
@@ -28,6 +28,62 @@ function Disclosure({expanded}) {
         <span className={`w-4 shrink-0 text-center text-sm ${expanded ? 'text-yellow-400' : 'text-gray-400'}`}>
             {expanded ? '▾' : '▸'}
         </span>
+    )
+}
+
+// Item-level source-vs-sink summary, above the two-column tree — answers "what would sink's NPC
+// actually drop differently from source's," independent of how each side happens to organize its
+// lootdrops (see lootItemSetDiff's own comment). Green/red match this app's existing new/removed
+// color convention (green = source has it, sink doesn't, i.e. "missing from sink"; red = sink has
+// it, source doesn't, i.e. "extra, not in source"). Collapsed by default when there IS a
+// difference to review — expanded by default would be a lot of names dumped in your face before
+// you've even looked at the tree below; the header's own counts already tell you whether it's
+// worth opening.
+function ItemDiffSummary({sourceTable, sinkTable}) {
+    const [expanded, setExpanded] = useState(false)
+    const {onlyInSource, onlyInSink, sharedCount} = lootItemSetDiff(sourceTable, sinkTable)
+
+    if (onlyInSource.length === 0 && onlyInSink.length === 0) {
+        return (
+            <div className="px-3 py-1.5 text-xs text-gray-500 border-b border-gray-700 bg-gray-850">
+                Item diff: sink drops the same {sharedCount} item{sharedCount === 1 ? '' : 's'} as source, regardless of how they're organized into lootdrops.
+            </div>
+        )
+    }
+
+    return (
+        <div className="border-b border-gray-700 bg-gray-850">
+            <div className="flex items-center gap-2 px-3 py-1.5 cursor-pointer hover:bg-gray-800"
+                 onClick={() => setExpanded(e => !e)}>
+                <Disclosure expanded={expanded}/>
+                <span className="text-xs text-gray-400 uppercase tracking-wider">Item Diff</span>
+                <span className="text-xs text-gray-500">
+                    {sharedCount} shared
+                    {onlyInSource.length > 0 && <span className="text-green-400"> · {onlyInSource.length} missing from sink</span>}
+                    {onlyInSink.length > 0 && <span className="text-red-400"> · {onlyInSink.length} extra in sink</span>}
+                </span>
+            </div>
+            {expanded && (
+                <div className="flex px-3 pb-2 gap-4 text-xs">
+                    <div className="flex-1 min-w-0">
+                        <div className="text-green-400 mb-1">Only in source — missing from sink ({onlyInSource.length})</div>
+                        <div className="flex flex-col gap-0.5 max-h-40 overflow-y-auto">
+                            {onlyInSource.length === 0 ? <div className="text-gray-600">—</div> : onlyInSource.map(({itemId, itemName}) => (
+                                <div key={itemId} className="text-gray-300 truncate">{itemName} <span className="text-gray-600">({itemId})</span></div>
+                            ))}
+                        </div>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                        <div className="text-red-400 mb-1">Only in sink — extra, not in source ({onlyInSink.length})</div>
+                        <div className="flex flex-col gap-0.5 max-h-40 overflow-y-auto">
+                            {onlyInSink.length === 0 ? <div className="text-gray-600">—</div> : onlyInSink.map(({itemId, itemName}) => (
+                                <div key={itemId} className="text-gray-300 truncate">{itemName} <span className="text-gray-600">({itemId})</span></div>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+            )}
+        </div>
     )
 }
 
@@ -315,12 +371,17 @@ function LootTab({
                     Loading loot table…
                 </div>
             ) : (
-                <div className="flex flex-1 min-h-0 overflow-hidden">
-                    <LootTableColumn label="Source" dbName={dbSourceName} table={lootComparison?.SourceTable} lookedUp={!!lootComparison}
-                                      armedDropId={armedSourceDrop?.id} onArmDrop={armSourceDrop}/>
-                    <LootTableColumn label="Sink" dbName={dbSinkName} table={lootComparison?.SinkTable} lookedUp={!!lootComparison}
-                                      armedDropId={armedSinkDrop?.id} onArmDrop={armSinkDrop}/>
-                </div>
+                <>
+                    {lootComparison && (lootComparison.SourceTable || lootComparison.SinkTable) && (
+                        <ItemDiffSummary sourceTable={lootComparison.SourceTable} sinkTable={lootComparison.SinkTable}/>
+                    )}
+                    <div className="flex flex-1 min-h-0 overflow-hidden">
+                        <LootTableColumn label="Source" dbName={dbSourceName} table={lootComparison?.SourceTable} lookedUp={!!lootComparison}
+                                          armedDropId={armedSourceDrop?.id} onArmDrop={armSourceDrop}/>
+                        <LootTableColumn label="Sink" dbName={dbSinkName} table={lootComparison?.SinkTable} lookedUp={!!lootComparison}
+                                          armedDropId={armedSinkDrop?.id} onArmDrop={armSinkDrop}/>
+                    </div>
+                </>
             )}
         </div>
     )

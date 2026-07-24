@@ -17,6 +17,10 @@ function LootHelpDrawer({showLootHelp, setShowLootHelp}) {
                     <div className="text-gray-200 font-medium">"shared ×N"</div>
                     <div className="text-gray-500">This lootdrop is also referenced by N other loottables in the same database — a reused drop, not unique to the table you're looking at. Worth knowing before you align or edit it, since it affects more than just this one NPC's loot.</div>
                 </div>
+                <div>
+                    <div className="text-gray-200 font-medium">Item Diff (above the tree)</div>
+                    <div className="text-gray-500">The tree itself never claims a lootdrop on one side corresponds to a lootdrop on the other — but the actual items dropping can still be compared directly, independent of which lootdrop each lives under. Item Diff dedups every item across an entire table (not per-lootdrop) and shows what's only in source (missing from sink) vs. only in sink (extra, not in source) — the right question when table composition differs but the intent doesn't.</div>
+                </div>
             </div>
             <p>
                 <span className="text-cyan-400">Align</span> renumbers a sink row's id to match source's — a
