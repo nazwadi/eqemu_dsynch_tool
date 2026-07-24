@@ -23,11 +23,13 @@ If you run an EQEmu server, you've lived this: you build and test content — NP
 - Spawn Points — zone-scoped `spawn2` diffing and sync, matched by coordinate
 - Spawngroups — spawngroup fields (`spawn_limit`, wander box, timing) and rosters, source vs sink, synced together
 - Grids — patrol path (`grid`/`grid_entries`) diffing and sync
-- Loot / Faction / Spells / Merchant — read-only source-vs-sink comparisons for every shared reference table an NPC can point at
+- Loot / Faction / Spells / Merchant — source-vs-sink comparisons for every shared reference table an NPC can point at; loot table, lootdrop, faction list, and spell list IDs can be realigned to match source directly from the comparison view — see **ID alignment** below
 
 **Safety**
 - TODO checklist — shared references get queued for manual review on every sync instead of being blindly overwritten, with a zone-scoped, dismissible tracking tab
 - Missing-reference detection — flags any foreign key (loot table, faction, spells, merchant, spawn group, patrol grid) that points at a row which doesn't actually exist on that side
+- Spawngroup ID-collision detection — flags a spawngroup ID that already exists on the sink as unrelated content before you sync into it, with a one-click "relocate & reclaim" to safely free it up instead of hand-written SQL
+- ID alignment — renumber a sink row's local surrogate ID (loot table, lootdrop, faction list, spell list) to match source directly from the comparison view; the row's own content is never touched, only its identity, and anything already squatting on the target id is relocated out of the way first
 - Schema-drift tolerant — only ever writes columns that actually exist on the sink, so dev/live schema differences don't break a sync
 - Nothing is ever guessed: shared or ambiguous data is always flagged for you to resolve, never silently merged
 
@@ -81,7 +83,7 @@ Source/sink connection settings are saved automatically after your first success
 5. Select the NPCs you want to bring over and click "Sync" to see a dry-run preview — exactly what will change, plus any loot/faction/spell references that will be queued as TODOs.
 6. Click "Execute Sync" to write the selected `npc_types` rows to the sink inside a transaction. The diff view refreshes automatically so synced NPCs flip to "match".
 
-The Spawn Points, Spawngroups, and Grids tabs follow the same diff → select → preview → sync pattern for their own tables. Loot, faction, spells, and merchant content is comparison-only for now (see Roadmap).
+The Spawn Points, Spawngroups, and Grids tabs follow the same diff → select → preview → sync pattern for their own tables. Loot, faction, spells, and merchant *content* is comparison-only for now (see Roadmap) — but where the only real difference is the local ID a loot table, lootdrop, faction list, or spell list happens to live under, you can realign the sink's ID to match source directly from the comparison view, without touching either side's actual content.
 
 ## Roadmap
 
@@ -91,9 +93,11 @@ The Spawn Points, Spawngroups, and Grids tabs follow the same diff → select �
 - [x] Spawngroups tab — spawngroup fields and rosters, source vs sink, synced together as one action; ambiguous matches are flagged rather than guessed
 - [x] Grids tab — zone-scoped diffing and syncing for patrol paths (`grid`/`grid_entries`)
 - [x] SSH tunnel support, with private-key or password auth and `~/.ssh/known_hosts` verification
-- [x] Shared reference table comparison (phase 1): read-only source-vs-sink views for faction, spells, merchant, and loot (`loottable → lootdrop → items`)
+- [x] Shared reference table comparison (phase 1): source-vs-sink views for faction, spells, merchant, and loot (`loottable → lootdrop → items`)
 - [x] Missing-reference detection: flags a dangling faction/spells/merchant/loot-table/spawn-group/patrol-grid reference instead of silently showing nothing
-- [ ] Shared reference table sync (phase 2): actually writing loot/faction/spells/merchant instead of only comparing and flagging — needs its own "is this shared row safe to touch" design, since these tables are referenced by many NPCs at once
+- [x] Spawngroup ID-collision detection and resolution: a colliding spawngroup ID is flagged before it's synced into, with a one-click "relocate & reclaim" action to safely free it up instead of hand-written SQL
+- [x] ID alignment: renumber a sink row's local surrogate ID (loot table, lootdrop, faction list, spell list) to match source directly from the comparison view — a rename, not a content overwrite, so it doesn't need the same "is this safe to touch" design phase 2 below still does; anything already occupying the target id is relocated out of the way first
+- [ ] Shared reference table sync (phase 2): actually overwriting loot/faction/spells/merchant *content* (distinct from realigning their IDs, above) instead of only comparing and flagging — needs its own "is this shared row safe to touch" design, since these tables are referenced by many NPCs at once
 
 ## Contributing
 

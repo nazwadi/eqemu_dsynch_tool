@@ -13,7 +13,7 @@ function fmtEntry(exists, value, npcValue, temp) {
     return flags.length > 0 ? `${value} (${flags.join(', ')})` : `${value}`
 }
 
-function FactionComparison({comparison}) {
+function FactionComparison({comparison, onAlign}) {
     if (!comparison) {
         return <div className="text-xs text-gray-500">Loading…</div>
     }
@@ -52,6 +52,17 @@ function FactionComparison({comparison}) {
                         <span className="px-1 text-gray-600">→</span>
                         <span className="flex-1 text-right text-gray-500">{comparison.SinkId || '—'}</span>
                     </div>
+                    {/* Same "renumber, don't overwrite" ID-alignment action the Loot tab's
+                        loottable-level button offers — unambiguous here too, since both ids are
+                        already known via the same NPC anchor, no pairing needed. */}
+                    {comparison.SourceId !== 0 && comparison.SinkId !== 0 && comparison.SourceId !== comparison.SinkId && (
+                        <div className="flex justify-end px-2">
+                            <button onClick={() => onAlign(comparison.SourceId, comparison.SinkId)}
+                                    className="text-xs text-cyan-400 hover:text-cyan-300 underline">
+                                Align npc_faction ID to source →
+                            </button>
+                        </div>
+                    )}
                     {/* name is a display label (same category as spawngroup.name), not diffed */}
                     <div className="flex justify-between px-2 py-0.5 text-xs">
                         <span className="w-32 shrink-0 text-gray-500">name</span>

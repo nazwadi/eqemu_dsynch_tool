@@ -111,6 +111,37 @@ function App() {
         loot.refreshWithIds(sourceId, sinkId)
     }
 
+    // Triggered from the npc_faction/npc_spells reference drawer's own "Align ID to source"
+    // button — unlike loot, these headers have no entry-level ID-alignment need at all: their
+    // Entries are keyed by the portable faction_id/spellid, not a local surrogate, so only the
+    // header's own npc_faction_id/npc_spells_id ever needs realigning, same single-button shape
+    // as the Loot tab's loottable-level trigger.
+    function alignReferenceId(target, sourceId, sinkId) {
+        alignId.openAlignPreview({target, sourceId, sinkId, label: target})
+    }
+
+    // Refreshes the currently-open reference drawer after a successful align — reuses
+    // openReferenceComparison itself as the refetch (it already does "set type + fetch by raw
+    // ids"), rather than needing a new hook function the way useLoot.js's refreshWithIds was —
+    // openReferenceComparison already takes ids directly, it never needed an NPC row to derive
+    // them from in the first place.
+    function refreshReferenceAfterAlign() {
+        if (!referenceDrawer.referenceDrawerData) return
+        const sourceId = referenceDrawer.referenceDrawerData.SourceId
+        referenceDrawer.openReferenceComparison(referenceDrawer.referenceDrawerType, sourceId, sourceId)
+    }
+
+    // Single dispatch point for ConfirmAlignIdModal's executeAlign callback — which "currently
+    // loaded view" needs refreshing depends entirely on which target was just aligned.
+    function refreshAfterAlign() {
+        const target = alignId.alignTarget?.target
+        if (target === 'lootdrop' || target === 'loottable') {
+            refreshLootAfterAlign()
+        } else if (target === 'npc_faction' || target === 'npc_spells') {
+            refreshReferenceAfterAlign()
+        }
+    }
+
     // Triggered from the NPC detail panel's References section — loottable_id is clickable like
     // the other three reference fields, but jumps to the Loot tab with this NPC's comparison
     // preloaded instead of opening the shared drawer (see referenceNavigationTypes in
@@ -243,8 +274,14 @@ function App() {
                 open={referenceDrawer.showReferenceDrawer}
                 onClose={() => referenceDrawer.setShowReferenceDrawer(false)}
                 title={referenceDrawerTitles[referenceDrawer.referenceDrawerType] ?? 'Reference'}>
-                {referenceDrawer.referenceDrawerType === 'faction' && <FactionComparison comparison={referenceDrawer.referenceDrawerData}/>}
-                {referenceDrawer.referenceDrawerType === 'spells' && <SpellsComparison comparison={referenceDrawer.referenceDrawerData}/>}
+                {referenceDrawer.referenceDrawerType === 'faction' && (
+                    <FactionComparison comparison={referenceDrawer.referenceDrawerData}
+                                       onAlign={(sourceId, sinkId) => alignReferenceId('npc_faction', sourceId, sinkId)}/>
+                )}
+                {referenceDrawer.referenceDrawerType === 'spells' && (
+                    <SpellsComparison comparison={referenceDrawer.referenceDrawerData}
+                                       onAlign={(sourceId, sinkId) => alignReferenceId('npc_spells', sourceId, sinkId)}/>
+                )}
                 {referenceDrawer.referenceDrawerType === 'merchant' && <MerchantComparison comparison={referenceDrawer.referenceDrawerData}/>}
             </ReferenceDrawer>
             <ConfirmSpawnGroupSyncModal
@@ -271,7 +308,7 @@ function App() {
                 showAlignConfirm={alignId.showAlignConfirm} setShowAlignConfirm={alignId.setShowAlignConfirm}
                 alignError={alignId.alignError} alignPreview={alignId.alignPreview} alignTarget={alignId.alignTarget}
                 aligning={alignId.aligning}
-                executeAlign={() => alignId.executeAlign(refreshLootAfterAlign)}
+                executeAlign={() => alignId.executeAlign(refreshAfterAlign)}
                 dbSinkName={connections.dbSinkName}
             />
             <div className="flex flex-1 min-h-0">

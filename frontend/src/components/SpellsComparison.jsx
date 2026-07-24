@@ -82,7 +82,7 @@ function SpellsHeaderFields({sourceFields, sinkFields, fields}) {
     )
 }
 
-function SpellsComparison({comparison}) {
+function SpellsComparison({comparison, onAlign}) {
     if (!comparison) {
         return <div className="text-xs text-gray-500">Loading…</div>
     }
@@ -125,6 +125,16 @@ function SpellsComparison({comparison}) {
                         <span className="px-1 text-gray-600">→</span>
                         <span className="flex-1 text-right text-gray-500">{comparison.SinkId || '—'}</span>
                     </div>
+                    {/* Same ID-alignment action as FactionComparison's — see that component's
+                        matching comment. */}
+                    {comparison.SourceId !== 0 && comparison.SinkId !== 0 && comparison.SourceId !== comparison.SinkId && (
+                        <div className="flex justify-end px-2">
+                            <button onClick={() => onAlign(comparison.SourceId, comparison.SinkId)}
+                                    className="text-xs text-cyan-400 hover:text-cyan-300 underline">
+                                Align npc_spells ID to source →
+                            </button>
+                        </div>
+                    )}
                     <div className="flex justify-between px-2 py-0.5 text-xs">
                         <span className="w-32 shrink-0 text-gray-500">name</span>
                         <span className="flex-1 text-gray-400">{sourceFields?.name ?? '—'}</span>
