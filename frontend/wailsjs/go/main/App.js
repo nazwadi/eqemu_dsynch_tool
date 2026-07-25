@@ -106,6 +106,10 @@ export function SyncGrids(arg1) {
   return window['go']['main']['App']['SyncGrids'](arg1);
 }
 
+export function SyncReferenceContent(arg1) {
+  return window['go']['main']['App']['SyncReferenceContent'](arg1);
+}
+
 export function SyncSpawnGroup(arg1) {
   return window['go']['main']['App']['SyncSpawnGroup'](arg1);
 }

@@ -54,6 +54,8 @@ export function Sync(arg1:main.SyncOptions):Promise<main.SyncResult>;
 
 export function SyncGrids(arg1:main.SyncGridsOptions):Promise<main.SyncGridsResult>;
 
+export function SyncReferenceContent(arg1:main.SyncReferenceContentOptions):Promise<main.SyncReferenceContentResult>;
+
 export function SyncSpawnGroup(arg1:main.SyncSpawnGroupOptions):Promise<main.SpawnGroupSyncResult>;
 
 export function SyncSpawnPoints(arg1:main.SpawnSyncOptions):Promise<main.SpawnSyncResult>;

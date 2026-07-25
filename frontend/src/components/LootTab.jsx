@@ -265,7 +265,7 @@ function LootTab({
     lootComparison, lootLoading, lootError,
     onSelectNpc, onLookupRawId, onRefresh,
     dbSourceName, dbSinkName, selectedZoneShortName,
-    onAlignLoottable, onAlignLootdrop, onCreateLootDrop,
+    onAlignLoottable, onAlignLootdrop, onCreateLootDrop, onSyncLoottableContent,
     setShowLootHelp
 }) {
     // Always browsable, not just once you start typing — a dev reviewing a zone they don't have
@@ -297,6 +297,9 @@ function LootTab({
     }
 
     const loottableAlignable = lootComparison?.SourceId > 0 && lootComparison?.SinkId > 0 && lootComparison.SourceId !== lootComparison.SinkId
+    // Content sync doesn't need the ids to differ the way alignment does — sink's loottable content
+    // can differ from source's regardless of whether the two ids happen to match numerically.
+    const loottableSyncable = lootComparison?.SourceId > 0 && lootComparison?.SinkId > 0
 
     return (
         <div className="flex-1 flex flex-col overflow-hidden">
@@ -379,6 +382,18 @@ function LootTab({
                         onClick={() => onAlignLoottable(lootComparison.SourceId, lootComparison.SinkId)}
                         className="text-cyan-400 hover:text-cyan-300 underline shrink-0 ml-2">
                         Align loottable ID to source →
+                    </button>
+                </div>
+            )}
+            {loottableSyncable && (
+                <div className="flex items-center justify-between px-3 py-1.5 bg-gray-800 border-b border-gray-700 text-xs">
+                    <span className="text-gray-400">
+                        Overwrite sink's loottable #{lootComparison.SinkId} fields + entries with source's — lootdrop content itself isn't touched (align/create those separately first).
+                    </span>
+                    <button
+                        onClick={() => onSyncLoottableContent(lootComparison.SourceId, lootComparison.SinkId)}
+                        className="text-amber-400 hover:text-amber-300 underline shrink-0 ml-2">
+                        Sync content from source →
                     </button>
                 </div>
             )}

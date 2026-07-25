@@ -1342,6 +1342,46 @@ export namespace main {
 	        this.ExcludedFields = source["ExcludedFields"];
 	    }
 	}
+	export class SyncReferenceContentOptions {
+	    Target: string;
+	    SourceId: number;
+	    SinkId: number;
+	    DryRun: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new SyncReferenceContentOptions(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.Target = source["Target"];
+	        this.SourceId = source["SourceId"];
+	        this.SinkId = source["SinkId"];
+	        this.DryRun = source["DryRun"];
+	    }
+	}
+	export class SyncReferenceContentResult {
+	    DryRun: boolean;
+	    SinkId: number;
+	    UsageCount: number;
+	    EntriesBefore: number;
+	    EntriesAfter: number;
+	    HeaderChanged: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new SyncReferenceContentResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.DryRun = source["DryRun"];
+	        this.SinkId = source["SinkId"];
+	        this.UsageCount = source["UsageCount"];
+	        this.EntriesBefore = source["EntriesBefore"];
+	        this.EntriesAfter = source["EntriesAfter"];
+	        this.HeaderChanged = source["HeaderChanged"];
+	    }
+	}
 	export class TODOItem {
 	    ID: number;
 	    Dismissed: boolean;

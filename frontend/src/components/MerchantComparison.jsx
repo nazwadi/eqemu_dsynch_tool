@@ -1,6 +1,6 @@
 import {useState} from 'react';
 
-// Read-only content for the merchant_id reference drawer — the third reference type built. Simpler
+// Content for the merchant_id reference drawer — the third reference type built. Simpler
 // than FactionComparison/SpellsComparison in one respect: merchantlist has no separate header/
 // parent row (npc_types.merchant_id points straight at merchantlist rows — the two tables spell it
 // differently, npc_types.merchant_id vs merchantlist.merchantid), so there's no "profile"
@@ -49,7 +49,7 @@ function MerchantEntryRow({entry}) {
     )
 }
 
-function MerchantComparison({comparison}) {
+function MerchantComparison({comparison, onSyncContent}) {
     if (!comparison) {
         return <div className="text-xs text-gray-500">Loading…</div>
     }
@@ -81,6 +81,16 @@ function MerchantComparison({comparison}) {
                 <span className="px-1 text-gray-600">→</span>
                 <span className="flex-1 text-right text-gray-500">{comparison.SinkId || '—'}</span>
             </div>
+            {/* merchantlist has no header row to align an id for (see the module comment) — content
+                sync is the only sync-capable action available here. */}
+            {comparison.SourceId !== 0 && comparison.SinkId !== 0 && (
+                <div className="flex justify-end px-2">
+                    <button onClick={() => onSyncContent(comparison.SourceId, comparison.SinkId)}
+                            className="text-xs text-amber-400 hover:text-amber-300 underline">
+                        Sync content from source →
+                    </button>
+                </div>
+            )}
             <div className="flex flex-col gap-1">
                 <div className="text-xs text-gray-400 uppercase tracking-wider">
                     Merchant Entries{entries.length > 0 && ` (${entries.length})`}

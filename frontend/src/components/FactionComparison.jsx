@@ -1,8 +1,9 @@
-// Read-only content for the npc_faction reference drawer — the phase-1 prototype for what should
-// eventually cover every shared-reference-table type buildTODOItems() already flags. Deliberately
-// read-only: no sync action exists for any of these tables yet, so this is purely "see what you'd
-// be walking into," the same visibility-before-action step the Spawn Points and Spawngroups tabs
-// both went through before either gained a sync action.
+// Content for the npc_faction reference drawer — the phase-1 prototype for what eventually covered
+// every shared-reference-table type buildTODOItems() flags. Originally read-only (comparison
+// only, see phase 1 in CLAUDE.md's Sync Design) — the same visibility-before-action step the Spawn
+// Points and Spawngroups tabs both went through before either gained a sync action. Phase 2 added
+// two real actions: aligning the id (onAlign, a rename, content untouched) and syncing content
+// (onSyncContent, the complement — id untouched, content overwritten).
 
 // npc_value/temp are flag-shaped (0/1), not graduated values like `value` is, so they're folded
 // into the cell as a compact suffix instead of two more full columns — keeps the entries table
@@ -13,7 +14,7 @@ function fmtEntry(exists, value, npcValue, temp) {
     return flags.length > 0 ? `${value} (${flags.join(', ')})` : `${value}`
 }
 
-function FactionComparison({comparison, onAlign}) {
+function FactionComparison({comparison, onAlign, onSyncContent}) {
     if (!comparison) {
         return <div className="text-xs text-gray-500">Loading…</div>
     }
@@ -60,6 +61,16 @@ function FactionComparison({comparison, onAlign}) {
                             <button onClick={() => onAlign(comparison.SourceId, comparison.SinkId)}
                                     className="text-xs text-cyan-400 hover:text-cyan-300 underline">
                                 Align npc_faction ID to source →
+                            </button>
+                        </div>
+                    )}
+                    {/* Content sync — the complement to align above: leaves each side's own id
+                        untouched, overwrites sink's fields+entries with source's instead. */}
+                    {comparison.SourceId !== 0 && comparison.SinkId !== 0 && (
+                        <div className="flex justify-end px-2">
+                            <button onClick={() => onSyncContent(comparison.SourceId, comparison.SinkId)}
+                                    className="text-xs text-amber-400 hover:text-amber-300 underline">
+                                Sync content from source →
                             </button>
                         </div>
                     )}

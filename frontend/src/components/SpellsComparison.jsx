@@ -1,6 +1,6 @@
 import {useState} from 'react';
 
-// Read-only content for the npc_spells reference drawer — the second reference type built after
+// Content for the npc_spells reference drawer — the second reference type built after
 // npc_faction. Deliberately shaped differently from FactionComparison: npc_spells_entries has 16
 // columns with no single "the important one" (unlike faction's clean value/npc_value/temp), so
 // both the header's ~18 behavior fields and each entry's fields render as generic, collapsible
@@ -82,7 +82,7 @@ function SpellsHeaderFields({sourceFields, sinkFields, fields}) {
     )
 }
 
-function SpellsComparison({comparison, onAlign}) {
+function SpellsComparison({comparison, onAlign, onSyncContent}) {
     if (!comparison) {
         return <div className="text-xs text-gray-500">Loading…</div>
     }
@@ -132,6 +132,16 @@ function SpellsComparison({comparison, onAlign}) {
                             <button onClick={() => onAlign(comparison.SourceId, comparison.SinkId)}
                                     className="text-xs text-cyan-400 hover:text-cyan-300 underline">
                                 Align npc_spells ID to source →
+                            </button>
+                        </div>
+                    )}
+                    {/* Content sync — the complement to align above: leaves each side's own id
+                        untouched, overwrites sink's fields+entries with source's instead. */}
+                    {comparison.SourceId !== 0 && comparison.SinkId !== 0 && (
+                        <div className="flex justify-end px-2">
+                            <button onClick={() => onSyncContent(comparison.SourceId, comparison.SinkId)}
+                                    className="text-xs text-amber-400 hover:text-amber-300 underline">
+                                Sync content from source →
                             </button>
                         </div>
                     )}

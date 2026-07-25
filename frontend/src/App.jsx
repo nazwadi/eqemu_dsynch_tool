@@ -19,6 +19,7 @@ import ConfirmBatchRelocateSpawnGroupsModal from './components/ConfirmBatchReloc
 import ConfirmDeleteSpawnGroupModal from './components/ConfirmDeleteSpawnGroupModal';
 import ConfirmGridSyncModal from './components/ConfirmGridSyncModal';
 import ConfirmAlignIdModal from './components/ConfirmAlignIdModal';
+import ConfirmSyncReferenceContentModal from './components/ConfirmSyncReferenceContentModal';
 import ConfirmCreateLootDropModal from './components/ConfirmCreateLootDropModal';
 import Sidebar from './components/Sidebar';
 import NpcsTab from './components/NpcsTab';
@@ -47,6 +48,7 @@ import {useGridSync} from './hooks/useGridSync';
 import {useLoot} from './hooks/useLoot';
 import {useZoneMap} from './hooks/useZoneMap';
 import {useAlignId} from './hooks/useAlignId';
+import {useSyncReferenceContent} from './hooks/useSyncReferenceContent';
 import {useCreateLootDrop} from './hooks/useCreateLootDrop';
 import {instrumentGoCalls} from './lib/pendingGoCalls';
 
@@ -125,6 +127,7 @@ function App() {
     const gridSync = useGridSync(zoneIdentity)
     const loot = useLoot()
     const alignId = useAlignId()
+    const syncReferenceContent = useSyncReferenceContent()
     const createLootDrop = useCreateLootDrop()
     const zoneMap = useZoneMap(connections.mapsDirectory)
 
@@ -211,6 +214,50 @@ function App() {
             refreshLootAfterAlign()
         } else if (target === 'npc_faction' || target === 'npc_spells') {
             refreshReferenceAfterAlign()
+        }
+    }
+
+    // Triggered from the Loot tab's loottable-level "Sync content from source" button — the
+    // complement to alignLoottable above: leaves each side's own id untouched, overwrites sink's
+    // fields+entries with source's instead. See SyncReferenceContent (referencecontent.go).
+    function syncLoottableContent(sourceId, sinkId) {
+        syncReferenceContent.openSyncContentPreview({target: 'loottable', sourceId, sinkId, label: 'loottable'})
+    }
+
+    // Triggered from the npc_faction/npc_spells/merchant reference drawer's own "Sync content from
+    // source" button — same single-button shape as alignReferenceId above, since none of these
+    // three have an equivalent pairing ambiguity (their Entries are keyed by portable ids).
+    function syncReferenceContentForType(target, sourceId, sinkId) {
+        syncReferenceContent.openSyncContentPreview({target, sourceId, sinkId, label: target})
+    }
+
+    // Refreshes the currently-loaded Loot tab comparison after a successful content sync — unlike
+    // align, content sync never changes SourceId/SinkId (no npc_types FK id is touched), so the
+    // plain refreshLoot() replay is already correct — no id-tracking equivalent to
+    // refreshLootAfterAlign is needed here, same reasoning refreshLootAfterCreate already documents.
+    function refreshLootAfterSyncContent() {
+        loot.refreshLoot()
+    }
+
+    // Refreshes the currently-open reference drawer after a successful content sync — unlike
+    // refreshReferenceAfterAlign, this replays with the ORIGINAL (unchanged) sourceId/sinkId pair,
+    // not (sourceId, sourceId) — nothing was renamed here, only sink's content changed under its
+    // own existing id.
+    function refreshReferenceAfterSyncContent() {
+        if (!referenceDrawer.referenceDrawerData) return
+        const sourceId = referenceDrawer.referenceDrawerData.SourceId
+        const sinkId = referenceDrawer.referenceDrawerData.SinkId
+        referenceDrawer.openReferenceComparison(referenceDrawer.referenceDrawerType, sourceId, sinkId)
+    }
+
+    // Single dispatch point for ConfirmSyncReferenceContentModal's executeSyncContent callback —
+    // mirrors refreshAfterAlign's shape, dispatching by which target was just synced.
+    function refreshAfterSyncContent() {
+        const target = syncReferenceContent.syncContentTarget?.target
+        if (target === 'loottable') {
+            refreshLootAfterSyncContent()
+        } else if (target === 'npc_faction' || target === 'npc_spells' || target === 'merchantlist') {
+            refreshReferenceAfterSyncContent()
         }
     }
 
@@ -389,13 +436,18 @@ function App() {
                 title={referenceDrawerTitles[referenceDrawer.referenceDrawerType] ?? 'Reference'}>
                 {referenceDrawer.referenceDrawerType === 'faction' && (
                     <FactionComparison comparison={referenceDrawer.referenceDrawerData}
-                                       onAlign={(sourceId, sinkId) => alignReferenceId('npc_faction', sourceId, sinkId)}/>
+                                       onAlign={(sourceId, sinkId) => alignReferenceId('npc_faction', sourceId, sinkId)}
+                                       onSyncContent={(sourceId, sinkId) => syncReferenceContentForType('npc_faction', sourceId, sinkId)}/>
                 )}
                 {referenceDrawer.referenceDrawerType === 'spells' && (
                     <SpellsComparison comparison={referenceDrawer.referenceDrawerData}
-                                       onAlign={(sourceId, sinkId) => alignReferenceId('npc_spells', sourceId, sinkId)}/>
+                                       onAlign={(sourceId, sinkId) => alignReferenceId('npc_spells', sourceId, sinkId)}
+                                       onSyncContent={(sourceId, sinkId) => syncReferenceContentForType('npc_spells', sourceId, sinkId)}/>
                 )}
-                {referenceDrawer.referenceDrawerType === 'merchant' && <MerchantComparison comparison={referenceDrawer.referenceDrawerData}/>}
+                {referenceDrawer.referenceDrawerType === 'merchant' && (
+                    <MerchantComparison comparison={referenceDrawer.referenceDrawerData}
+                                        onSyncContent={(sourceId, sinkId) => syncReferenceContentForType('merchantlist', sourceId, sinkId)}/>
+                )}
             </ReferenceDrawer>
             <ConfirmSpawnGroupSyncModal
                 showSpawnGroupSyncConfirm={spawnGroupSync.showSpawnGroupSyncConfirm}
@@ -435,6 +487,14 @@ function App() {
                 alignError={alignId.alignError} alignPreview={alignId.alignPreview} alignTarget={alignId.alignTarget}
                 aligning={alignId.aligning}
                 executeAlign={() => alignId.executeAlign(refreshAfterAlign)}
+                dbSinkName={connections.dbSinkName}
+            />
+            <ConfirmSyncReferenceContentModal
+                showSyncContentConfirm={syncReferenceContent.showSyncContentConfirm} closeSyncContentConfirm={syncReferenceContent.closeSyncContentConfirm}
+                syncContentError={syncReferenceContent.syncContentError} syncContentPreview={syncReferenceContent.syncContentPreview}
+                syncContentTarget={syncReferenceContent.syncContentTarget}
+                syncingContent={syncReferenceContent.syncingContent}
+                executeSyncContent={() => syncReferenceContent.executeSyncContent(refreshAfterSyncContent)}
                 dbSinkName={connections.dbSinkName}
             />
             <ConfirmCreateLootDropModal
@@ -755,6 +815,7 @@ function App() {
                             selectedZoneShortName={selectedZoneShortName}
                             onAlignLoottable={alignLoottable} onAlignLootdrop={alignLootdrop}
                             onCreateLootDrop={createLootDropInSink}
+                            onSyncLoottableContent={syncLoottableContent}
                             setShowLootHelp={setShowLootHelp}
                         />
                     )}
