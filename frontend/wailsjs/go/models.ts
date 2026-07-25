@@ -163,6 +163,42 @@ export namespace main {
 		}
 	}
 	
+	export class CreateLootDropOptions {
+	    SourceId: number;
+	    DryRun: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new CreateLootDropOptions(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.SourceId = source["SourceId"];
+	        this.DryRun = source["DryRun"];
+	    }
+	}
+	export class CreateLootDropResult {
+	    DryRun: boolean;
+	    SourceId: number;
+	    SquatterSummary: string;
+	    SquatterEvicted: boolean;
+	    NewSquatterId: number;
+	    EntriesCreated: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new CreateLootDropResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.DryRun = source["DryRun"];
+	        this.SourceId = source["SourceId"];
+	        this.SquatterSummary = source["SquatterSummary"];
+	        this.SquatterEvicted = source["SquatterEvicted"];
+	        this.NewSquatterId = source["NewSquatterId"];
+	        this.EntriesCreated = source["EntriesCreated"];
+	    }
+	}
 	export class GridEntry {
 	    Number: number;
 	    X: number;

@@ -264,6 +264,121 @@ func (a *App) CompareNPCLoot(sourceLoottableId, sinkLoottableId int64) (NPCLootC
 	return result, nil
 }
 
+// CreateLootDropOptions identifies a source-only lootdrop — one the sink has nothing to align
+// against yet, the case AlignId explicitly refuses (SinkId == 0, "nothing to rename").
+type CreateLootDropOptions struct {
+	SourceId int64
+	DryRun   bool
+}
+
+// CreateLootDropResult mirrors AlignIdResult's shape where the two overlap (squatter handling),
+// plus EntriesCreated since this creates content AlignId never touches.
+type CreateLootDropResult struct {
+	DryRun          bool
+	SourceId        int64
+	SquatterSummary string // best-effort label, same convention as AlignIdResult — "" if SourceId was free on sink
+	SquatterEvicted bool
+	NewSquatterId   int64 // where the squatter ends up — 0 on dry run or if no squatter
+	EntriesCreated  int
+}
+
+// CreateLootDrop copies a source-only lootdrop — one that doesn't exist on the sink under any id
+// yet — to the sink, preserving source's own id when possible. This is the create counterpart to
+// AlignId: AlignId is deliberately a rename that never touches content ("preserving the sink row's
+// own current field content untouched"), because normally there IS existing sink content to
+// preserve. Here there isn't — nothing on sink corresponds to this lootdrop at all — so the only
+// sensible action is to copy source's own fields and lootdrop_entries wholesale, not to overwrite
+// anything. If source's id happens to already be occupied by unrelated content on the sink (a
+// squatter), that squatter is relocated out of the way first via relocateRow (idalign.go) — the
+// exact same eviction AlignId already uses, reused rather than reimplemented, so the two actions
+// stay consistent about what "the id is safe to write to" means.
+func (a *App) CreateLootDrop(options CreateLootDropOptions) (CreateLootDropResult, error) {
+	result := CreateLootDropResult{DryRun: options.DryRun, SourceId: options.SourceId}
+
+	if a.sourceDB == nil {
+		return result, fmt.Errorf("source database not connected")
+	}
+	if a.sinkDB == nil {
+		return result, fmt.Errorf("sink database not connected")
+	}
+
+	sourceFields, err := fetchRowById(a.ctx, a.sourceDB, "lootdrop", options.SourceId)
+	if err != nil {
+		return result, err
+	}
+	if sourceFields == nil {
+		return result, fmt.Errorf("no lootdrop #%d exists on the source", options.SourceId)
+	}
+	sourceEntries, err := fetchChildRows(a.ctx, a.sourceDB, "lootdrop_entries", "lootdrop_id", options.SourceId)
+	if err != nil {
+		return result, err
+	}
+	result.EntriesCreated = len(sourceEntries)
+
+	target := idAlignmentTargets["lootdrop"]
+
+	squatterFields, err := fetchRowById(a.ctx, a.sinkDB, "lootdrop", options.SourceId)
+	if err != nil {
+		return result, err
+	}
+	if squatterFields != nil {
+		result.SquatterEvicted = true
+		if name, ok := squatterFields["name"]; ok && fmt.Sprintf("%v", name) != "" {
+			result.SquatterSummary = fmt.Sprintf("%v", name)
+		} else {
+			result.SquatterSummary = fmt.Sprintf("record #%d", options.SourceId)
+		}
+	}
+
+	if options.DryRun {
+		return result, nil
+	}
+
+	sinkColumns, err := getSinkColumns(a.ctx, a.sinkDB, "lootdrop")
+	if err != nil {
+		return result, err
+	}
+	entryColumns, err := getSinkColumns(a.ctx, a.sinkDB, "lootdrop_entries")
+	if err != nil {
+		return result, err
+	}
+
+	tx, err := a.sinkDB.BeginTx(a.ctx, nil)
+	if err != nil {
+		return result, err
+	}
+
+	if squatterFields != nil {
+		newId, err := relocateRow(a.ctx, tx, target, options.SourceId, squatterFields, sinkColumns)
+		if err != nil {
+			_ = tx.Rollback()
+			return result, fmt.Errorf("relocating squatter lootdrop #%d: %w", options.SourceId, err)
+		}
+		result.NewSquatterId = newId
+	}
+
+	// SourceId is free now (either it always was, or the squatter relocation above just freed it)
+	// — insert source's own content there directly, forcing the explicit id the same way
+	// RelocateSpawnGroup already does when reclaiming a freed id.
+	if _, err := insertRow(a.ctx, tx, "lootdrop", sourceFields, sinkColumns, map[string]interface{}{"id": options.SourceId}); err != nil {
+		_ = tx.Rollback()
+		return result, fmt.Errorf("creating lootdrop #%d: %w", options.SourceId, err)
+	}
+
+	for _, entry := range sourceEntries {
+		fields := withoutFields(entry, "id", "lootdrop_id")
+		if _, err := insertRow(a.ctx, tx, "lootdrop_entries", fields, entryColumns, map[string]interface{}{"lootdrop_id": options.SourceId}); err != nil {
+			_ = tx.Rollback()
+			return result, fmt.Errorf("creating lootdrop_entries for lootdrop #%d: %w", options.SourceId, err)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return result, err
+	}
+	return result, nil
+}
+
 // GetLootTable is the raw-ID lookup path for the Loot tab's "search by loot table ID" mode — a
 // one-sided tree view, since loottable_id isn't portable across databases (see NPCLootComparison)
 // and a typed-in id only means something on the database it was typed against.

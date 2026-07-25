@@ -22,6 +22,8 @@ export function CompareZones(arg1:string,arg2:number,arg3:number,arg4:Array<stri
 
 export function Connect(arg1:main.ConnectionConfig,arg2:boolean):Promise<void>;
 
+export function CreateLootDrop(arg1:main.CreateLootDropOptions):Promise<main.CreateLootDropResult>;
+
 export function GetLootTable(arg1:boolean,arg2:number):Promise<main.LootTable>;
 
 export function GetNPCsForZone(arg1:string,arg2:number,arg3:number,arg4:boolean):Promise<Array<main.NPC>>;

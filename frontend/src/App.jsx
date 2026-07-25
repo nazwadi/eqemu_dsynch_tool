@@ -17,6 +17,7 @@ import ConfirmSpawnGroupSyncModal from './components/ConfirmSpawnGroupSyncModal'
 import ConfirmRelocateSpawnGroupModal from './components/ConfirmRelocateSpawnGroupModal';
 import ConfirmGridSyncModal from './components/ConfirmGridSyncModal';
 import ConfirmAlignIdModal from './components/ConfirmAlignIdModal';
+import ConfirmCreateLootDropModal from './components/ConfirmCreateLootDropModal';
 import Sidebar from './components/Sidebar';
 import NpcsTab from './components/NpcsTab';
 import SpawnsTab from './components/SpawnsTab';
@@ -41,6 +42,7 @@ import {useGridSync} from './hooks/useGridSync';
 import {useLoot} from './hooks/useLoot';
 import {useZoneMap} from './hooks/useZoneMap';
 import {useAlignId} from './hooks/useAlignId';
+import {useCreateLootDrop} from './hooks/useCreateLootDrop';
 
 // Title shown in the shared ReferenceDrawer — one more entry per reference type as they're built,
 // mirroring detailPanelTitles' shape in DetailPanel.jsx.
@@ -98,6 +100,7 @@ function App() {
     const gridSync = useGridSync(zoneIdentity)
     const loot = useLoot()
     const alignId = useAlignId()
+    const createLootDrop = useCreateLootDrop()
     const zoneMap = useZoneMap(connections.mapsDirectory)
 
     // Real, shipped bug (found 2026-07-24 via user report): loadZoneMap only ever ran from
@@ -137,6 +140,22 @@ function App() {
         const sourceId = loot.lootComparison.SourceId
         const sinkId = alignId.alignTarget?.target === 'loottable' ? sourceId : loot.lootComparison.SinkId
         loot.refreshWithIds(sourceId, sinkId)
+    }
+
+    // Triggered from the Loot tab's per-lootdrop "create in sink" trigger (source column only) —
+    // unlike align, there's no pairing step: a source-only lootdrop has nothing on the sink to
+    // pick, so this just needs the one id. See CreateLootDrop (loot.go) for why this copies
+    // content (align never does) and reuses the same squatter-eviction relocateRow does.
+    function createLootDropInSink(sourceId) {
+        createLootDrop.openCreatePreview(sourceId)
+    }
+
+    // Refreshes the currently-loaded Loot tab comparison after a successful create — unlike align,
+    // creating a lootdrop never changes SourceId/SinkId (it doesn't touch npc_types.loottable_id
+    // at all), so the plain refreshLoot() replay is already correct — no id-tracking equivalent to
+    // refreshLootAfterAlign is needed here.
+    function refreshLootAfterCreate() {
+        loot.refreshLoot()
     }
 
     // Triggered from the npc_faction/npc_spells reference drawer's own "Align ID to source"
@@ -373,6 +392,13 @@ function App() {
                 alignError={alignId.alignError} alignPreview={alignId.alignPreview} alignTarget={alignId.alignTarget}
                 aligning={alignId.aligning}
                 executeAlign={() => alignId.executeAlign(refreshAfterAlign)}
+                dbSinkName={connections.dbSinkName}
+            />
+            <ConfirmCreateLootDropModal
+                showCreateConfirm={createLootDrop.showCreateConfirm} setShowCreateConfirm={createLootDrop.setShowCreateConfirm}
+                createError={createLootDrop.createError} createPreview={createLootDrop.createPreview} createSourceId={createLootDrop.createSourceId}
+                creating={createLootDrop.creating}
+                executeCreate={() => createLootDrop.executeCreate(refreshLootAfterCreate)}
                 dbSinkName={connections.dbSinkName}
             />
             <div className="flex flex-1 min-h-0">
@@ -677,6 +703,7 @@ function App() {
                             dbSourceName={connections.dbSourceName} dbSinkName={connections.dbSinkName}
                             selectedZoneShortName={selectedZoneShortName}
                             onAlignLoottable={alignLoottable} onAlignLootdrop={alignLootdrop}
+                            onCreateLootDrop={createLootDropInSink}
                             setShowLootHelp={setShowLootHelp}
                         />
                     )}

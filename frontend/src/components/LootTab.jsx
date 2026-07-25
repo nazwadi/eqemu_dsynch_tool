@@ -130,8 +130,10 @@ function LootDropEntryRow({entry}) {
 // lootdrop row on this side — shown as a plain red flag rather than hidden, same "don't silently
 // drop a dangling reference" treatment as SpawnPoint.SpawnGroupMissing. Expand state is
 // controlled by the parent column (not local), so "Expand All"/"Collapse All" can drive every row
-// at once.
-function LootTableEntryRow({entry, expanded, onToggle, armed, onArm}) {
+// at once. onCreateInSink (source column only, see LootTab's own comment) is a single click, no
+// arming needed — unlike align, there's no sink row to pick, so the only input is this row's own
+// LootDropId.
+function LootTableEntryRow({entry, expanded, onToggle, armed, onArm, onCreateInSink}) {
     const drop = entry.Drop
     const itemCount = drop?.Entries?.length ?? 0
     const sharedCount = drop?.SharedCount ?? 0
@@ -151,6 +153,17 @@ function LootTableEntryRow({entry, expanded, onToggle, armed, onArm}) {
                     )}
                 </span>
                 {drop && onArm && <AlignTrigger armed={armed} onClick={() => onArm(entry.LootDropId, drop.Fields?.name)} label="lootdrop"/>}
+                {drop && onCreateInSink && (
+                    <button
+                        onClick={e => {
+                            e.stopPropagation()
+                            onCreateInSink(entry.LootDropId)
+                        }}
+                        title="Copy this lootdrop and its items to the sink, at the same id if it's free"
+                        className="text-xs ml-1 shrink-0 underline text-cyan-400 hover:text-cyan-300">
+                        create in sink
+                    </button>
+                )}
                 <span className="text-xs text-gray-500 shrink-0">
                     {entry.Fields?.probability}% · ×{entry.Fields?.multiplier ?? 1}
                 </span>
@@ -172,7 +185,7 @@ function LootTableEntryRow({entry, expanded, onToggle, armed, onArm}) {
 // column's — see NPCLootComparison in app.go for why: lootdrop.id has no anchor to match across
 // databases the way spawn2 coordinates give spawngroup, so this renders exactly what's on this
 // side, independent of the other column, rather than claiming a correspondence it can't verify.
-function LootTableColumn({label, dbName, table, lookedUp, armedDropId, onArmDrop}) {
+function LootTableColumn({label, dbName, table, lookedUp, armedDropId, onArmDrop, onCreateInSink}) {
     const [expandedDrops, setExpandedDrops] = useState(new Set())
     const allDropIds = table?.Entries?.map(e => e.LootDropId) ?? []
     const allExpanded = allDropIds.length > 0 && allDropIds.every(id => expandedDrops.has(id))
@@ -225,7 +238,8 @@ function LootTableColumn({label, dbName, table, lookedUp, armedDropId, onArmDrop
                                                     expanded={expandedDrops.has(entry.LootDropId)}
                                                     onToggle={() => toggleDrop(entry.LootDropId)}
                                                     armed={armedDropId === entry.LootDropId}
-                                                    onArm={onArmDrop}/>
+                                                    onArm={onArmDrop}
+                                                    onCreateInSink={onCreateInSink}/>
                             ))
                         ) : (
                             <div className="text-xs text-gray-600 px-2">No lootdrops in this table.</div>
@@ -251,7 +265,7 @@ function LootTab({
     lootComparison, lootLoading, lootError,
     onSelectNpc, onLookupRawId, onRefresh,
     dbSourceName, dbSinkName, selectedZoneShortName,
-    onAlignLoottable, onAlignLootdrop,
+    onAlignLoottable, onAlignLootdrop, onCreateLootDrop,
     setShowLootHelp
 }) {
     // Always browsable, not just once you start typing — a dev reviewing a zone they don't have
@@ -407,7 +421,7 @@ function LootTab({
                     )}
                     <div className="flex flex-1 min-h-0 overflow-hidden">
                         <LootTableColumn label="Source" dbName={dbSourceName} table={lootComparison?.SourceTable} lookedUp={!!lootComparison}
-                                          armedDropId={armedSourceDrop?.id} onArmDrop={armSourceDrop}/>
+                                          armedDropId={armedSourceDrop?.id} onArmDrop={armSourceDrop} onCreateInSink={onCreateLootDrop}/>
                         <LootTableColumn label="Sink" dbName={dbSinkName} table={lootComparison?.SinkTable} lookedUp={!!lootComparison}
                                           armedDropId={armedSinkDrop?.id} onArmDrop={armSinkDrop}/>
                     </div>
