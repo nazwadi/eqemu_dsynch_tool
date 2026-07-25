@@ -51,11 +51,21 @@ function ConfirmRelocateSpawnGroupModal({
                                 </div>
                             </>
                         ) : (
-                            <div className="text-sm text-gray-500">Not referenced anywhere else on the sink — safe to move.</div>
+                            <div className="text-sm text-gray-500">Not referenced by anything that needs to move to a new ID.</div>
                         )}
                         {relocatePreview.ThisZoneCount > 0 && (
                             <div className="text-sm text-gray-400">
                                 Also currently referenced by {relocatePreview.ThisZoneCount} location{relocatePreview.ThisZoneCount === 1 ? '' : 's'} in <span className="text-gray-200">this zone</span> — <span className="text-gray-500">left alone</span>, not repointed. Those will resolve correctly once this ID holds source's content. Double-check that count matches what you expect before continuing.
+                            </div>
+                        )}
+                        {relocatePreview.SharedSourceUsage?.length > 0 && (
+                            <div className="text-sm text-gray-400 flex flex-col gap-1">
+                                <span>Your source database also uses this same spawngroup ID for these other zones — <span className="text-gray-500">left alone</span>, not repointed, since they'll resolve correctly the same way once this ID holds source's content:</span>
+                                <div className="flex flex-col gap-1 text-xs text-gray-300">
+                                    {relocatePreview.SharedSourceUsage.map((u, i) => (
+                                        <div key={i}>{u.Zone} (v{u.Version}) — {u.Count} location{u.Count === 1 ? '' : 's'}</div>
+                                    ))}
+                                </div>
                             </div>
                         )}
                         <div className="text-sm text-cyan-400">

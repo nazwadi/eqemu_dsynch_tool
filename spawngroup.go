@@ -52,9 +52,10 @@ type RelocateSpawnGroupOptions struct {
 }
 
 // RelocateSpawnGroupResult previews/reports a relocate-and-reclaim. SquatterUsage is every other
-// (zone, version) currently referencing SpawnGroupId — the confirm-step preview, so nothing gets
-// silently rewritten in a zone the caller hasn't seen. NewSpawnGroupId (where the squatter's
-// content ends up) is only known once the real write happens — 0 during a dry run.
+// (zone, version) currently referencing SpawnGroupId that will actually be repointed onto the
+// squatter's new home — the confirm-step preview, so nothing gets silently rewritten in a zone the
+// caller hasn't seen. NewSpawnGroupId (where the squatter's content ends up) is only known once the
+// real write happens — 0 during a dry run.
 type RelocateSpawnGroupResult struct {
 	DryRun          bool
 	SpawnGroupId    int64
@@ -62,6 +63,14 @@ type RelocateSpawnGroupResult struct {
 	NewSpawnGroupId int64
 	SquatterUsage   []SpawnGroupZoneUsage
 	ThisZoneCount   int // spawn2 rows in the CALLER's own zone/version currently referencing SpawnGroupId — never touched (see RelocateSpawnGroup's comment for why), shown so the confirm step can be sanity-checked against what the caller actually expects to see there rather than assumed safe
+	// SharedSourceUsage lists every OTHER (zone, version) whose sink spawn2 rows currently reference
+	// SpawnGroupId AND whose SOURCE also legitimately references this same id (a spawngroup shared
+	// across multiple zones — spawngroup has no zone column of its own, see EQEmu Schema Notes).
+	// These are deliberately excluded from SquatterUsage/the repoint step, same reasoning as
+	// ThisZoneCount: once the id is reclaimed with source's real content, they resolve correctly
+	// with no further action — repointing them to the squatter's new home would be wrong, pointing
+	// a second zone's rows at content that was never theirs. See the real bug this fixed, 2026-07-24.
+	SharedSourceUsage []SpawnGroupZoneUsage
 }
 
 // SpawnGroupDiffRow is the row shape for the Spawngroups zone-view — one spawngroup per row,
@@ -561,33 +570,45 @@ func fetchSpawnGroupById(ctx context.Context, db *sql.DB, id int64) (map[string]
 // RelocateSpawnGroup resolves a SpawnGroupCollisionRisk: options.SpawnGroupId already exists on
 // the sink, but as content unrelated to options.ZoneShortName/ZoneVersion (see
 // SpawnDiffRow.SpawnGroupCollisionRisk for how that gets detected). It moves the current occupant
-// ("the squatter") to a freshly-assigned id, repoints every spawn2 row *outside* the caller's
-// zone/version onto that new id, then creates a new spawngroup at the now-vacated original id
+// ("the squatter") to a freshly-assigned id, repoints spawn2 rows *outside* the excluded zone set
+// (see below) onto that new id, then creates a new spawngroup at the now-vacated original id
 // using an explicit id (mysql accepts this on an AUTO_INCREMENT column as long as it's free) with
 // options.SourceFields/SourceSpawnEntries.
 //
-// Deliberately does NOT touch spawn2 rows inside the caller's own zone/version, even though they
-// may already reference options.SpawnGroupId (a shared source spawngroup copied verbatim to every
-// location that uses it, per SyncSpawnPoints — see CLAUDE.md's "Spawn points sync verbatim" note).
-// Those rows don't need repointing: they're already pointed at the id, and once this call
-// populates that id with the correct content, they start resolving correctly with no further
-// action — repointing them anywhere would be wrong, since the id itself is what's being fixed.
+// The excluded zone set is NOT just the caller's own zone/version — it's the caller's zone plus
+// every (zone, version) that SOURCE's own spawn2 table ALSO references this same SpawnGroupId
+// from. A spawngroup has no zone column of its own (see EQEmu Schema Notes), so it's entirely
+// legitimate for one source spawngroup to be shared across several zones; if it is, sink spawn2
+// rows in ALL of those zones are correct to stay right where they are once the id is repopulated
+// with source's real content below — repointing them to the squatter's new home would be wrong,
+// pointing a second (or third...) zone's rows at content that was never theirs. Real, shipped bug
+// fixed 2026-07-24: the original version only ever excluded the single caller-specified zone, so
+// any OTHER zone sharing the same source spawngroup got silently redirected to the squatter's
+// unrelated content during step 2, leaving that other zone's spawn2 rows pointing at something
+// that didn't match source — which looked, from the outside, like "the collision never actually
+// got fixed," even though the id the caller relocated was itself populated correctly.
 //
-// SquatterUsage (every OTHER zone/version currently referencing the id) and ThisZoneCount (rows
-// in the caller's own zone/version, never touched) are always computed, dry run or not — the
-// confirm step's "here's what this actually touches, and here's what it doesn't" preview,
-// mirroring SyncSpawnGroup's OtherZoneUsage. ThisZoneCount exists purely so a caller can sanity-
-// check it against what they actually expect to see there (e.g. "3 locations, that's right")
-// instead of the in-zone exclusion being an invisible assumption; this app has no way to verify
-// every one of those rows is really waiting on the reclaim rather than a genuine, unrelated
-// coincidental match — see the function's own design note in CLAUDE.md for that caveat. Unlike
-// SyncSpawnGroup, SquatterUsage never blocks the action here:
-// the whole point of relocating is to safely touch it, with the user having seen the list first.
+// Deliberately does NOT touch spawn2 rows in the excluded set at all, even though they may already
+// reference options.SpawnGroupId (a shared source spawngroup copied verbatim to every location
+// that uses it, per SyncSpawnPoints — see CLAUDE.md's "Spawn points sync verbatim" note). Those
+// rows don't need repointing: they're already pointed at the id, and once this call populates that
+// id with the correct content, they start resolving correctly with no further action.
+//
+// SquatterUsage (every zone/version outside the excluded set, i.e. what will actually be
+// repointed), SharedSourceUsage (the OTHER-zone slice of the excluded set — left alone because
+// source also uses this id there), and ThisZoneCount (the caller's own zone, also left alone) are
+// always computed, dry run or not — the confirm step's "here's what this actually touches, and
+// here's what it doesn't" preview, mirroring SyncSpawnGroup's OtherZoneUsage. Unlike SyncSpawnGroup,
+// SquatterUsage never blocks the action here: the whole point of relocating is to safely touch it,
+// with the user having seen the list first.
 func (a *App) RelocateSpawnGroup(options RelocateSpawnGroupOptions) (RelocateSpawnGroupResult, error) {
 	result := RelocateSpawnGroupResult{DryRun: options.DryRun, SpawnGroupId: options.SpawnGroupId}
 
 	if a.sinkDB == nil {
 		return result, fmt.Errorf("sink database not connected")
+	}
+	if a.sourceDB == nil {
+		return result, fmt.Errorf("source database not connected")
 	}
 
 	squatterFields, err := fetchSpawnGroupById(a.ctx, a.sinkDB, options.SpawnGroupId)
@@ -598,6 +619,34 @@ func (a *App) RelocateSpawnGroup(options RelocateSpawnGroupOptions) (RelocateSpa
 		return result, fmt.Errorf("no spawngroup #%d exists on the sink to relocate", options.SpawnGroupId)
 	}
 	result.SquatterName = fmt.Sprintf("%v", squatterFields["name"])
+
+	// Every (zone, version) SOURCE itself references this SpawnGroupId from — see the function
+	// comment above for why this, not just the caller's own zone, is the real exclusion set.
+	type zoneVersionKey struct {
+		zone    string
+		version int8
+	}
+	excluded := map[zoneVersionKey]bool{{options.ZoneShortName, options.ZoneVersion}: true}
+	srcRows, err := a.sourceDB.QueryContext(a.ctx,
+		"SELECT DISTINCT zone, version FROM spawn2 WHERE spawngroupID = ?",
+		options.SpawnGroupId,
+	)
+	if err != nil {
+		return result, err
+	}
+	for srcRows.Next() {
+		var k zoneVersionKey
+		if err := srcRows.Scan(&k.zone, &k.version); err != nil {
+			_ = srcRows.Close()
+			return result, err
+		}
+		excluded[k] = true
+	}
+	if err := srcRows.Err(); err != nil {
+		_ = srcRows.Close()
+		return result, err
+	}
+	_ = srcRows.Close()
 
 	rows, err := a.sinkDB.QueryContext(a.ctx,
 		"SELECT zone, version, COUNT(*) FROM spawn2 WHERE spawngroupID = ? GROUP BY zone, version",
@@ -614,6 +663,10 @@ func (a *App) RelocateSpawnGroup(options RelocateSpawnGroupOptions) (RelocateSpa
 		}
 		if usage.Zone == options.ZoneShortName && usage.Version == options.ZoneVersion {
 			result.ThisZoneCount = usage.Count
+			continue
+		}
+		if excluded[zoneVersionKey{usage.Zone, usage.Version}] {
+			result.SharedSourceUsage = append(result.SharedSourceUsage, usage)
 			continue
 		}
 		result.SquatterUsage = append(result.SquatterUsage, usage)
@@ -688,12 +741,32 @@ func (a *App) RelocateSpawnGroup(options RelocateSpawnGroupOptions) (RelocateSpa
 		}
 	}
 
-	// 2. Repoint every OTHER zone's spawn2 rows onto the squatter's new home — never the caller's
-	// own zone/version, see the function comment for why.
-	if _, err := tx.ExecContext(a.ctx,
-		"UPDATE spawn2 SET spawngroupID = ? WHERE spawngroupID = ? AND NOT (zone = ? AND version = ?)",
-		newId, options.SpawnGroupId, options.ZoneShortName, options.ZoneVersion,
-	); err != nil {
+	// 2. Repoint every OTHER zone's spawn2 rows onto the squatter's new home — never a zone in
+	// `excluded` (the caller's own zone plus every zone SOURCE also references this id from), see
+	// the function comment for why. Built as a dynamic NOT (...) clause since the exclusion set can
+	// be more than one pair — sorted first for deterministic query text (mirrors upsertNPC's
+	// sorted-columns convention; doesn't affect correctness, just makes this reproducible to debug).
+	excludedKeys := make([]zoneVersionKey, 0, len(excluded))
+	for k := range excluded {
+		excludedKeys = append(excludedKeys, k)
+	}
+	sort.Slice(excludedKeys, func(i, j int) bool {
+		if excludedKeys[i].zone != excludedKeys[j].zone {
+			return excludedKeys[i].zone < excludedKeys[j].zone
+		}
+		return excludedKeys[i].version < excludedKeys[j].version
+	})
+	exclusionClauses := make([]string, 0, len(excludedKeys))
+	args := []interface{}{newId, options.SpawnGroupId}
+	for _, k := range excludedKeys {
+		exclusionClauses = append(exclusionClauses, "(zone = ? AND version = ?)")
+		args = append(args, k.zone, k.version)
+	}
+	repointQuery := fmt.Sprintf(
+		"UPDATE spawn2 SET spawngroupID = ? WHERE spawngroupID = ? AND NOT (%s)",
+		strings.Join(exclusionClauses, " OR "),
+	)
+	if _, err := tx.ExecContext(a.ctx, repointQuery, args...); err != nil {
 		_ = tx.Rollback()
 		return result, fmt.Errorf("repointing spawn2 rows off spawngroup #%d: %w", options.SpawnGroupId, err)
 	}

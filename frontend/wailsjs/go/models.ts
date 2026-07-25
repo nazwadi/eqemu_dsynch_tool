@@ -875,6 +875,7 @@ export namespace main {
 	    NewSpawnGroupId: number;
 	    SquatterUsage: SpawnGroupZoneUsage[];
 	    ThisZoneCount: number;
+	    SharedSourceUsage: SpawnGroupZoneUsage[];
 	
 	    static createFrom(source: any = {}) {
 	        return new RelocateSpawnGroupResult(source);
@@ -888,6 +889,7 @@ export namespace main {
 	        this.NewSpawnGroupId = source["NewSpawnGroupId"];
 	        this.SquatterUsage = this.convertValues(source["SquatterUsage"], SpawnGroupZoneUsage);
 	        this.ThisZoneCount = source["ThisZoneCount"];
+	        this.SharedSourceUsage = this.convertValues(source["SharedSourceUsage"], SpawnGroupZoneUsage);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
