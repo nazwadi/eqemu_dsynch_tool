@@ -199,6 +199,72 @@ export namespace main {
 	        this.EntriesCreated = source["EntriesCreated"];
 	    }
 	}
+	export class DeleteSpawnGroupOptions {
+	    SpawnGroupId: number;
+	    DryRun: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new DeleteSpawnGroupOptions(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.SpawnGroupId = source["SpawnGroupId"];
+	        this.DryRun = source["DryRun"];
+	    }
+	}
+	export class SpawnGroupZoneUsage {
+	    Zone: string;
+	    Version: number;
+	    Count: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new SpawnGroupZoneUsage(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.Zone = source["Zone"];
+	        this.Version = source["Version"];
+	        this.Count = source["Count"];
+	    }
+	}
+	export class DeleteSpawnGroupResult {
+	    DryRun: boolean;
+	    SpawnGroupName: string;
+	    Usage: SpawnGroupZoneUsage[];
+	    EntriesDeleted: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new DeleteSpawnGroupResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.DryRun = source["DryRun"];
+	        this.SpawnGroupName = source["SpawnGroupName"];
+	        this.Usage = this.convertValues(source["Usage"], SpawnGroupZoneUsage);
+	        this.EntriesDeleted = source["EntriesDeleted"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class DeletedNPC {
 	    NPCID: number;
 	    Name: string;
@@ -802,22 +868,6 @@ export namespace main {
 		    return a;
 		}
 	}
-	export class SpawnGroupZoneUsage {
-	    Zone: string;
-	    Version: number;
-	    Count: number;
-	
-	    static createFrom(source: any = {}) {
-	        return new SpawnGroupZoneUsage(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.Zone = source["Zone"];
-	        this.Version = source["Version"];
-	        this.Count = source["Count"];
-	    }
-	}
 	export class RelocateSpawnGroupResult {
 	    DryRun: boolean;
 	    SpawnGroupId: number;
@@ -1086,6 +1136,7 @@ export namespace main {
 	    DryRun: boolean;
 	    SpawnIds: number[];
 	    NewSpawnCoords: number[][];
+	    DeleteSpawnIds: number[];
 	
 	    static createFrom(source: any = {}) {
 	        return new SpawnSyncOptions(source);
@@ -1099,12 +1150,14 @@ export namespace main {
 	        this.DryRun = source["DryRun"];
 	        this.SpawnIds = source["SpawnIds"];
 	        this.NewSpawnCoords = source["NewSpawnCoords"];
+	        this.DeleteSpawnIds = source["DeleteSpawnIds"];
 	    }
 	}
 	export class SpawnSyncResult {
 	    DryRun: boolean;
 	    Created: number;
 	    Updated: number;
+	    Deleted: number;
 	    Skipped: SkippedSpawn[];
 	    Errors: string[];
 	
@@ -1117,6 +1170,7 @@ export namespace main {
 	        this.DryRun = source["DryRun"];
 	        this.Created = source["Created"];
 	        this.Updated = source["Updated"];
+	        this.Deleted = source["Deleted"];
 	        this.Skipped = this.convertValues(source["Skipped"], SkippedSpawn);
 	        this.Errors = source["Errors"];
 	    }

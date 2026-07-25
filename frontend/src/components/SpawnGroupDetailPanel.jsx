@@ -3,7 +3,7 @@ import {spawnGroupRowSelectable} from '../lib/spawnGroupHelpers';
 
 // Spawngroups branch of the shared detail panel — see DetailPanel.jsx for the dispatcher/chrome
 // this plugs into.
-function SpawnGroupDetailPanel({selectedSpawnGroupRow, openSyncSpawnGroupPreviewFromSpawnGroup, expandedSections, setExpandedSections}) {
+function SpawnGroupDetailPanel({selectedSpawnGroupRow, openSyncSpawnGroupPreviewFromSpawnGroup, openDeleteSpawnGroupPreview, expandedSections, setExpandedSections}) {
     return (
         <>
             {!selectedSpawnGroupRow && (
@@ -37,8 +37,16 @@ function SpawnGroupDetailPanel({selectedSpawnGroupRow, openSyncSpawnGroupPreview
                             </div>
                         )}
                         {row.Status === 'removed' && (
-                            <div className="text-red-400 px-2 py-1">
-                                Exists on the sink only — no matching source spawngroup found at any of its locations.
+                            <div className="flex flex-col gap-1 px-2 py-1">
+                                <div className="text-red-400">
+                                    Exists on the sink only — no matching source spawngroup found at any of its locations.
+                                </div>
+                                <button
+                                    onClick={() => openDeleteSpawnGroupPreview(row)}
+                                    className="text-xs text-red-400 hover:text-red-300 underline text-left"
+                                    title="Delete this spawngroup and its spawn entries from the sink — blocked if any spawn2 row still references it">
+                                    Delete spawngroup from sink →
+                                </button>
                             </div>
                         )}
                         {/* Warning and fix live together, same as the Spawn Points detail panel's

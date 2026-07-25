@@ -46,6 +46,10 @@ export function CreateLootDrop(arg1) {
   return window['go']['main']['App']['CreateLootDrop'](arg1);
 }
 
+export function DeleteSpawnGroup(arg1) {
+  return window['go']['main']['App']['DeleteSpawnGroup'](arg1);
+}
+
 export function GetLootTable(arg1, arg2) {
   return window['go']['main']['App']['GetLootTable'](arg1, arg2);
 }

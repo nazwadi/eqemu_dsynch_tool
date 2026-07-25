@@ -21,10 +21,13 @@ export function spawnKey(row) {
 // only ever fixes the former (spawn entries are never auto-synced, see spawnEntriesOnly below).
 // A row that's "modified" purely because its spawn entries differ has nothing for Sync to do;
 // letting it stay checkbox-selectable would produce a no-op UPDATE that looks like progress
-// while the actual (unsyncable) difference is still sitting there unresolved.
+// while the actual (unsyncable) difference is still sitting there unresolved. "removed" rows
+// (added 2026-07-24) ARE selectable — syncing a spawn2 row that doesn't exist in source can only
+// mean deleting it from sink, mirroring the same fix NPC sync just got.
 export function spawnRowSelectable(row) {
     if (row.Status === 'new') return true
     if (row.Status === 'modified') return row.FieldsDiffer
+    if (row.Status === 'removed') return true
     return false
 }
 

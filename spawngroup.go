@@ -425,6 +425,97 @@ func (a *App) SyncSpawnGroup(options SyncSpawnGroupOptions) (SpawnGroupSyncResul
 	return result, nil
 }
 
+// DeleteSpawnGroupOptions identifies a sink spawngroup flagged as SpawnGroupDiffRow.Status ==
+// "removed" (no source spawngroup resolves to it) that the caller wants deleted.
+type DeleteSpawnGroupOptions struct {
+	SpawnGroupId int64 // sink spawngroup id to delete
+	DryRun       bool
+}
+
+// DeleteSpawnGroupResult previews/reports the delete. Usage is every (zone, version) currently
+// referencing SpawnGroupId — unlike RelocateSpawnGroup's SquatterUsage/ThisZoneCount split, there's
+// no exclusion for the caller's own zone here: a "removed" status only means no *source*
+// spawngroup resolved to this id, not that nothing on the sink still depends on it, and deleting a
+// spawngroup still referenced anywhere (including the caller's own zone) would orphan those spawn2
+// rows into SpawnGroupMissing. So ANY usage at all blocks the delete outright, dry run or not.
+type DeleteSpawnGroupResult struct {
+	DryRun         bool
+	SpawnGroupName string
+	Usage          []SpawnGroupZoneUsage // non-empty means blocked — nothing was changed
+	EntriesDeleted int                   // spawnentry rows deleted (or that would be) alongside it
+}
+
+// DeleteSpawnGroup removes a spawngroup and its spawnentry rows from the sink — the delete
+// counterpart to SyncSpawnGroup, for a spawngroup with no source counterpart at all rather than
+// one that's out of date. Blocked outright if any spawn2 row anywhere still references it, the
+// same "check usage before touching a shared row" discipline SyncSpawnGroup's OtherZoneUsage and
+// RelocateSpawnGroup's SquatterUsage checks already enforce — only a genuinely unreferenced
+// spawngroup is safe to remove.
+func (a *App) DeleteSpawnGroup(options DeleteSpawnGroupOptions) (DeleteSpawnGroupResult, error) {
+	result := DeleteSpawnGroupResult{DryRun: options.DryRun}
+
+	if a.sinkDB == nil {
+		return result, fmt.Errorf("sink database not connected")
+	}
+
+	fields, err := fetchSpawnGroupById(a.ctx, a.sinkDB, options.SpawnGroupId)
+	if err != nil {
+		return result, err
+	}
+	if fields == nil {
+		return result, fmt.Errorf("no spawngroup #%d exists on the sink to delete", options.SpawnGroupId)
+	}
+	result.SpawnGroupName = fmt.Sprintf("%v", fields["name"])
+
+	rows, err := a.sinkDB.QueryContext(a.ctx,
+		"SELECT zone, version, COUNT(*) FROM spawn2 WHERE spawngroupID = ? GROUP BY zone, version",
+		options.SpawnGroupId,
+	)
+	if err != nil {
+		return result, err
+	}
+	for rows.Next() {
+		var usage SpawnGroupZoneUsage
+		if err := rows.Scan(&usage.Zone, &usage.Version, &usage.Count); err != nil {
+			_ = rows.Close()
+			return result, err
+		}
+		result.Usage = append(result.Usage, usage)
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return result, err
+	}
+	_ = rows.Close()
+
+	var entryCount int
+	if err := a.sinkDB.QueryRowContext(a.ctx, "SELECT COUNT(*) FROM spawnentry WHERE spawngroupID = ?", options.SpawnGroupId).Scan(&entryCount); err != nil {
+		return result, err
+	}
+	result.EntriesDeleted = entryCount
+
+	if len(result.Usage) > 0 || options.DryRun {
+		return result, nil
+	}
+
+	tx, err := a.sinkDB.BeginTx(a.ctx, nil)
+	if err != nil {
+		return result, err
+	}
+	if _, err := tx.ExecContext(a.ctx, "DELETE FROM spawnentry WHERE spawngroupID = ?", options.SpawnGroupId); err != nil {
+		_ = tx.Rollback()
+		return result, fmt.Errorf("deleting spawn entries for spawngroup #%d: %w", options.SpawnGroupId, err)
+	}
+	if _, err := tx.ExecContext(a.ctx, "DELETE FROM spawngroup WHERE id = ?", options.SpawnGroupId); err != nil {
+		_ = tx.Rollback()
+		return result, fmt.Errorf("deleting spawngroup #%d: %w", options.SpawnGroupId, err)
+	}
+	if err := tx.Commit(); err != nil {
+		return result, err
+	}
+	return result, nil
+}
+
 // fetchSpawnGroupById fetches one spawngroup row's own fields (minus id), or nil if that id
 // doesn't exist — same shape as fetchLootTableHeader/fetchNPCFactionHeader.
 func fetchSpawnGroupById(ctx context.Context, db *sql.DB, id int64) (map[string]interface{}, error) {

@@ -73,7 +73,7 @@ function SpawnsTab({
                 <div className="flex items-center border-b border-gray-700 bg-gray-800">
                     <input type="checkbox"
                            className="accent-yellow-400 cursor-pointer w-3 h-3 mx-2"
-                           title="Only new spawn points and locations whose own spawn2 fields differ can be synced from this tab — removed spawn points, and rows that only differ in their spawn entries, aren't"
+                           title="New spawn points, locations whose own spawn2 fields differ, and removed spawn points (deleted from sink) can be synced from this tab — rows that only differ in their spawn entries can't"
                            checked={selectableSpawnRows.length > 0 && selectableSpawnRows.every(row => selectedSpawnKeys.has(spawnKey(row)))}
                            onChange={(e) => {
                                if (e.target.checked) {
@@ -141,7 +141,7 @@ function SpawnsTab({
                                                checked={selectedSpawnKeys.has(rowKey)}
                                                disabled={!spawnRowSelectable(row)}
                                                title={
-                                                   row.Status === 'removed' ? "Removed spawn points can't be synced from this tab" :
+                                                   row.Status === 'removed' ? "Not in source — selecting and syncing this will delete it from sink" :
                                                        entriesOnly ? "Only this location's spawn entries differ — Sync never touches those (see Spawn Entries in the detail panel), so there's nothing here for it to change" :
                                                            undefined
                                                }
@@ -234,6 +234,11 @@ function SpawnsTab({
                                 {spawnSyncOutcome.Created ?? 0} spawn point{spawnSyncOutcome.Created === 1 ? '' : 's'} created,
                                 {' '}{spawnSyncOutcome.Updated ?? 0} updated
                             </div>
+                            {spawnSyncOutcome.Deleted > 0 && (
+                                <div className="text-sm text-red-400">
+                                    {spawnSyncOutcome.Deleted} spawn point{spawnSyncOutcome.Deleted === 1 ? '' : 's'} deleted (not in source)
+                                </div>
+                            )}
                             {spawnSyncOutcome.Skipped?.length > 0 && (
                                 <div className="flex flex-col gap-1">
                                     <div className="text-xs text-gray-400 uppercase tracking-wider">Skipped</div>
@@ -269,6 +274,7 @@ function SpawnsTab({
                                     {selectedSpawnKeys.size} of {spawnDiffRows.length} spawn points selected
                                     {spawnSyncPreview.Created > 0 && ` · ${spawnSyncPreview.Created} will be created`}
                                     {spawnSyncPreview.Updated > 0 && ` · ${spawnSyncPreview.Updated} will be updated`}
+                                    {spawnSyncPreview.Deleted > 0 && ` · ${spawnSyncPreview.Deleted} will be deleted`}
                                     {spawnSyncPreview.Skipped?.length > 0 && ` · ${spawnSyncPreview.Skipped.length} skipped`}
                                 </div>
                                 {spawnDiffRows
@@ -288,6 +294,14 @@ function SpawnsTab({
                                                         {spawnRowLabel(point)}
                                                     </span>
                                                     <span className="text-amber-400">{skipped.Reason}</span>
+                                                </>
+                                            ) : row.Status === 'removed' ? (
+                                                <>
+                                                    <span className="text-red-400">🗑</span>
+                                                    <span className="text-gray-300">
+                                                        {spawnRowLabel(point)}
+                                                    </span>
+                                                    <span className="text-red-400">not in source — will be deleted from sink</span>
                                                 </>
                                             ) : (
                                                 <>

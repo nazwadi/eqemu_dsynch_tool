@@ -15,6 +15,7 @@ import SpellsComparison from './components/SpellsComparison';
 import MerchantComparison from './components/MerchantComparison';
 import ConfirmSpawnGroupSyncModal from './components/ConfirmSpawnGroupSyncModal';
 import ConfirmRelocateSpawnGroupModal from './components/ConfirmRelocateSpawnGroupModal';
+import ConfirmDeleteSpawnGroupModal from './components/ConfirmDeleteSpawnGroupModal';
 import ConfirmGridSyncModal from './components/ConfirmGridSyncModal';
 import ConfirmAlignIdModal from './components/ConfirmAlignIdModal';
 import ConfirmCreateLootDropModal from './components/ConfirmCreateLootDropModal';
@@ -38,6 +39,7 @@ import {useSpawnSync} from './hooks/useSpawnSync';
 import {useSpawnGroupsTab} from './hooks/useSpawnGroupsTab';
 import {useSpawnGroupSync} from './hooks/useSpawnGroupSync';
 import {useRelocateSpawnGroup} from './hooks/useRelocateSpawnGroup';
+import {useDeleteSpawnGroup} from './hooks/useDeleteSpawnGroup';
 import {useGridSync} from './hooks/useGridSync';
 import {useLoot} from './hooks/useLoot';
 import {useZoneMap} from './hooks/useZoneMap';
@@ -95,6 +97,12 @@ function App() {
         onRelocated: () => {
             spawnSync.setSelectedSpawnRow(null)
             spawnSync.loadDiffs()
+        }
+    })
+    const deleteSpawnGroup = useDeleteSpawnGroup({
+        onDeleted: () => {
+            spawnGroupsTab.setSelectedSpawnGroupRow(null)
+            spawnGroupsTab.loadDiffs()
         }
     })
     const gridSync = useGridSync(zoneIdentity)
@@ -381,6 +389,12 @@ function App() {
                 showRelocateConfirm={relocateSpawnGroup.showRelocateConfirm} setShowRelocateConfirm={relocateSpawnGroup.setShowRelocateConfirm}
                 relocateError={relocateSpawnGroup.relocateError} relocatePreview={relocateSpawnGroup.relocatePreview}
                 relocating={relocateSpawnGroup.relocating} executeRelocate={relocateSpawnGroup.executeRelocate}
+                dbSinkName={connections.dbSinkName}
+            />
+            <ConfirmDeleteSpawnGroupModal
+                showDeleteConfirm={deleteSpawnGroup.showDeleteConfirm} setShowDeleteConfirm={deleteSpawnGroup.setShowDeleteConfirm}
+                deleteError={deleteSpawnGroup.deleteError} deletePreview={deleteSpawnGroup.deletePreview}
+                deleting={deleteSpawnGroup.deleting} executeDelete={deleteSpawnGroup.executeDelete}
                 dbSinkName={connections.dbSinkName}
             />
             <ConfirmGridSyncModal
@@ -751,6 +765,7 @@ function App() {
                                 selectedWaypointNumber={gridSync.selectedWaypointNumber} onSelectWaypoint={gridSync.setSelectedWaypointNumber}
                                 selectedSpawnGroupRow={spawnGroupsTab.selectedSpawnGroupRow}
                                 openSyncSpawnGroupPreviewFromSpawnGroup={openSyncSpawnGroupPreviewFromSpawnGroup}
+                                openDeleteSpawnGroupPreview={deleteSpawnGroup.openDeletePreview}
                                 openReferenceComparison={referenceDrawer.openReferenceComparison}
                                 onInspectLoot={jumpToLoot}
                                 expandedSections={expandedSections} setExpandedSections={setExpandedSections}

@@ -63,6 +63,12 @@ type SpawnSyncOptions struct {
 	DryRun         bool
 	SpawnIds       []int64      // sink spawn2.id — "modified" rows being synced (UPDATE spawn2's own columns only, spawngroupID untouched)
 	NewSpawnCoords [][3]float64 // source (x,y,z) — "new" rows being synced (plain INSERT of spawn2's own columns, spawngroupID copied verbatim from source — see SyncSpawnPoints)
+	// DeleteSpawnIds (added 2026-07-24) — sink spawn2.id for "removed" rows (no source counterpart)
+	// being deleted. Syncing a removed spawn2 row can only mean one thing: it doesn't exist in
+	// source, so bringing sink in line means removing it — same reasoning as NPC Sync()'s delete
+	// path. Unlike deleting an NPC, nothing else references spawn2.id, so this is a plain
+	// single-table delete with no orphaning/cascade concern to worry about.
+	DeleteSpawnIds []int64
 }
 
 // SkippedSpawn mirrors SkippedNPC's "declined, not failed" shape for the spawn-points tab —
@@ -76,6 +82,11 @@ type SpawnSyncResult struct {
 	DryRun  bool
 	Created int // new spawn points created, or would be on dry run
 	Updated int // existing spawn points updated, or would be on dry run
+	// Deleted (added 2026-07-24) — spawn2 rows actually removed because they don't exist in
+	// source. A plain count, unlike NPC Sync()'s structured Deleted []DeletedNPC — the frontend
+	// already knows which selected rows are "removed" from its own loaded spawnDiffRows, so there's
+	// no need for the backend to hand back a lookup structure just to render the preview/outcome.
+	Deleted int
 	Skipped []SkippedSpawn
 	Errors  []string
 }
@@ -574,6 +585,18 @@ func (a *App) SyncSpawnPoints(options SpawnSyncOptions) (SpawnSyncResult, error)
 			return result, fmt.Errorf("spawn point at (%.2f, %.2f, %.2f): %w", coord[0], coord[1], coord[2], err)
 		}
 		result.Created++
+	}
+
+	for _, sinkId := range options.DeleteSpawnIds {
+		if options.DryRun {
+			result.Deleted++
+			continue
+		}
+		if _, err := tx.ExecContext(a.ctx, "DELETE FROM spawn2 WHERE id = ?", sinkId); err != nil {
+			_ = tx.Rollback()
+			return result, fmt.Errorf("deleting spawn2 #%d: %w", sinkId, err)
+		}
+		result.Deleted++
 	}
 
 	if !options.DryRun {

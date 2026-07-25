@@ -30,6 +30,11 @@ function ConfirmSpawnSyncModal({showSpawnSyncConfirm, setShowSpawnSyncConfirm, d
                     {spawnSyncPreview?.Updated ?? 0} spawn point{spawnSyncPreview?.Updated === 1 ? '' : 's'} will be updated
                     {spawnSyncPreview?.Skipped?.length > 0 && ` (${spawnSyncPreview.Skipped.length} skipped, see preview)`}
                 </div>
+                {spawnSyncPreview?.Deleted > 0 && (
+                    <div className="text-sm text-red-400">
+                        ⚠ {spawnSyncPreview.Deleted} spawn point{spawnSyncPreview.Deleted === 1 ? '' : 's'} will be permanently DELETED from sink — not in source, so syncing them means removing them.
+                    </div>
+                )}
                 <div className="text-sm text-cyan-400">
                     A spawn point's spawngroup (its spawn entries) is never changed by this action — differences are flagged, not synced.
                 </div>
