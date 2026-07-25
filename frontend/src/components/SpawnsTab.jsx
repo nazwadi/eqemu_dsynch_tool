@@ -7,6 +7,7 @@ import {
     spawnRowMatchesSearch,
     spawnRowSelectable
 } from '../lib/spawnHelpers';
+import {useListArrowKeyNav} from '../hooks/useListArrowKeyNav';
 
 // Spawn Points tab body — mirrors NpcsTab's shape (diff list sliding to a sync preview) but with
 // its own sort keys (Status/Spawngroup/Shared), a spawngroup/NPC search filter, and the
@@ -20,6 +21,32 @@ function SpawnsTab({
     showSpawnSyncPreview, setShowSpawnSyncPreview, spawnSyncPreview, spawnSyncing, spawnSyncOutcome,
     setShowSpawnSyncConfirm
 }) {
+    // Same filter/sort chain the list below renders — see NpcsTab's matching comment for why this
+    // was pulled out of the inline .map() call.
+    const visibleRows = spawnDiffRows
+        .filter(row => spawnDiffFilter === 'all' || row.Status !== 'match')
+        .filter(row => spawnRowMatchesSearch(row, spawnSearchFilter))
+        .sort((a, b) => {
+            let result
+            if (spawnSortBy === 'spawngroup') {
+                const aName = (a.Source ?? a.Sink)?.SpawnGroupFields?.name ?? ''
+                const bName = (b.Source ?? b.Sink)?.SpawnGroupFields?.name ?? ''
+                result = aName.localeCompare(bName)
+            } else if (spawnSortBy === 'shared') {
+                const aShared = (a.Source ?? a.Sink)?.LocationSharedCount ?? 0
+                const bShared = (b.Source ?? b.Sink)?.LocationSharedCount ?? 0
+                result = aShared - bShared
+            } else {
+                result = statusOrder[a.Status] - statusOrder[b.Status]
+            }
+            return spawnSortDir === 'asc' ? result : result * -1
+        })
+    const rowNav = useListArrowKeyNav({
+        rows: visibleRows,
+        getKey: spawnKey,
+        selectedKey: selectedSpawnRow ? spawnKey(selectedSpawnRow) : null,
+        onSelect: setSelectedSpawnRow
+    })
     return (
         <div className="flex-1 relative overflow-hidden">
 
@@ -101,32 +128,17 @@ function SpawnsTab({
                         No spawn points found in this zone
                     </div>
                 ) : (
-                    <div className="flex flex-1 min-h-0 overflow-hidden flex-col overflow-y-auto">
-                        {spawnDiffRows
-                            .filter(row => spawnDiffFilter === 'all' || row.Status !== 'match')
-                            .filter(row => spawnRowMatchesSearch(row, spawnSearchFilter))
-                            .sort((a, b) => {
-                                let result
-                                if (spawnSortBy === 'spawngroup') {
-                                    const aName = (a.Source ?? a.Sink)?.SpawnGroupFields?.name ?? ''
-                                    const bName = (b.Source ?? b.Sink)?.SpawnGroupFields?.name ?? ''
-                                    result = aName.localeCompare(bName)
-                                } else if (spawnSortBy === 'shared') {
-                                    const aShared = (a.Source ?? a.Sink)?.LocationSharedCount ?? 0
-                                    const bShared = (b.Source ?? b.Sink)?.LocationSharedCount ?? 0
-                                    result = aShared - bShared
-                                } else {
-                                    result = statusOrder[a.Status] - statusOrder[b.Status]
-                                }
-                                return spawnSortDir === 'asc' ? result : result * -1
-                            })
+                    <div ref={rowNav.containerRef} tabIndex={-1} onKeyDown={rowNav.onKeyDown}
+                         onClick={e => e.currentTarget.focus()}
+                         className="flex flex-1 min-h-0 overflow-hidden flex-col overflow-y-auto outline-none">
+                        {visibleRows
                             .map((row) => {
                                 const rowKey = spawnKey(row)
                                 const point = row.Source ?? row.Sink
                                 const sharedCount = point?.LocationSharedCount ?? 0
                                 const entriesOnly = spawnEntriesOnly(row)
                                 return (
-                                    <div key={rowKey}
+                                    <div key={rowKey} data-row-key={rowKey}
                                          className={`flex items-center border-b border-gray-800 cursor-pointer ${
                                              selectedSpawnRow && spawnKey(selectedSpawnRow) === rowKey ? 'bg-blue-900/40 border-l-2 border-l-yellow-400' :
                                                  row.Status === 'new' ? 'bg-green-950 border-l-2 border-l-transparent' :

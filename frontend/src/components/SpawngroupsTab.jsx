@@ -1,4 +1,5 @@
 import {spawnGroupRowId, spawnGroupRowLabel} from '../lib/spawnGroupHelpers';
+import {useListArrowKeyNav} from '../hooks/useListArrowKeyNav';
 
 // Spawngroups tab body: a diff list only, no sync preview/confirm slide-over like the other tabs —
 // syncing a spawngroup is a deliberate, single-row action (mirroring how the Spawn Points tab's
@@ -12,6 +13,16 @@ function SpawngroupsTab({
     selectedSpawnGroupRow, setSelectedSpawnGroupRow,
     selectedZoneShortName
 }) {
+    // Same filter chain the list below renders — see NpcsTab's matching comment for why this was
+    // pulled out of the inline .map() call.
+    const visibleRows = spawnGroupDiffRows
+        .filter(row => spawnGroupDiffFilter === 'all' || row.Status !== 'match')
+    const rowNav = useListArrowKeyNav({
+        rows: visibleRows,
+        getKey: spawnGroupRowId,
+        selectedKey: selectedSpawnGroupRow ? spawnGroupRowId(selectedSpawnGroupRow) : null,
+        onSelect: setSelectedSpawnGroupRow
+    })
     return (
         <div className="flex-1 flex flex-col overflow-hidden">
             <div className="flex gap-2 px-3 py-2 border-b border-gray-700">
@@ -46,13 +57,14 @@ function SpawngroupsTab({
                     No spawngroups found in this zone
                 </div>
             ) : (
-                <div className="flex flex-1 min-h-0 overflow-hidden flex-col overflow-y-auto">
-                    {spawnGroupDiffRows
-                        .filter(row => spawnGroupDiffFilter === 'all' || row.Status !== 'match')
+                <div ref={rowNav.containerRef} tabIndex={-1} onKeyDown={rowNav.onKeyDown}
+                     onClick={e => e.currentTarget.focus()}
+                     className="flex flex-1 min-h-0 overflow-hidden flex-col overflow-y-auto outline-none">
+                    {visibleRows
                         .map((row) => {
                             const id = spawnGroupRowId(row)
                             return (
-                                <div key={id}
+                                <div key={id} data-row-key={id}
                                      className={`flex items-center border-b border-gray-800 cursor-pointer ${
                                          selectedSpawnGroupRow && spawnGroupRowId(selectedSpawnGroupRow) === id ? 'bg-blue-900/40 border-l-2 border-l-yellow-400' :
                                              row.Status === 'new' ? 'bg-green-950 border-l-2 border-l-transparent' :

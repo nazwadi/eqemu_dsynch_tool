@@ -1,5 +1,10 @@
 import {npcFieldsOnlyExcluded, npcRowHasMissingReferences, npcRowMatchesSearch, npcRowSelectable} from '../lib/npcHelpers';
 import {statusOrder} from '../lib/constants';
+import {useListArrowKeyNav} from '../hooks/useListArrowKeyNav';
+
+function npcRowKey(row) {
+    return `${row.Source?.Id ?? ''}-${row.Sink?.Id ?? ''}`
+}
 
 // NPCs tab body: the diff list (Show All/Differences/sort, checkbox selection) sliding to a sync
 // preview panel, mirrored by SpawnsTab for the Spawn Points tab. Kept as two sibling components
@@ -13,6 +18,34 @@ function NpcsTab({
     dbSourceName, dbSinkName, selectedZoneShortName,
     showSyncPreview, setShowSyncPreview, syncPreview, syncing, syncOutcome, setShowSyncConfirm
 }) {
+    // Same filter/sort chain the list below renders — extracted here (rather than left inline in
+    // the .map() call) so arrow-key nav moves through the exact same visible order, not some other
+    // one. Pure refactor, no behavior change to the rendered list itself.
+    const visibleRows = diffRows
+        .filter(row => diffFilter === 'all' || row.Status !== 'match')
+        .filter(row => npcRowMatchesSearch(row, npcSearchFilter))
+        .sort((a, b) => {
+            let result
+            if (sortBy === 'status') {
+                result = statusOrder[a.Status] - statusOrder[b.Status]
+            } else if (sortBy === 'name') {
+                const aName = a.Source?.Fields?.name ?? a.Sink?.Fields?.name ?? ''
+                const bName = b.Source?.Fields?.name ?? b.Sink?.Fields?.name ?? ''
+                result = aName.localeCompare(bName)
+            } else if (sortBy === 'id') {
+                result = (a.Source?.Id ?? a.Sink?.Id) - (b.Source?.Id ?? b.Sink?.Id)
+            }
+            return sortDir === 'asc' ? result : result * -1
+        })
+    const rowNav = useListArrowKeyNav({
+        rows: visibleRows,
+        getKey: npcRowKey,
+        selectedKey: selectedRowKey,
+        onSelect: row => {
+            setSelectedNpc(row)
+            setSelectedRowKey(npcRowKey(row))
+        }
+    })
     return (
         <div className="flex-1 relative overflow-hidden">
 
@@ -90,31 +123,18 @@ function NpcsTab({
                         No NPCs found in this zone
                     </div>
                 ) : (
-                    <div className="flex flex-1 min-h-0 overflow-hidden flex-col overflow-y-auto">
-                        {diffRows
-                            .filter(row => diffFilter === 'all' || row.Status !== 'match')
-                            .filter(row => npcRowMatchesSearch(row, npcSearchFilter))
-                            .sort((a, b) => {
-                                let result
-                                if (sortBy === 'status') {
-                                    result = statusOrder[a.Status] - statusOrder[b.Status]
-                                } else if (sortBy === 'name') {
-                                    const aName = a.Source?.Fields?.name ?? a.Sink?.Fields?.name ?? ''
-                                    const bName = b.Source?.Fields?.name ?? b.Sink?.Fields?.name ?? ''
-                                    result = aName.localeCompare(bName)
-                                } else if (sortBy === 'id') {
-                                    result = (a.Source?.Id ?? a.Sink?.Id) - (b.Source?.Id ?? b.Sink?.Id)
-                                }
-                                return sortDir === 'asc' ? result : result * -1
-                            })
+                    <div ref={rowNav.containerRef} tabIndex={-1} onKeyDown={rowNav.onKeyDown}
+                         onClick={e => e.currentTarget.focus()}
+                         className="flex flex-1 min-h-0 overflow-hidden flex-col overflow-y-auto outline-none">
+                        {visibleRows
                             .map((row) => {
-                                const rowKey = `${row.Source?.Id ?? ''}-${row.Sink?.Id ?? ''}`
+                                const rowKey = npcRowKey(row)
                                 const npcId = row.Source?.Id ?? row.Sink?.Id
                                 const questSpawned = (row.Source ?? row.Sink)?.HasSpawnPoint === false
                                 const missingReferences = npcRowHasMissingReferences(row)
                                 const fieldsOnlyExcluded = npcFieldsOnlyExcluded(row)
                                 return (
-                                    <div key={rowKey}
+                                    <div key={rowKey} data-row-key={rowKey}
                                          className={`flex items-center border-b border-gray-800 cursor-pointer ${
                                              selectedRowKey === rowKey ? 'bg-blue-900/40 border-l-2 border-l-yellow-400' :
                                                  row.Status === 'new' ? 'bg-green-950 border-l-2 border-l-transparent' :

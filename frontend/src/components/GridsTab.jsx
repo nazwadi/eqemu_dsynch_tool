@@ -1,5 +1,6 @@
 import {gridId, gridRowSelectable, gridWaypointSummary} from '../lib/gridHelpers';
 import ZoneMapView from './ZoneMapView';
+import {useListArrowKeyNav} from '../hooks/useListArrowKeyNav';
 
 // Grids tab body: diff list (Show All/Differences Only, checkbox selection) sliding to a sync
 // preview panel — same shape as NpcsTab/SpawnsTab. No sort/search controls here: grids per zone
@@ -24,6 +25,18 @@ function GridsTab({
     zoneMap, zoneMapLoading
 }) {
     const selectableGridRows = gridDiffRows.filter(gridRowSelectable)
+    // Same filter/sort chain the List view renders below — see NpcsTab's matching comment for why
+    // this was pulled out of the inline .map() call. Scoped to List view only — the Map view's own
+    // compact grid picker is a smaller, secondary list, out of scope for this pass.
+    const visibleListRows = gridDiffRows
+        .filter(row => gridDiffFilter === 'all' || row.Status !== 'match')
+        .sort((a, b) => gridId(a) - gridId(b))
+    const listRowNav = useListArrowKeyNav({
+        rows: visibleListRows,
+        getKey: gridId,
+        selectedKey: selectedGridRow ? gridId(selectedGridRow) : null,
+        onSelect: setSelectedGridRow
+    })
     return (
         <div className="flex-1 relative overflow-hidden">
 
@@ -123,14 +136,14 @@ function GridsTab({
                         No grids found in this zone
                     </div>
                 ) : (
-                    <div className="flex flex-1 min-h-0 overflow-hidden flex-col overflow-y-auto">
-                        {gridDiffRows
-                            .filter(row => gridDiffFilter === 'all' || row.Status !== 'match')
-                            .sort((a, b) => gridId(a) - gridId(b))
+                    <div ref={listRowNav.containerRef} tabIndex={-1} onKeyDown={listRowNav.onKeyDown}
+                         onClick={e => e.currentTarget.focus()}
+                         className="flex flex-1 min-h-0 overflow-hidden flex-col overflow-y-auto outline-none">
+                        {visibleListRows
                             .map((row) => {
                                 const id = gridId(row)
                                 return (
-                                    <div key={id}
+                                    <div key={id} data-row-key={id}
                                          className={`flex items-center border-b border-gray-800 cursor-pointer ${
                                              selectedGridRow && gridId(selectedGridRow) === id ? 'bg-blue-900/40 border-l-2 border-l-yellow-400' :
                                                  row.Status === 'new' ? 'bg-green-950 border-l-2 border-l-transparent' :
