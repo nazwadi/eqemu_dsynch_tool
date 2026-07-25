@@ -182,6 +182,17 @@ func openSSHTunnel(cfg SshConfig, remoteHost, remotePort string) (*sshTunnel, st
 }
 
 func (a *App) Connect(c *ConnectionConfig, isSource bool) error {
+	// Held for the whole call, not just the final swap — see App.sourceMu/sinkMu's own comment.
+	// A second Connect() for this same side simply waits for the first to fully finish (tunnel
+	// dial, DB ping, and all) rather than interleaving with it; source and sink still connect
+	// fully in parallel, since each side has its own mutex.
+	mu := &a.sinkMu
+	if isSource {
+		mu = &a.sourceMu
+	}
+	mu.Lock()
+	defer mu.Unlock()
+
 	host, port := c.Host, c.Port
 
 	var tunnel *sshTunnel

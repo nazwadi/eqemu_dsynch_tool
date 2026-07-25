@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 )
 
 // App struct
@@ -16,6 +17,20 @@ type App struct {
 	sinkDB       *sql.DB
 	sourceTunnel *sshTunnel // non-nil only when the source connection is routed through SSH
 	sinkTunnel   *sshTunnel
+	// sourceMu/sinkMu (added 2026-07-25) guard sourceDB/sourceTunnel and sinkDB/sinkTunnel
+	// respectively against two Connect() calls racing on the SAME side — a real, if narrow, bug:
+	// without this, two concurrent Connect() calls for one side could both read the old
+	// db/tunnel as non-nil-to-close, then race to assign the new ones, silently leaking
+	// whichever db/tunnel lost the write race (never Close()'d, never reachable again). Two
+	// separate mutexes rather than one shared lock so a source reconnect and a sink reconnect —
+	// genuinely independent — never block on each other; Connect() only ever takes one of the
+	// two per call, so there's no lock-ordering deadlock risk between them. Deliberately scoped
+	// to this one race — every OTHER read site (`if a.sourceDB == nil` guards throughout the
+	// rest of the app) stays unguarded, same accepted-gap boundary the original comment here
+	// always drew: fixing those would mean auditing every read site across the codebase, not
+	// just the assignment itself.
+	sourceMu sync.Mutex
+	sinkMu   sync.Mutex
 }
 
 type Config struct {
@@ -147,14 +162,21 @@ func (a *App) GetZones() ([]Zone, error) {
 }
 
 func (a *App) shutdown(ctx context.Context) {
+	// Same mutexes Connect() holds, so shutdown can't race a Connect() call still in flight for
+	// either side — see App.sourceMu/sinkMu's own comment.
+	a.sourceMu.Lock()
+	defer a.sourceMu.Unlock()
 	if a.sourceDB != nil {
 		_ = a.sourceDB.Close()
 	}
-	if a.sinkDB != nil {
-		_ = a.sinkDB.Close()
-	}
 	if a.sourceTunnel != nil {
 		_ = a.sourceTunnel.Close()
+	}
+
+	a.sinkMu.Lock()
+	defer a.sinkMu.Unlock()
+	if a.sinkDB != nil {
+		_ = a.sinkDB.Close()
 	}
 	if a.sinkTunnel != nil {
 		_ = a.sinkTunnel.Close()
