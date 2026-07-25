@@ -251,6 +251,36 @@ func updateSpawnGroupFields(ctx context.Context, tx *sql.Tx, sinkGroupId int64, 
 	return err
 }
 
+// insertSpawnGroupWithNameFallback inserts a spawngroup row, retrying once with a disambiguated
+// name if the verbatim insert collides on spawngroup.name's UNIQUE constraint. spawngroup.name is
+// a local "Nth group created for this zone" label, not shared content identity (same trap as
+// spawngroup.id/spawn2.id) — two independently-evolved databases can easily each have their own,
+// unrelated group under the same auto-generated name (see EQEmu Schema Notes), so a collision here
+// isn't a real conflict worth failing loudly over. disambiguatorId is appended to the name on
+// retry ("<name>_grp<id>"), the caller's choice of which id makes the retried name both unique and
+// traceable back to what it came from.
+//
+// Originally only implemented inline in SyncSpawnGroup's create path — RelocateSpawnGroup's two
+// spawngroup inserts (evicting a squatter, then reclaiming the freed id with source's content)
+// went in without this fallback, a real gap: relocate is specifically the flow used when a "new"
+// source spawngroup's raw id collides with unrelated sink content, and in practice the squatter
+// and/or source's own name very often ALSO collides with some other unrelated sink spawngroup,
+// causing relocate to fail outright on exactly the case it exists to handle. Extracted here so all
+// three call sites share one tested fallback instead of three independent (and, as it turned out,
+// inconsistently applied) copies.
+func insertSpawnGroupWithNameFallback(ctx context.Context, tx *sql.Tx, fields map[string]interface{}, sinkColumns map[string]bool, overrides map[string]interface{}, disambiguatorId int64) (int64, error) {
+	id, err := insertRow(ctx, tx, "spawngroup", fields, sinkColumns, overrides)
+	if err != nil && isDuplicateEntryError(err) {
+		retryOverrides := make(map[string]interface{}, len(overrides)+1)
+		for k, v := range overrides {
+			retryOverrides[k] = v
+		}
+		retryOverrides["name"] = fmt.Sprintf("%v_grp%d", fields["name"], disambiguatorId)
+		id, err = insertRow(ctx, tx, "spawngroup", fields, sinkColumns, retryOverrides)
+	}
+	return id, err
+}
+
 // SyncSpawnGroup brings a spawngroup fully in line with source: both its own fields (spawn_limit,
 // wander box, timing, etc.) and its full spawnentry roster, together in one transaction. This is a
 // generalization of what was originally an entries-only sync — syncing a spawngroup's fields
@@ -373,16 +403,9 @@ func (a *App) SyncSpawnGroup(options SyncSpawnGroupOptions) (SpawnGroupSyncResul
 
 	targetGroupId := sinkPoint.SpawnGroupId
 	if result.Created {
-		// spawngroup.name is UNIQUE on both databases, but source's own name is never guaranteed
-		// to be free in the sink — it's a local "Nth group created for this zone" label, not
-		// shared content identity (same trap as spawngroup.id/spawn2.id). Try it verbatim first;
-		// only disambiguate if sink already has an unrelated group with that same name.
-		newGroupId, err := insertRow(a.ctx, tx, "spawngroup", sourcePoint.SpawnGroupFields, sinkColumns, nil)
-		if err != nil && isDuplicateEntryError(err) {
-			newGroupId, err = insertRow(a.ctx, tx, "spawngroup", sourcePoint.SpawnGroupFields, sinkColumns, map[string]interface{}{
-				"name": fmt.Sprintf("%v_grp%d", sourcePoint.SpawnGroupFields["name"], sourcePoint.SpawnGroupId),
-			})
-		}
+		// Try source's own name verbatim first; insertSpawnGroupWithNameFallback disambiguates
+		// only if sink already has an unrelated group under that same name — see its own comment.
+		newGroupId, err := insertSpawnGroupWithNameFallback(a.ctx, tx, sourcePoint.SpawnGroupFields, sinkColumns, nil, sourcePoint.SpawnGroupId)
 		if err != nil {
 			_ = tx.Rollback()
 			return result, fmt.Errorf("creating spawngroup: %w", err)
@@ -641,10 +664,15 @@ func (a *App) RelocateSpawnGroup(options RelocateSpawnGroupOptions) (RelocateSpa
 	}
 	_ = entryRows.Close()
 
-	// 1. Move the squatter to a fresh id, name included verbatim (unlike updateSpawnGroupFields,
-	// which excludes name when updating an already-matched group in place — here we're relocating
-	// the exact same content, not reconciling it against anything, so its name should travel with it).
-	newId, err := insertRow(a.ctx, tx, "spawngroup", squatterFields, sinkColumns, nil)
+	// 1. Move the squatter to a fresh id, name included verbatim where possible (unlike
+	// updateSpawnGroupFields, which excludes name when updating an already-matched group in place —
+	// here we're relocating the exact same content, not reconciling it against anything, so its
+	// name should travel with it). insertSpawnGroupWithNameFallback disambiguates only if the
+	// squatter's own name happens to collide with some OTHER unrelated sink spawngroup — a real,
+	// previously-unhandled gap here specifically, since relocate's whole purpose is dealing with a
+	// pre-existing collision, and it's common for a squatter's name to ALSO collide independently
+	// of its id.
+	newId, err := insertSpawnGroupWithNameFallback(a.ctx, tx, squatterFields, sinkColumns, nil, options.SpawnGroupId)
 	if err != nil {
 		_ = tx.Rollback()
 		return result, fmt.Errorf("relocating spawngroup #%d: %w", options.SpawnGroupId, err)
@@ -682,9 +710,12 @@ func (a *App) RelocateSpawnGroup(options RelocateSpawnGroupOptions) (RelocateSpa
 
 	// 4. Reclaim the now-free id with source's real content — an explicit id value on an
 	// AUTO_INCREMENT column, accepted by MySQL as long as it's unused, which it now is.
-	if _, err := insertRow(a.ctx, tx, "spawngroup", options.SourceFields, sinkColumns, map[string]interface{}{
+	// insertSpawnGroupWithNameFallback disambiguates if source's own name happens to collide with
+	// some OTHER unrelated sink spawngroup — independent of the id collision this whole action is
+	// already resolving, and just as commonly hit in practice.
+	if _, err := insertSpawnGroupWithNameFallback(a.ctx, tx, options.SourceFields, sinkColumns, map[string]interface{}{
 		"id": options.SpawnGroupId,
-	}); err != nil {
+	}, options.SpawnGroupId); err != nil {
 		_ = tx.Rollback()
 		return result, fmt.Errorf("reclaiming spawngroup #%d: %w", options.SpawnGroupId, err)
 	}
