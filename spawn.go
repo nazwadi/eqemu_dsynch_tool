@@ -45,14 +45,17 @@ type SpawnDiffRow struct {
 	// they'd handled it when the real (unsyncable) difference was still sitting there.
 
 	// SpawnGroupCollisionRisk is only ever computed for Status == "new" rows: true if Source's raw
-	// SpawnGroupId already exists as a real spawngroup row on the SINK, before this spawn2 row has
-	// ever been synced there. Categorically different from SpawnPoint.SpawnGroupMissing (a
-	// same-database check — does this side's own referenced id exist in this side's own data):
-	// this is a cross-database check, and a sink spawngroup already sitting at source's exact
-	// auto-increment number, for a location the sink never had before, is essentially never a
-	// legitimate coincidence — flagged as a likely collision with unrelated content, not treated
-	// as "the group's already there, nothing to do." Warning only, never blocks syncing the spawn2
-	// row itself — see annotateSpawnGroupCollisionRisk.
+	// SpawnGroupId already exists as a spawngroup row on the SINK whose CONTENT doesn't actually
+	// match source's spawngroup at that same id. Categorically different from
+	// SpawnPoint.SpawnGroupMissing (a same-database check — does this side's own referenced id
+	// exist in this side's own data): this is a cross-database check. Content-aware, not just
+	// existence-based (fixed 2026-07-24, see CLAUDE.md) — a plain "does a row exist there" check
+	// meant this flag could never clear once a real collision got fixed via RelocateSpawnGroup: the
+	// id legitimately exists on sink after that (with the correct content), so any OTHER "new" row
+	// still sharing the same spawngroupID (the common case — a spawngroup is usually a pool shared
+	// across many locations) kept showing a collision warning forever, with no way to tell "already
+	// fixed" apart from "genuinely someone else's content." Warning only, never blocks syncing the
+	// spawn2 row itself — see annotateSpawnGroupCollisionRisk.
 	SpawnGroupCollisionRisk bool
 }
 
@@ -188,10 +191,11 @@ func (a *App) CompareSpawns(shortName string, version int8, zoneIdNumber int64) 
 }
 
 // annotateSpawnGroupCollisionRisk flags SpawnDiffRow.SpawnGroupCollisionRisk for every "new" row
-// whose source spawngroupID already exists as a real spawngroup row on the sink — see the field's
-// own comment for why that's treated as a likely collision, not a coincidence. Batched into one
-// existence check regardless of how many "new" rows there are, same shape as existingIds' other
-// callers.
+// whose source spawngroupID exists as a spawngroup row on the sink with DIFFERENT content — see
+// the field's own comment for why a plain existence check isn't enough, and why comparing content
+// is what lets this warning actually clear once RelocateSpawnGroup has fixed it. Batched into one
+// existence check plus (only for ids that exist) one content fetch, regardless of how many "new"
+// rows there are — same batching discipline as existingIds' other callers.
 func annotateSpawnGroupCollisionRisk(ctx context.Context, sinkDB *sql.DB, diff []SpawnDiffRow) error {
 	idSet := make(map[int64]bool)
 	for _, row := range diff {
@@ -203,12 +207,95 @@ func annotateSpawnGroupCollisionRisk(ctx context.Context, sinkDB *sql.DB, diff [
 	if err != nil {
 		return err
 	}
+	sinkFieldsById, sinkEntriesById, err := fetchSpawnGroupContentByIds(ctx, sinkDB, existing)
+	if err != nil {
+		return err
+	}
 	for i := range diff {
-		if diff[i].Status == "new" && diff[i].Source != nil {
-			diff[i].SpawnGroupCollisionRisk = existing[diff[i].Source.SpawnGroupId]
+		if diff[i].Status != "new" || diff[i].Source == nil {
+			continue
 		}
+		gid := diff[i].Source.SpawnGroupId
+		if !existing[gid] {
+			continue // dangling on the sink too — not a collision, just missing (see SpawnGroupMissing)
+		}
+		if diff[i].Source.SpawnGroupMissing {
+			// Source's own reference doesn't resolve either — nothing real to compare content
+			// against, so fall back to the plain existence signal rather than claim a match we
+			// can't actually verify.
+			diff[i].SpawnGroupCollisionRisk = true
+			continue
+		}
+		matches := spawnGroupContentMatches(
+			diff[i].Source.SpawnGroupFields, diff[i].Source.SpawnEntries,
+			sinkFieldsById[gid], sinkEntriesById[gid],
+		)
+		diff[i].SpawnGroupCollisionRisk = !matches
 	}
 	return nil
+}
+
+// spawnGroupContentMatches compares one spawngroup's fields+entries against another's — "name"
+// excluded (cosmetic/local, see EQEmu Schema Notes — a successful RelocateSpawnGroup can leave a
+// disambiguated name behind, which must not itself read as "different content"). Extracted as its
+// own pure function so it's unit-testable without a DB — this exact comparison is the fix for two
+// real bugs found the same day (RelocateSpawnGroup's cross-zone repoint, and this collision-risk
+// flag never clearing), so it's worth pinning down with tests rather than only living inline.
+func spawnGroupContentMatches(aFields map[string]interface{}, aEntries []SpawnEntry, bFields map[string]interface{}, bEntries []SpawnEntry) bool {
+	return mapsEqual(withoutFields(aFields, "name"), withoutFields(bFields, "name")) &&
+		spawnEntriesEqual(aEntries, bEntries)
+}
+
+// fetchSpawnGroupContentByIds batch-fetches spawngroup fields (minus id) and spawnentry rosters for
+// a set of ids, keyed by id — the sink-side half of annotateSpawnGroupCollisionRisk's content
+// comparison, batched into 2 queries regardless of how many colliding ids there are, mirroring
+// getSpawnPointsForZone's own spawngroup/spawnentry batching. Entries are built without NPC name
+// resolution (unlike getSpawnPointsForZone's) since spawnEntriesEqual only compares NPCID->Chance —
+// no need to pay for a name lookup this caller never displays.
+func fetchSpawnGroupContentByIds(ctx context.Context, db *sql.DB, ids map[int64]bool) (map[int64]map[string]interface{}, map[int64][]SpawnEntry, error) {
+	fieldsById := make(map[int64]map[string]interface{})
+	entriesById := make(map[int64][]SpawnEntry)
+	idList := make([]int64, 0, len(ids))
+	for id, ok := range ids {
+		if ok {
+			idList = append(idList, id)
+		}
+	}
+	if len(idList) == 0 {
+		return fieldsById, entriesById, nil
+	}
+	placeholders, args := inClausePlaceholders(idList)
+
+	sgRows, err := db.QueryContext(ctx, "SELECT * FROM spawngroup WHERE id IN ("+placeholders+")", args...)
+	if err != nil {
+		return nil, nil, err
+	}
+	spawnGroupRows, err := scanDynamicRows(sgRows)
+	_ = sgRows.Close()
+	if err != nil {
+		return nil, nil, err
+	}
+	for _, sg := range spawnGroupRows {
+		fieldsById[toInt64(sg["id"])] = withoutFields(sg, "id")
+	}
+
+	seRows, err := db.QueryContext(ctx, "SELECT spawngroupID, npcID, chance FROM spawnentry WHERE spawngroupID IN ("+placeholders+")", args...)
+	if err != nil {
+		return nil, nil, err
+	}
+	entryDynRows, err := scanDynamicRows(seRows)
+	_ = seRows.Close()
+	if err != nil {
+		return nil, nil, err
+	}
+	for _, se := range entryDynRows {
+		gid := toInt64(se["spawngroupID"])
+		entriesById[gid] = append(entriesById[gid], SpawnEntry{
+			NPCID:  toInt64(se["npcID"]),
+			Chance: toInt64(se["chance"]),
+		})
+	}
+	return fieldsById, entriesById, nil
 }
 
 // getSpawnPointsForZone fetches every spawn2 row for a zone/version from one database, along
