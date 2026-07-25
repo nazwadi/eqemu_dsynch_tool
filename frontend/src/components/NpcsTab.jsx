@@ -132,7 +132,8 @@ function NpcsTab({
                                                className="accent-yellow-400 cursor-pointer w-3 h-3 mx-2 disabled:opacity-40 disabled:cursor-not-allowed"
                                                checked={selectedNPCs.has(npcId)}
                                                disabled={!npcRowSelectable(row)}
-                                               title={fieldsOnlyExcluded ? "Only differs in fields excluded from sync — nothing for Sync to change" : undefined}
+                                               title={fieldsOnlyExcluded ? "Only differs in fields excluded from sync — nothing for Sync to change" :
+                                                   row.Status === 'removed' ? "Not in source — selecting and syncing this will delete it from sink" : undefined}
                                                onChange={(e) => {
                                                    e.stopPropagation()
                                                    const newSet = new Set(selectedNPCs)
@@ -205,6 +206,14 @@ function NpcsTab({
                             <div className="text-sm text-green-400">
                                 {syncOutcome.NPCsSynced?.length ?? 0} NPCs synced, {syncOutcome.TODOItems?.length ?? 0} TODO items saved
                             </div>
+                            {syncOutcome.Deleted?.length > 0 && (
+                                <div className="flex flex-col gap-1">
+                                    <div className="text-xs text-gray-400 uppercase tracking-wider">Deleted (not in source)</div>
+                                    {syncOutcome.Deleted.map((d, i) => (
+                                        <div key={i} className="text-xs text-red-400">{d.Name} ({d.NPCID})</div>
+                                    ))}
+                                </div>
+                            )}
                             {syncOutcome.Skipped?.length > 0 && (
                                 <div className="flex flex-col gap-1">
                                     <div className="text-xs text-gray-400 uppercase tracking-wider">Skipped</div>
@@ -237,6 +246,7 @@ function NpcsTab({
                                 <div className="text-xs text-gray-400 uppercase tracking-wider">
                                     {selectedNPCs.size} NPCs selected
                                     {syncPreview.NPCsSynced?.length > 0 && ` · ${syncPreview.NPCsSynced.length} will sync`}
+                                    {syncPreview.Deleted?.length > 0 && ` · ${syncPreview.Deleted.length} will be deleted`}
                                     {syncPreview.Skipped?.length > 0 && ` · ${syncPreview.Skipped.length} skipped`}
                                 </div>
                                 {Array.from(selectedNPCs)
@@ -244,17 +254,24 @@ function NpcsTab({
                                         const row = diffRows.find(r => (r.Source?.Id ?? r.Sink?.Id) === id)
                                         const name = row?.Source?.Fields?.name ?? row?.Sink?.Fields?.name ?? `NPC ${id}`
                                         const skipped = syncPreview.Skipped?.find(s => s.NPCID === id)
+                                        const deleted = syncPreview.Deleted?.find(d => d.NPCID === id)
                                         const todoCount = syncPreview.TODOItems?.filter(t => t.NPCID === id).length ?? 0
-                                        return {id, name, row, skipped, todoCount}
+                                        return {id, name, row, skipped, deleted, todoCount}
                                     })
                                     .sort((a, b) => a.name.localeCompare(b.name))
-                                    .map(({id, name, row, skipped, todoCount}) => (
+                                    .map(({id, name, row, skipped, deleted, todoCount}) => (
                                         <div key={id} className="flex items-center gap-2 text-xs px-2 py-1">
                                             {skipped ? (
                                                 <>
                                                     <span className="text-gray-600">⊘</span>
                                                     <span className="text-gray-500">{name} ({id})</span>
                                                     <span className="text-amber-400">{skipped.Reason}</span>
+                                                </>
+                                            ) : deleted ? (
+                                                <>
+                                                    <span className="text-red-400">🗑</span>
+                                                    <span className="text-gray-300">{name} ({id})</span>
+                                                    <span className="text-red-400">not in source — will be deleted from sink</span>
                                                 </>
                                             ) : (
                                                 <>

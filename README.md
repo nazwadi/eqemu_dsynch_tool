@@ -80,7 +80,7 @@ Source/sink connection settings are saved automatically after your first success
 2. Pick a zone from the source DB's zone list.
 3. The tool joins `spawn2 → spawngroup → spawnentry → npc_types` on both databases and diffs every NPC by ID, column by column.
 4. Each NPC lands in one bucket: **new** (in source only), **modified** (same ID, different fields), **removed** (in sink only), or **match**.
-5. Select the NPCs you want to bring over and click "Sync" to see a dry-run preview — exactly what will change, plus any loot/faction/spell references that will be queued as TODOs.
+5. Select the NPCs you want to bring over and click "Sync" to see a dry-run preview — exactly what will change, plus any loot/faction/spell references that will be queued as TODOs. Selecting a **removed** NPC and syncing it deletes it from the sink — the preview and confirmation both call this out explicitly before you commit.
 6. Click "Execute Sync" to write the selected `npc_types` rows to the sink inside a transaction. The diff view refreshes automatically so synced NPCs flip to "match".
 
 The Spawn Points, Spawngroups, and Grids tabs follow the same diff → select → preview → sync pattern for their own tables. Loot, faction, spells, and merchant *content* is comparison-only for now (see Roadmap) — but where the only real difference is the local ID a loot table, lootdrop, faction list, or spell list happens to live under, you can realign the sink's ID to match source directly from the comparison view, without touching either side's actual content.

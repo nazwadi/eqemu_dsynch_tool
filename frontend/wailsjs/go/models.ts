@@ -199,6 +199,20 @@ export namespace main {
 	        this.EntriesCreated = source["EntriesCreated"];
 	    }
 	}
+	export class DeletedNPC {
+	    NPCID: number;
+	    Name: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new DeletedNPC(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.NPCID = source["NPCID"];
+	        this.Name = source["Name"];
+	    }
+	}
 	export class GridEntry {
 	    Number: number;
 	    X: number;
@@ -1217,6 +1231,7 @@ export namespace main {
 	export class SyncResult {
 	    DryRun: boolean;
 	    NPCsSynced: number[];
+	    Deleted: DeletedNPC[];
 	    Skipped: SkippedNPC[];
 	    TODOItems: TODOItem[];
 	    Errors: string[];
@@ -1229,6 +1244,7 @@ export namespace main {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.DryRun = source["DryRun"];
 	        this.NPCsSynced = source["NPCsSynced"];
+	        this.Deleted = this.convertValues(source["Deleted"], DeletedNPC);
 	        this.Skipped = this.convertValues(source["Skipped"], SkippedNPC);
 	        this.TODOItems = this.convertValues(source["TODOItems"], TODOItem);
 	        this.Errors = source["Errors"];

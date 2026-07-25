@@ -52,9 +52,16 @@ type SyncOptions struct {
 type SyncResult struct {
 	DryRun     bool
 	NPCsSynced []int64
-	Skipped    []SkippedNPC // NPCs deliberately not synced (not found in source) — every NPCId ends up in exactly one of NPCsSynced or Skipped
-	TODOItems  []TODOItem
-	Errors     []string // genuine unexpected failures only — never used for a deliberate skip, see SkippedNPC
+	// Deleted holds NPCs actually removed from the sink because they don't exist in source —
+	// the implied meaning of syncing a "removed" row (present in sink only). Added 2026-07-24:
+	// previously these were silently Skipped ("not found in source zone data"), a safe no-op that
+	// left selecting a removed row from the NPCs tab meaning nothing actually happened. Every
+	// selected NPCId now ends up in exactly one of NPCsSynced, Deleted, or Skipped — Skipped is
+	// reserved for the genuinely unexpected case (an id present in neither database).
+	Deleted   []DeletedNPC
+	Skipped   []SkippedNPC // NPCs deliberately not synced (not found in source OR sink) — see Deleted above for the "removed" case, which no longer lands here
+	TODOItems []TODOItem
+	Errors    []string // genuine unexpected failures only — never used for a deliberate skip, see SkippedNPC
 }
 
 // SkippedNPC is an NPC Sync() deliberately declined to touch — not a failure, the safety
@@ -64,6 +71,17 @@ type SkippedNPC struct {
 	NPCID  int64
 	Name   string
 	Reason string
+}
+
+// DeletedNPC is an NPC actually removed from the sink's npc_types table — real, intentional
+// action taken, not something declined (contrast with SkippedNPC). Does not touch spawnentry rows
+// still referencing this npcID on the sink; those become Orphaned the same way any other dangling
+// spawnentry reference already does (see SpawnEntry.Orphaned), rather than this method reaching
+// into a different domain's tables to cascade a cleanup — consistent with this app never
+// auto-fixing a dangling reference it finds, only flagging it.
+type DeletedNPC struct {
+	NPCID int64
+	Name  string
 }
 
 func (a *App) GetNPCsForZone(shortName string, version int8, zoneIdNumber int64, isSource bool) ([]NPC, error) {
@@ -417,11 +435,29 @@ func (a *App) Sync(options SyncOptions) (SyncResult, error) {
 	for _, id := range options.NPCIds {
 		sourceNpc, ok := sourceById[id]
 		if !ok {
-			result.Skipped = append(result.Skipped, SkippedNPC{
-				NPCID:  id,
-				Name:   fmt.Sprintf("NPC %d", id),
-				Reason: "not found in source zone data",
-			})
+			// Not in source — a "removed" row. If it exists on the sink, syncing it means what
+			// selecting a removed row for sync can only mean: delete it there. If it's in neither
+			// database, that's a genuinely stale/invalid id (e.g. from cached frontend state),
+			// not a delete target — falls back to the old skip behavior.
+			sinkNpc, existsOnSink := sinkById[id]
+			if !existsOnSink {
+				result.Skipped = append(result.Skipped, SkippedNPC{
+					NPCID:  id,
+					Name:   fmt.Sprintf("NPC %d", id),
+					Reason: "not found in source or sink zone data",
+				})
+				continue
+			}
+			name := fmt.Sprintf("%v", sinkNpc.Fields["name"])
+			if options.DryRun {
+				result.Deleted = append(result.Deleted, DeletedNPC{NPCID: id, Name: name})
+				continue
+			}
+			if _, err := tx.ExecContext(a.ctx, "DELETE FROM npc_types WHERE id = ?", id); err != nil {
+				_ = tx.Rollback()
+				return result, fmt.Errorf("deleting NPC %d: %w", id, err)
+			}
+			result.Deleted = append(result.Deleted, DeletedNPC{NPCID: id, Name: name})
 			continue
 		}
 		var sinkNpc *NPC

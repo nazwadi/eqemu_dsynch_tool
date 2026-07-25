@@ -24,6 +24,11 @@ function ConfirmSyncModal({showSyncConfirm, setShowSyncConfirm, dbSinkName, sync
                     {syncPreview?.NPCsSynced?.length ?? 0} NPCs will be upserted
                     {syncPreview?.Skipped?.length > 0 && ` (${syncPreview.Skipped.length} skipped, see preview)`}
                 </div>
+                {syncPreview?.Deleted?.length > 0 && (
+                    <div className="text-sm text-red-400">
+                        ⚠ {syncPreview.Deleted.length} NPC{syncPreview.Deleted.length === 1 ? '' : 's'} will be permanently DELETED from sink — not in source, so syncing them means removing them.
+                    </div>
+                )}
                 <div className="text-sm text-gray-300">
                     {syncPreview?.TODOItems?.length ?? 0} TODO items will be queued
                 </div>
