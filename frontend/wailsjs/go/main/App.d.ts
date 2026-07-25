@@ -44,6 +44,8 @@ export function PickPrivateKeyFile():Promise<string>;
 
 export function RelocateSpawnGroup(arg1:main.RelocateSpawnGroupOptions):Promise<main.RelocateSpawnGroupResult>;
 
+export function RelocateSpawnGroups(arg1:main.BatchRelocateSpawnGroupsOptions):Promise<main.BatchRelocateSpawnGroupsResult>;
+
 export function SaveConfig(arg1:main.Config):Promise<void>;
 
 export function SetTODOItemDismissed(arg1:number,arg2:boolean):Promise<void>;

@@ -15,6 +15,7 @@ import SpellsComparison from './components/SpellsComparison';
 import MerchantComparison from './components/MerchantComparison';
 import ConfirmSpawnGroupSyncModal from './components/ConfirmSpawnGroupSyncModal';
 import ConfirmRelocateSpawnGroupModal from './components/ConfirmRelocateSpawnGroupModal';
+import ConfirmBatchRelocateSpawnGroupsModal from './components/ConfirmBatchRelocateSpawnGroupsModal';
 import ConfirmDeleteSpawnGroupModal from './components/ConfirmDeleteSpawnGroupModal';
 import ConfirmGridSyncModal from './components/ConfirmGridSyncModal';
 import ConfirmAlignIdModal from './components/ConfirmAlignIdModal';
@@ -27,7 +28,7 @@ import GridsTab from './components/GridsTab';
 import SpawngroupsTab from './components/SpawngroupsTab';
 import LootTab from './components/LootTab';
 import DetailPanel from './components/DetailPanel';
-import {spawnCoords, spawnRowSelectable} from './lib/spawnHelpers';
+import {spawnCoords, spawnRowSelectable, collidingSpawnGroupIds} from './lib/spawnHelpers';
 import {gridRowSelectable} from './lib/gridHelpers';
 import {npcAllFieldNames, npcRowSelectable} from './lib/npcHelpers';
 import {useUIPrefs} from './hooks/useUIPrefs';
@@ -39,6 +40,7 @@ import {useSpawnSync} from './hooks/useSpawnSync';
 import {useSpawnGroupsTab} from './hooks/useSpawnGroupsTab';
 import {useSpawnGroupSync} from './hooks/useSpawnGroupSync';
 import {useRelocateSpawnGroup} from './hooks/useRelocateSpawnGroup';
+import {useBatchRelocateSpawnGroups} from './hooks/useBatchRelocateSpawnGroups';
 import {useDeleteSpawnGroup} from './hooks/useDeleteSpawnGroup';
 import {useGridSync} from './hooks/useGridSync';
 import {useLoot} from './hooks/useLoot';
@@ -93,6 +95,13 @@ function App() {
     const spawnGroupsTab = useSpawnGroupsTab(zoneIdentity)
     const spawnGroupSync = useSpawnGroupSync(zoneIdentity)
     const relocateSpawnGroup = useRelocateSpawnGroup({
+        ...zoneIdentity,
+        onRelocated: () => {
+            spawnSync.setSelectedSpawnRow(null)
+            spawnSync.loadDiffs()
+        }
+    })
+    const batchRelocateSpawnGroups = useBatchRelocateSpawnGroups({
         ...zoneIdentity,
         onRelocated: () => {
             spawnSync.setSelectedSpawnRow(null)
@@ -295,6 +304,10 @@ function App() {
     // so the two tab badges answer the same kind of question — includes match-status rows whose
     // spawn entries differ, since those need a human's attention just as much as a "modified" row.
     const spawnNeedsAttentionCount = spawnSync.spawnDiffRows?.filter(r => (r.Status !== 'match' && r.Status !== 'removed') || r.SpawnEntriesDiffer).length
+    // Distinct colliding spawngroup ids among "new" rows — the batch-relocate trigger's unit of
+    // work. A spawngroup is usually a pool shared across many locations, so this is typically a
+    // much smaller number than how many rows actually show the collision badge.
+    const spawnGroupCollisionIds = collidingSpawnGroupIds(spawnSync.spawnDiffRows)
     const gridNewCount = gridSync.gridDiffRows.filter(r => r.Status === 'new').length
     const gridModifiedCount = gridSync.gridDiffRows.filter(r => r.Status === 'modified').length
     const gridRemovedCount = gridSync.gridDiffRows.filter(r => r.Status === 'removed').length
@@ -389,6 +402,13 @@ function App() {
                 showRelocateConfirm={relocateSpawnGroup.showRelocateConfirm} setShowRelocateConfirm={relocateSpawnGroup.setShowRelocateConfirm}
                 relocateError={relocateSpawnGroup.relocateError} relocatePreview={relocateSpawnGroup.relocatePreview}
                 relocating={relocateSpawnGroup.relocating} executeRelocate={relocateSpawnGroup.executeRelocate}
+                dbSinkName={connections.dbSinkName}
+            />
+            <ConfirmBatchRelocateSpawnGroupsModal
+                showBatchRelocateConfirm={batchRelocateSpawnGroups.showBatchRelocateConfirm} closeBatchRelocate={batchRelocateSpawnGroups.closeBatchRelocate}
+                batchRelocateError={batchRelocateSpawnGroups.batchRelocateError} batchRelocatePreview={batchRelocateSpawnGroups.batchRelocatePreview}
+                batchRelocateOutcome={batchRelocateSpawnGroups.batchRelocateOutcome}
+                batchRelocating={batchRelocateSpawnGroups.batchRelocating} executeBatchRelocate={batchRelocateSpawnGroups.executeBatchRelocate}
                 dbSinkName={connections.dbSinkName}
             />
             <ConfirmDeleteSpawnGroupModal
@@ -571,6 +591,14 @@ function App() {
                                 }}
                             >
                                 {spawnSync.selectedSpawnKeys.size > 0 ? `Sync ${spawnSync.selectedSpawnKeys.size} Spawn Points` : 'Sync Spawn Points'}
+                            </button>
+                        )}
+                        {activeView === 'spawns' && spawnGroupCollisionIds.length > 0 && (
+                            <button
+                                onClick={() => batchRelocateSpawnGroups.openBatchRelocatePreview(spawnGroupCollisionIds)}
+                                title="Relocate & reclaim every distinct colliding spawngroup found among 'new' spawn points in this zone, in one confirm"
+                                className="px-2 py-1 rounded text-xs border border-amber-700 text-amber-400 hover:border-amber-400 hover:text-amber-300">
+                                Relocate {spawnGroupCollisionIds.length} colliding spawngroup{spawnGroupCollisionIds.length === 1 ? '' : 's'}
                             </button>
                         )}
                         {activeView === 'grids' && (

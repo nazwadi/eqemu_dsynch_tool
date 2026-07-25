@@ -134,3 +134,18 @@ export function keysSharingSpawngroup(row, spawnDiffRows) {
         .filter(spawnRowSelectable)
         .map(spawnKey)
 }
+
+// Every distinct SpawnGroupId flagged SpawnGroupCollisionRisk among "new" rows — the unit a batch
+// relocate actually operates on. A spawngroup is usually a pool shared across many spawn2
+// locations, so hundreds of colliding rows typically collapse down to a much smaller set of
+// distinct ids; this is what lets "relocate everything" mean "review N groups", not "review
+// hundreds of rows one at a time." See useBatchRelocateSpawnGroups.js.
+export function collidingSpawnGroupIds(spawnDiffRows) {
+    const ids = new Set()
+    for (const row of spawnDiffRows ?? []) {
+        if (row.Status === 'new' && row.SpawnGroupCollisionRisk && row.Source) {
+            ids.add(row.Source.SpawnGroupId)
+        }
+    }
+    return Array.from(ids)
+}

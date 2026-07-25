@@ -807,3 +807,94 @@ func (a *App) RelocateSpawnGroup(options RelocateSpawnGroupOptions) (RelocateSpa
 	}
 	return result, nil
 }
+
+// BatchRelocateSpawnGroupsOptions/Result (added 2026-07-24) — relocates every distinct colliding
+// spawngroup id in one call instead of one at a time through the single-item RelocateSpawnGroup
+// flow. Built for the reported workflow: a zone can have hundreds of "new" spawn2 rows all
+// flagged SpawnGroupCollisionRisk, but since a spawngroup is usually a pool shared across many
+// locations, those hundreds of rows typically collapse down to a much smaller set of distinct
+// SpawnGroupIds — reviewing/confirming each one individually doesn't scale, but reviewing each
+// DISTINCT id still does. See RelocateSpawnGroups' own comment for why this reuses
+// RelocateSpawnGroup directly, one independent call per id, rather than one shared transaction.
+type BatchRelocateSpawnGroupsOptions struct {
+	ZoneShortName string
+	ZoneVersion   int8
+	SpawnGroupIds []int64 // sink spawngroup ids to relocate — the distinct colliding ids, not spawn2 rows
+	DryRun        bool
+}
+
+// RelocateSpawnGroupOutcome pairs one requested SpawnGroupId with its own RelocateSpawnGroup
+// result, or — if that specific id's relocate failed — an error message. Never silently drops
+// either half: same "always show what actually happened, per item" discipline as SyncResult's
+// NPCsSynced/Deleted/Skipped/Errors buckets.
+type RelocateSpawnGroupOutcome struct {
+	SpawnGroupId int64
+	Result       RelocateSpawnGroupResult
+	Error        string // "" on success
+}
+
+type BatchRelocateSpawnGroupsResult struct {
+	DryRun   bool
+	Outcomes []RelocateSpawnGroupOutcome
+}
+
+// RelocateSpawnGroups relocates every id in options.SpawnGroupIds by calling the existing
+// RelocateSpawnGroup once per id — reused directly rather than duplicating its multi-step
+// squatter-eviction/repoint/reclaim logic a second time. Source's current fields/entries for every
+// id are fetched fresh, batched into 2 queries total via fetchSpawnGroupContentByIds (called
+// against a.sourceDB here — that function was originally written for annotateSpawnGroupCollisionRisk's
+// sink-side content check, but it's DB-agnostic, so it's reused rather than adding a near-duplicate
+// source-side fetch) — this app never trusts client-supplied field data for a write, same
+// discipline CreateLootDrop's own comment already states for the same reason.
+//
+// Each id gets its OWN independent transaction (RelocateSpawnGroup opens/commits its own per call)
+// rather than one shared transaction wrapping the whole batch — deliberately different from
+// Sync()'s single all-or-nothing transaction across a selection. A batch of colliding spawngroups
+// is N genuinely independent fixes, not one coherent atomic action the way "sync this set of NPCs"
+// is; wrapping them in one transaction would mean an unexpected failure on item #50 rolls back the
+// 49 already-correct relocates ahead of it, which is worse than just reporting #50's own failure
+// and leaving the rest fixed. A missing source id (e.g. it was deleted from source between the diff
+// load and this call) is reported as that item's own error, not a fatal error for the whole batch.
+func (a *App) RelocateSpawnGroups(options BatchRelocateSpawnGroupsOptions) (BatchRelocateSpawnGroupsResult, error) {
+	result := BatchRelocateSpawnGroupsResult{DryRun: options.DryRun}
+	if a.sourceDB == nil {
+		return result, fmt.Errorf("source database not connected")
+	}
+	if a.sinkDB == nil {
+		return result, fmt.Errorf("sink database not connected")
+	}
+
+	idSet := make(map[int64]bool, len(options.SpawnGroupIds))
+	for _, gid := range options.SpawnGroupIds {
+		idSet[gid] = true
+	}
+	sourceFieldsById, sourceEntriesById, err := fetchSpawnGroupContentByIds(a.ctx, a.sourceDB, idSet)
+	if err != nil {
+		return result, err
+	}
+
+	for _, gid := range options.SpawnGroupIds {
+		sourceFields, ok := sourceFieldsById[gid]
+		if !ok {
+			result.Outcomes = append(result.Outcomes, RelocateSpawnGroupOutcome{
+				SpawnGroupId: gid,
+				Error:        fmt.Sprintf("spawngroup #%d no longer exists on source", gid),
+			})
+			continue
+		}
+		r, err := a.RelocateSpawnGroup(RelocateSpawnGroupOptions{
+			SpawnGroupId:       gid,
+			ZoneShortName:      options.ZoneShortName,
+			ZoneVersion:        options.ZoneVersion,
+			SourceFields:       sourceFields,
+			SourceSpawnEntries: sourceEntriesById[gid],
+			DryRun:             options.DryRun,
+		})
+		if err != nil {
+			result.Outcomes = append(result.Outcomes, RelocateSpawnGroupOutcome{SpawnGroupId: gid, Error: err.Error()})
+			continue
+		}
+		result.Outcomes = append(result.Outcomes, RelocateSpawnGroupOutcome{SpawnGroupId: gid, Result: r})
+	}
+	return result, nil
+}

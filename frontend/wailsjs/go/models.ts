@@ -42,6 +42,148 @@ export namespace main {
 	        this.ReferencesRepointed = source["ReferencesRepointed"];
 	    }
 	}
+	export class BatchRelocateSpawnGroupsOptions {
+	    ZoneShortName: string;
+	    ZoneVersion: number;
+	    SpawnGroupIds: number[];
+	    DryRun: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new BatchRelocateSpawnGroupsOptions(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.ZoneShortName = source["ZoneShortName"];
+	        this.ZoneVersion = source["ZoneVersion"];
+	        this.SpawnGroupIds = source["SpawnGroupIds"];
+	        this.DryRun = source["DryRun"];
+	    }
+	}
+	export class SpawnGroupZoneUsage {
+	    Zone: string;
+	    Version: number;
+	    Count: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new SpawnGroupZoneUsage(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.Zone = source["Zone"];
+	        this.Version = source["Version"];
+	        this.Count = source["Count"];
+	    }
+	}
+	export class RelocateSpawnGroupResult {
+	    DryRun: boolean;
+	    SpawnGroupId: number;
+	    SquatterName: string;
+	    NewSpawnGroupId: number;
+	    SquatterUsage: SpawnGroupZoneUsage[];
+	    ThisZoneCount: number;
+	    SharedSourceUsage: SpawnGroupZoneUsage[];
+	
+	    static createFrom(source: any = {}) {
+	        return new RelocateSpawnGroupResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.DryRun = source["DryRun"];
+	        this.SpawnGroupId = source["SpawnGroupId"];
+	        this.SquatterName = source["SquatterName"];
+	        this.NewSpawnGroupId = source["NewSpawnGroupId"];
+	        this.SquatterUsage = this.convertValues(source["SquatterUsage"], SpawnGroupZoneUsage);
+	        this.ThisZoneCount = source["ThisZoneCount"];
+	        this.SharedSourceUsage = this.convertValues(source["SharedSourceUsage"], SpawnGroupZoneUsage);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class RelocateSpawnGroupOutcome {
+	    SpawnGroupId: number;
+	    Result: RelocateSpawnGroupResult;
+	    Error: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new RelocateSpawnGroupOutcome(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.SpawnGroupId = source["SpawnGroupId"];
+	        this.Result = this.convertValues(source["Result"], RelocateSpawnGroupResult);
+	        this.Error = source["Error"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class BatchRelocateSpawnGroupsResult {
+	    DryRun: boolean;
+	    Outcomes: RelocateSpawnGroupOutcome[];
+	
+	    static createFrom(source: any = {}) {
+	        return new BatchRelocateSpawnGroupsResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.DryRun = source["DryRun"];
+	        this.Outcomes = this.convertValues(source["Outcomes"], RelocateSpawnGroupOutcome);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class UIPrefs {
 	    SidebarWidth: number;
 	    SidebarCollapsed: boolean;
@@ -211,22 +353,6 @@ export namespace main {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.SpawnGroupId = source["SpawnGroupId"];
 	        this.DryRun = source["DryRun"];
-	    }
-	}
-	export class SpawnGroupZoneUsage {
-	    Zone: string;
-	    Version: number;
-	    Count: number;
-	
-	    static createFrom(source: any = {}) {
-	        return new SpawnGroupZoneUsage(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.Zone = source["Zone"];
-	        this.Version = source["Version"];
-	        this.Count = source["Count"];
 	    }
 	}
 	export class DeleteSpawnGroupResult {
@@ -868,48 +994,8 @@ export namespace main {
 		    return a;
 		}
 	}
-	export class RelocateSpawnGroupResult {
-	    DryRun: boolean;
-	    SpawnGroupId: number;
-	    SquatterName: string;
-	    NewSpawnGroupId: number;
-	    SquatterUsage: SpawnGroupZoneUsage[];
-	    ThisZoneCount: number;
-	    SharedSourceUsage: SpawnGroupZoneUsage[];
 	
-	    static createFrom(source: any = {}) {
-	        return new RelocateSpawnGroupResult(source);
-	    }
 	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.DryRun = source["DryRun"];
-	        this.SpawnGroupId = source["SpawnGroupId"];
-	        this.SquatterName = source["SquatterName"];
-	        this.NewSpawnGroupId = source["NewSpawnGroupId"];
-	        this.SquatterUsage = this.convertValues(source["SquatterUsage"], SpawnGroupZoneUsage);
-	        this.ThisZoneCount = source["ThisZoneCount"];
-	        this.SharedSourceUsage = this.convertValues(source["SharedSourceUsage"], SpawnGroupZoneUsage);
-	    }
-	
-		convertValues(a: any, classs: any, asMap: boolean = false): any {
-		    if (!a) {
-		        return a;
-		    }
-		    if (a.slice && a.map) {
-		        return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    } else if ("object" === typeof a) {
-		        if (asMap) {
-		            for (const key of Object.keys(a)) {
-		                a[key] = new classs(a[key]);
-		            }
-		            return a;
-		        }
-		        return new classs(a);
-		    }
-		    return a;
-		}
-	}
 	export class SkippedNPC {
 	    NPCID: number;
 	    Name: string;
