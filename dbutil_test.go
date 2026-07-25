@@ -1,6 +1,11 @@
 package main
 
-import "testing"
+import (
+	"errors"
+	"sync/atomic"
+	"testing"
+	"time"
+)
 
 // toFloat64 backs every spawn2 coordinate match in the app (CompareSpawns, per-NPC spawn
 // creation's conflict checks, SyncSpawnPoints). A missing float32 case here silently zeroed
@@ -130,4 +135,53 @@ func TestInClausePlaceholders(t *testing.T) {
 			}
 		})
 	}
+}
+
+// runParallel backs every Compare* method's concurrent source/sink fetch (added 2026-07-25 as the
+// fix for reported SSH-tunnel lag) — pinning down its two real behavioral guarantees: every
+// function actually runs (not short-circuited by an earlier error), and the first error in
+// argument order wins when more than one fails.
+func TestRunParallel(t *testing.T) {
+	t.Run("all succeed", func(t *testing.T) {
+		var calls int32
+		err := runParallel(
+			func() error { atomic.AddInt32(&calls, 1); return nil },
+			func() error { atomic.AddInt32(&calls, 1); return nil },
+			func() error { atomic.AddInt32(&calls, 1); return nil },
+		)
+		if err != nil {
+			t.Errorf("runParallel() = %v, want nil", err)
+		}
+		if calls != 3 {
+			t.Errorf("calls = %d, want 3", calls)
+		}
+	})
+
+	t.Run("every function runs even after an earlier one errors", func(t *testing.T) {
+		var secondRan, thirdRan int32
+		errFirst := errors.New("first failed")
+		err := runParallel(
+			func() error { return errFirst },
+			func() error { time.Sleep(10 * time.Millisecond); atomic.AddInt32(&secondRan, 1); return nil },
+			func() error { time.Sleep(10 * time.Millisecond); atomic.AddInt32(&thirdRan, 1); return nil },
+		)
+		if !errors.Is(err, errFirst) {
+			t.Errorf("runParallel() = %v, want %v", err, errFirst)
+		}
+		if secondRan != 1 || thirdRan != 1 {
+			t.Errorf("secondRan=%d thirdRan=%d, want both 1 — a failing function must not abandon the others", secondRan, thirdRan)
+		}
+	})
+
+	t.Run("first error in argument order wins, not first to finish", func(t *testing.T) {
+		errA := errors.New("a")
+		errB := errors.New("b")
+		err := runParallel(
+			func() error { time.Sleep(10 * time.Millisecond); return errA }, // slower, but listed first
+			func() error { return errB },                                    // faster, but listed second
+		)
+		if !errors.Is(err, errA) {
+			t.Errorf("runParallel() = %v, want %v (argument order, not completion order)", err, errA)
+		}
+	})
 }

@@ -1,1 +1,17 @@
 @import "tailwindcss";
+
+/* Indeterminate sliding highlight for GlobalProgressBar.jsx — there's no real "% complete" signal
+   for a single in-flight backend call, so this mirrors the standard indeterminate-progress pattern
+   (Material UI's LinearProgress, GitHub/YouTube's top-of-page loading bar) instead of faking a
+   width value. */
+@keyframes global-progress-slide {
+    0% {
+        transform: translateX(-40%) scaleX(0.4);
+    }
+    50% {
+        transform: translateX(30%) scaleX(0.6);
+    }
+    100% {
+        transform: translateX(100%) scaleX(0.4);
+    }
+}

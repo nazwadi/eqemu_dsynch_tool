@@ -124,31 +124,49 @@ func annotatePathgridMissing(points []SpawnPoint, gridIds map[int64]bool) {
 // database's own `grid` rows — grid is keyed by zoneid, not zone.short_name, so it can't be
 // derived from shortName/version the way everything else here is.
 func (a *App) CompareSpawns(shortName string, version int8, zoneIdNumber int64) ([]SpawnDiffRow, error) {
-	sourcePoints, err := getSpawnPointsForZone(a.ctx, a.sourceDB, shortName, version)
+	// Each side's full pipeline (fetch spawn2/spawngroup/spawnentry, resolve orphaned entry names
+	// against the OTHER database, fetch this zone's grid ids) runs in its own goroutine — the two
+	// sides never depend on each other's results, only on their own DB handle (always available)
+	// and the other side's DB handle for orphan-name resolution, which is a query, not a data
+	// dependency. See runParallel's own comment for why this is safe and why it's worth doing.
+	var sourcePoints, sinkPoints []SpawnPoint
+	err := runParallel(
+		func() error {
+			points, err := getSpawnPointsForZone(a.ctx, a.sourceDB, shortName, version)
+			if err != nil {
+				return err
+			}
+			if err := resolveOrphanedSpawnEntryNames(a.ctx, points, a.sinkDB); err != nil {
+				return err
+			}
+			gridIds, err := fetchZoneGridIds(a.ctx, a.sourceDB, zoneIdNumber)
+			if err != nil {
+				return err
+			}
+			annotatePathgridMissing(points, gridIds)
+			sourcePoints = points
+			return nil
+		},
+		func() error {
+			points, err := getSpawnPointsForZone(a.ctx, a.sinkDB, shortName, version)
+			if err != nil {
+				return err
+			}
+			if err := resolveOrphanedSpawnEntryNames(a.ctx, points, a.sourceDB); err != nil {
+				return err
+			}
+			gridIds, err := fetchZoneGridIds(a.ctx, a.sinkDB, zoneIdNumber)
+			if err != nil {
+				return err
+			}
+			annotatePathgridMissing(points, gridIds)
+			sinkPoints = points
+			return nil
+		},
+	)
 	if err != nil {
 		return nil, err
 	}
-	sinkPoints, err := getSpawnPointsForZone(a.ctx, a.sinkDB, shortName, version)
-	if err != nil {
-		return nil, err
-	}
-	if err := resolveOrphanedSpawnEntryNames(a.ctx, sinkPoints, a.sourceDB); err != nil {
-		return nil, err
-	}
-	if err := resolveOrphanedSpawnEntryNames(a.ctx, sourcePoints, a.sinkDB); err != nil {
-		return nil, err
-	}
-
-	sourceGridIds, err := fetchZoneGridIds(a.ctx, a.sourceDB, zoneIdNumber)
-	if err != nil {
-		return nil, err
-	}
-	sinkGridIds, err := fetchZoneGridIds(a.ctx, a.sinkDB, zoneIdNumber)
-	if err != nil {
-		return nil, err
-	}
-	annotatePathgridMissing(sourcePoints, sourceGridIds)
-	annotatePathgridMissing(sinkPoints, sinkGridIds)
 
 	sinkByCoord := make(map[[3]float64]SpawnPoint, len(sinkPoints))
 	for _, p := range sinkPoints {

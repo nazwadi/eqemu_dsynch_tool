@@ -163,19 +163,33 @@ func (a *App) GetNPCsForZone(shortName string, version int8, zoneIdNumber int64,
 }
 
 func (a *App) CompareZones(shortName string, version int8, zoneIdNumber int64, excludedFields []string) ([]NPCDiffRow, error) {
-	// Call GetNPCsForZone for source and sink
-	sourceNpcs, err := a.GetNPCsForZone(shortName, version, zoneIdNumber, true)
+	// Source and sink are fetched+annotated concurrently — see runParallel's own comment for why.
+	var sourceNpcs, sinkNpcs []NPC
+	err := runParallel(
+		func() error {
+			npcs, err := a.GetNPCsForZone(shortName, version, zoneIdNumber, true)
+			if err != nil {
+				return err
+			}
+			if err := annotateMissingReferences(a.ctx, a.sourceDB, npcs); err != nil {
+				return err
+			}
+			sourceNpcs = npcs
+			return nil
+		},
+		func() error {
+			npcs, err := a.GetNPCsForZone(shortName, version, zoneIdNumber, false)
+			if err != nil {
+				return err
+			}
+			if err := annotateMissingReferences(a.ctx, a.sinkDB, npcs); err != nil {
+				return err
+			}
+			sinkNpcs = npcs
+			return nil
+		},
+	)
 	if err != nil {
-		return nil, err
-	}
-	sinkNpcs, err := a.GetNPCsForZone(shortName, version, zoneIdNumber, false)
-	if err != nil {
-		return nil, err
-	}
-	if err := annotateMissingReferences(a.ctx, a.sourceDB, sourceNpcs); err != nil {
-		return nil, err
-	}
-	if err := annotateMissingReferences(a.ctx, a.sinkDB, sinkNpcs); err != nil {
 		return nil, err
 	}
 	// Build a map of sink NPCs by ID

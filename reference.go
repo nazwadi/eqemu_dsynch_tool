@@ -121,45 +121,60 @@ func (a *App) CompareNPCFaction(sourceFactionId, sinkFactionId int64) (NPCFactio
 		return result, fmt.Errorf("sink database not connected")
 	}
 
-	if sourceFactionId != 0 {
-		fields, err := fetchNPCFactionHeader(a.ctx, a.sourceDB, sourceFactionId)
-		if err != nil {
-			return result, err
-		}
-		result.SourceFields = fields
-	}
-	if sinkFactionId != 0 {
-		fields, err := fetchNPCFactionHeader(a.ctx, a.sinkDB, sinkFactionId)
-		if err != nil {
-			return result, err
-		}
-		result.SinkFields = fields
-	}
-
+	// Each side's header+entries+name-resolution pipeline runs concurrently — same latency
+	// reasoning as the Compare* zone-diff functions, see runParallel's own comment.
+	var sourceFields, sinkFields map[string]interface{}
 	var sourceEntries, sinkEntries []map[string]interface{}
-	if sourceFactionId != 0 {
-		entries, err := fetchNPCFactionEntries(a.ctx, a.sourceDB, sourceFactionId)
-		if err != nil {
-			return result, err
-		}
-		sourceEntries = entries
-	}
-	if sinkFactionId != 0 {
-		entries, err := fetchNPCFactionEntries(a.ctx, a.sinkDB, sinkFactionId)
-		if err != nil {
-			return result, err
-		}
-		sinkEntries = entries
-	}
-
-	sourceNames, err := resolveFactionNames(a.ctx, a.sourceDB, sourceEntries)
+	var sourceNames, sinkNames map[int64]string
+	err := runParallel(
+		func() error {
+			if sourceFactionId == 0 {
+				return nil
+			}
+			fields, err := fetchNPCFactionHeader(a.ctx, a.sourceDB, sourceFactionId)
+			if err != nil {
+				return err
+			}
+			sourceFields = fields
+			entries, err := fetchNPCFactionEntries(a.ctx, a.sourceDB, sourceFactionId)
+			if err != nil {
+				return err
+			}
+			sourceEntries = entries
+			names, err := resolveFactionNames(a.ctx, a.sourceDB, sourceEntries)
+			if err != nil {
+				return err
+			}
+			sourceNames = names
+			return nil
+		},
+		func() error {
+			if sinkFactionId == 0 {
+				return nil
+			}
+			fields, err := fetchNPCFactionHeader(a.ctx, a.sinkDB, sinkFactionId)
+			if err != nil {
+				return err
+			}
+			sinkFields = fields
+			entries, err := fetchNPCFactionEntries(a.ctx, a.sinkDB, sinkFactionId)
+			if err != nil {
+				return err
+			}
+			sinkEntries = entries
+			names, err := resolveFactionNames(a.ctx, a.sinkDB, sinkEntries)
+			if err != nil {
+				return err
+			}
+			sinkNames = names
+			return nil
+		},
+	)
 	if err != nil {
 		return result, err
 	}
-	sinkNames, err := resolveFactionNames(a.ctx, a.sinkDB, sinkEntries)
-	if err != nil {
-		return result, err
-	}
+	result.SourceFields = sourceFields
+	result.SinkFields = sinkFields
 
 	byFaction := make(map[int64]*NPCFactionEntryDiff)
 	for _, e := range sourceEntries {
@@ -280,45 +295,60 @@ func (a *App) CompareNPCSpells(sourceSpellsId, sinkSpellsId int64) (NPCSpellsCom
 		return result, fmt.Errorf("sink database not connected")
 	}
 
-	if sourceSpellsId != 0 {
-		fields, err := fetchNPCSpellsHeader(a.ctx, a.sourceDB, sourceSpellsId)
-		if err != nil {
-			return result, err
-		}
-		result.SourceFields = fields
-	}
-	if sinkSpellsId != 0 {
-		fields, err := fetchNPCSpellsHeader(a.ctx, a.sinkDB, sinkSpellsId)
-		if err != nil {
-			return result, err
-		}
-		result.SinkFields = fields
-	}
-
+	// Each side's header+entries+name-resolution pipeline runs concurrently — same latency
+	// reasoning as the Compare* zone-diff functions, see runParallel's own comment.
+	var sourceFields, sinkFields map[string]interface{}
 	var sourceEntries, sinkEntries []map[string]interface{}
-	if sourceSpellsId != 0 {
-		entries, err := fetchNPCSpellsEntries(a.ctx, a.sourceDB, sourceSpellsId)
-		if err != nil {
-			return result, err
-		}
-		sourceEntries = entries
-	}
-	if sinkSpellsId != 0 {
-		entries, err := fetchNPCSpellsEntries(a.ctx, a.sinkDB, sinkSpellsId)
-		if err != nil {
-			return result, err
-		}
-		sinkEntries = entries
-	}
-
-	sourceNames, err := resolveSpellNames(a.ctx, a.sourceDB, sourceEntries)
+	var sourceNames, sinkNames map[int64]string
+	err := runParallel(
+		func() error {
+			if sourceSpellsId == 0 {
+				return nil
+			}
+			fields, err := fetchNPCSpellsHeader(a.ctx, a.sourceDB, sourceSpellsId)
+			if err != nil {
+				return err
+			}
+			sourceFields = fields
+			entries, err := fetchNPCSpellsEntries(a.ctx, a.sourceDB, sourceSpellsId)
+			if err != nil {
+				return err
+			}
+			sourceEntries = entries
+			names, err := resolveSpellNames(a.ctx, a.sourceDB, sourceEntries)
+			if err != nil {
+				return err
+			}
+			sourceNames = names
+			return nil
+		},
+		func() error {
+			if sinkSpellsId == 0 {
+				return nil
+			}
+			fields, err := fetchNPCSpellsHeader(a.ctx, a.sinkDB, sinkSpellsId)
+			if err != nil {
+				return err
+			}
+			sinkFields = fields
+			entries, err := fetchNPCSpellsEntries(a.ctx, a.sinkDB, sinkSpellsId)
+			if err != nil {
+				return err
+			}
+			sinkEntries = entries
+			names, err := resolveSpellNames(a.ctx, a.sinkDB, sinkEntries)
+			if err != nil {
+				return err
+			}
+			sinkNames = names
+			return nil
+		},
+	)
 	if err != nil {
 		return result, err
 	}
-	sinkNames, err := resolveSpellNames(a.ctx, a.sinkDB, sinkEntries)
-	if err != nil {
-		return result, err
-	}
+	result.SourceFields = sourceFields
+	result.SinkFields = sinkFields
 
 	byId := make(map[int64]*NPCSpellsEntryDiff)
 	for _, e := range sourceEntries {
@@ -429,27 +459,44 @@ func (a *App) CompareNPCMerchant(sourceMerchantId, sinkMerchantId int64) (NPCMer
 		return result, fmt.Errorf("sink database not connected")
 	}
 
+	// Each side's entries+name-resolution pipeline runs concurrently — same latency reasoning as
+	// the Compare* zone-diff functions, see runParallel's own comment.
 	var sourceEntries, sinkEntries []map[string]interface{}
-	if sourceMerchantId != 0 {
-		entries, err := fetchMerchantEntries(a.ctx, a.sourceDB, sourceMerchantId)
-		if err != nil {
-			return result, err
-		}
-		sourceEntries = entries
-	}
-	if sinkMerchantId != 0 {
-		entries, err := fetchMerchantEntries(a.ctx, a.sinkDB, sinkMerchantId)
-		if err != nil {
-			return result, err
-		}
-		sinkEntries = entries
-	}
-
-	sourceNames, err := resolveItemNames(a.ctx, a.sourceDB, sourceEntries, "item")
-	if err != nil {
-		return result, err
-	}
-	sinkNames, err := resolveItemNames(a.ctx, a.sinkDB, sinkEntries, "item")
+	var sourceNames, sinkNames map[int64]string
+	err := runParallel(
+		func() error {
+			if sourceMerchantId == 0 {
+				return nil
+			}
+			entries, err := fetchMerchantEntries(a.ctx, a.sourceDB, sourceMerchantId)
+			if err != nil {
+				return err
+			}
+			sourceEntries = entries
+			names, err := resolveItemNames(a.ctx, a.sourceDB, sourceEntries, "item")
+			if err != nil {
+				return err
+			}
+			sourceNames = names
+			return nil
+		},
+		func() error {
+			if sinkMerchantId == 0 {
+				return nil
+			}
+			entries, err := fetchMerchantEntries(a.ctx, a.sinkDB, sinkMerchantId)
+			if err != nil {
+				return err
+			}
+			sinkEntries = entries
+			names, err := resolveItemNames(a.ctx, a.sinkDB, sinkEntries, "item")
+			if err != nil {
+				return err
+			}
+			sinkNames = names
+			return nil
+		},
+	)
 	if err != nil {
 		return result, err
 	}

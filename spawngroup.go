@@ -108,18 +108,34 @@ type SpawnGroupDiffRow struct {
 // fetch — this view is just a different grouping of the same spawn2/spawngroup/spawnentry data
 // CompareSpawns already pulls, not a second dedicated query.
 func (a *App) CompareSpawnGroups(shortName string, version int8) ([]SpawnGroupDiffRow, error) {
-	sourcePoints, err := getSpawnPointsForZone(a.ctx, a.sourceDB, shortName, version)
+	// Each side's fetch+orphan-name-resolve pipeline runs concurrently — same reasoning as
+	// CompareSpawns (which this reuses getSpawnPointsForZone with), see runParallel's own comment.
+	var sourcePoints, sinkPoints []SpawnPoint
+	err := runParallel(
+		func() error {
+			points, err := getSpawnPointsForZone(a.ctx, a.sourceDB, shortName, version)
+			if err != nil {
+				return err
+			}
+			if err := resolveOrphanedSpawnEntryNames(a.ctx, points, a.sinkDB); err != nil {
+				return err
+			}
+			sourcePoints = points
+			return nil
+		},
+		func() error {
+			points, err := getSpawnPointsForZone(a.ctx, a.sinkDB, shortName, version)
+			if err != nil {
+				return err
+			}
+			if err := resolveOrphanedSpawnEntryNames(a.ctx, points, a.sourceDB); err != nil {
+				return err
+			}
+			sinkPoints = points
+			return nil
+		},
+	)
 	if err != nil {
-		return nil, err
-	}
-	sinkPoints, err := getSpawnPointsForZone(a.ctx, a.sinkDB, shortName, version)
-	if err != nil {
-		return nil, err
-	}
-	if err := resolveOrphanedSpawnEntryNames(a.ctx, sinkPoints, a.sourceDB); err != nil {
-		return nil, err
-	}
-	if err := resolveOrphanedSpawnEntryNames(a.ctx, sourcePoints, a.sinkDB); err != nil {
 		return nil, err
 	}
 

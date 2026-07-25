@@ -246,19 +246,35 @@ func (a *App) CompareNPCLoot(sourceLoottableId, sinkLoottableId int64) (NPCLootC
 		return result, fmt.Errorf("sink database not connected")
 	}
 
-	if sourceLoottableId != 0 {
-		table, err := fetchLootTable(a.ctx, a.sourceDB, sourceLoottableId)
-		if err != nil {
-			return result, err
-		}
-		result.SourceTable = table
-	}
-	if sinkLoottableId != 0 {
-		table, err := fetchLootTable(a.ctx, a.sinkDB, sinkLoottableId)
-		if err != nil {
-			return result, err
-		}
-		result.SinkTable = table
+	// fetchLootTable is itself several sequential queries per side (header, entries, batched
+	// lootdrops) — running source's and sink's full trees concurrently is a real latency win over
+	// an SSH tunnel, not just the two outer calls. See runParallel's own comment.
+	err := runParallel(
+		func() error {
+			if sourceLoottableId == 0 {
+				return nil
+			}
+			table, err := fetchLootTable(a.ctx, a.sourceDB, sourceLoottableId)
+			if err != nil {
+				return err
+			}
+			result.SourceTable = table
+			return nil
+		},
+		func() error {
+			if sinkLoottableId == 0 {
+				return nil
+			}
+			table, err := fetchLootTable(a.ctx, a.sinkDB, sinkLoottableId)
+			if err != nil {
+				return err
+			}
+			result.SinkTable = table
+			return nil
+		},
+	)
+	if err != nil {
+		return result, err
 	}
 
 	return result, nil

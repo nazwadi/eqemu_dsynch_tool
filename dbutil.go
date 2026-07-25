@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/go-sql-driver/mysql"
 )
@@ -292,4 +293,38 @@ func insertRow(ctx context.Context, tx *sql.Tx, table string, fields map[string]
 		return 0, err
 	}
 	return result.LastInsertId()
+}
+
+// runParallel runs each function concurrently and waits for all of them to finish, then returns
+// the first non-nil error found (in argument order, for deterministic messages), or nil if every
+// one succeeded. Added 2026-07-25 as the fix for reported UI lag over SSH tunnels: every read-only
+// Compare* method fetches source and sink independently, but previously did so sequentially — over
+// a tunneled connection each round trip pays real network latency, so N sequential queries cost N
+// times that latency where they could cost it once. *sql.DB is safe for concurrent use by multiple
+// goroutines (it owns its own connection pool), so running source's and sink's fetch/annotate
+// pipelines in parallel goroutines is a pure latency win with no locking to reason about — this is
+// NOT used anywhere on a write path (Sync/SyncSpawnPoints/RelocateSpawnGroup/etc.), since a
+// *sql.Tx, unlike *sql.DB, is NOT safe for concurrent use — those stay sequential.
+//
+// Deliberately waits for every function to finish even after the first error, rather than
+// cancelling the rest — a query already in flight against source or sink should always complete
+// cleanly rather than being abandoned mid-flight, and these are cheap reads, not writes, so there's
+// no cost to letting a doomed call finish anyway.
+func runParallel(fns ...func() error) error {
+	var wg sync.WaitGroup
+	errs := make([]error, len(fns))
+	wg.Add(len(fns))
+	for i, fn := range fns {
+		go func(i int, fn func() error) {
+			defer wg.Done()
+			errs[i] = fn()
+		}(i, fn)
+	}
+	wg.Wait()
+	for _, err := range errs {
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }

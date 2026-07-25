@@ -159,11 +159,18 @@ func gridEntriesEqual(a, b []GridEntry) bool {
 // CompareGrids diffs source vs sink grids for one zone, matched by Id (see GridPoint for why
 // that's trustworthy here, unlike the coordinate-based matching spawn2 needs).
 func (a *App) CompareGrids(zoneIdNumber int64) ([]GridDiffRow, error) {
-	sourcePoints, err := getGridsForZone(a.ctx, a.sourceDB, zoneIdNumber)
-	if err != nil {
-		return nil, err
-	}
-	sinkPoints, err := getGridsForZone(a.ctx, a.sinkDB, zoneIdNumber)
+	// Source and sink are independent fetches — run concurrently, see runParallel's own comment.
+	var sourcePoints, sinkPoints []GridPoint
+	err := runParallel(
+		func() (err error) {
+			sourcePoints, err = getGridsForZone(a.ctx, a.sourceDB, zoneIdNumber)
+			return err
+		},
+		func() (err error) {
+			sinkPoints, err = getGridsForZone(a.ctx, a.sinkDB, zoneIdNumber)
+			return err
+		},
+	)
 	if err != nil {
 		return nil, err
 	}

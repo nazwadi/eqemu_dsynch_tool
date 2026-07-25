@@ -28,6 +28,7 @@ import GridsTab from './components/GridsTab';
 import SpawngroupsTab from './components/SpawngroupsTab';
 import LootTab from './components/LootTab';
 import DetailPanel from './components/DetailPanel';
+import GlobalProgressBar from './components/GlobalProgressBar';
 import {spawnCoords, spawnRowSelectable, collidingSpawnGroupIds} from './lib/spawnHelpers';
 import {gridRowSelectable} from './lib/gridHelpers';
 import {npcAllFieldNames, npcRowSelectable} from './lib/npcHelpers';
@@ -47,6 +48,7 @@ import {useLoot} from './hooks/useLoot';
 import {useZoneMap} from './hooks/useZoneMap';
 import {useAlignId} from './hooks/useAlignId';
 import {useCreateLootDrop} from './hooks/useCreateLootDrop';
+import {instrumentGoCalls} from './lib/pendingGoCalls';
 
 // Title shown in the shared ReferenceDrawer — one more entry per reference type as they're built,
 // mirroring detailPanelTitles' shape in DetailPanel.jsx.
@@ -63,6 +65,12 @@ const referenceDrawerTitles = {
 // entry for why the persistent zone header stays inline rather than becoming its own component —
 // it's a coordinator reading state from every tab, not one tab's content.
 function App() {
+    // Idempotent (guarded internally) — safe to call on every render. Done here, in the render body
+    // rather than an effect, so it's guaranteed to run before ANY effect fires (React finishes the
+    // whole render pass before running effects), including useConnections' own LoadConfig effect —
+    // the very first real backend call the app makes on startup.
+    instrumentGoCalls()
+
     const uiPrefs = useUIPrefs()
     const connections = useConnections(uiPrefs)
     const referenceDrawer = useReferenceDrawer()
@@ -339,6 +347,7 @@ function App() {
     })
     return (
         <div id="App" className="h-screen bg-gray-900 text-white overflow-hidden flex flex-col">
+            <GlobalProgressBar/>
             <ConnectModal
                 activeModal={connections.activeModal} setActiveModal={connections.setActiveModal}
                 connectError={connections.connectError} setConnectError={connections.setConnectError}
