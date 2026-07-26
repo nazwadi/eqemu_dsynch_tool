@@ -26,6 +26,8 @@ export function Connect(arg1:main.ConnectionConfig,arg2:boolean):Promise<void>;
 
 export function CreateLootDrop(arg1:main.CreateLootDropOptions):Promise<main.CreateLootDropResult>;
 
+export function CreateNPCFaction(arg1:main.CreateNPCFactionOptions):Promise<main.CreateNPCFactionResult>;
+
 export function DeleteSpawnGroup(arg1:main.DeleteSpawnGroupOptions):Promise<main.DeleteSpawnGroupResult>;
 
 export function GetLootTable(arg1:boolean,arg2:number):Promise<main.LootTable>;

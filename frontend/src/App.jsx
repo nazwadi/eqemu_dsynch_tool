@@ -21,6 +21,7 @@ import ConfirmGridSyncModal from './components/ConfirmGridSyncModal';
 import ConfirmAlignIdModal from './components/ConfirmAlignIdModal';
 import ConfirmSyncReferenceContentModal from './components/ConfirmSyncReferenceContentModal';
 import ConfirmCreateLootDropModal from './components/ConfirmCreateLootDropModal';
+import ConfirmCreateNPCFactionModal from './components/ConfirmCreateNPCFactionModal';
 import Sidebar from './components/Sidebar';
 import NpcsTab from './components/NpcsTab';
 import SpawnsTab from './components/SpawnsTab';
@@ -53,6 +54,7 @@ import {useZoneMap} from './hooks/useZoneMap';
 import {useAlignId} from './hooks/useAlignId';
 import {useSyncReferenceContent} from './hooks/useSyncReferenceContent';
 import {useCreateLootDrop} from './hooks/useCreateLootDrop';
+import {useCreateNPCFaction} from './hooks/useCreateNPCFaction';
 import {instrumentGoCalls} from './lib/pendingGoCalls';
 
 // Title shown in the shared ReferenceDrawer — one more entry per reference type as they're built,
@@ -139,6 +141,7 @@ function App() {
     const alignId = useAlignId()
     const syncReferenceContent = useSyncReferenceContent()
     const createLootDrop = useCreateLootDrop()
+    const createNPCFaction = useCreateNPCFaction()
     const zoneMap = useZoneMap(connections.mapsDirectory)
 
     // Real, shipped bug (found 2026-07-24 via user report): loadZoneMap only ever ran from
@@ -258,6 +261,29 @@ function App() {
         const sourceId = referenceDrawer.referenceDrawerData.SourceId
         const sinkId = referenceDrawer.referenceDrawerData.SinkId
         referenceDrawer.openReferenceComparison(referenceDrawer.referenceDrawerType, sourceId, sinkId)
+    }
+
+    // Triggered from the npc_faction reference drawer's own "Create npc_faction in sink" button —
+    // shown only when this NPC's own sink npc_faction_id is missing or dangling (see
+    // FactionComparison.jsx's canCreate). Reads the sink NPC id straight off npcSync.selectedNpc:
+    // by the time this drawer is open, selectedNpc always refers to the NPC that led here, whether
+    // opened from the NPC detail panel's own row click or via useTodo's jumpToNpc+openReferenceComparison
+    // pairing. No sink NPC row (selectedNpc.Sink is null — this NPC hasn't been synced to sink at
+    // all yet) means there's nothing to link, so this is never called without one — see the
+    // FactionComparison onCreate prop passed below.
+    function createNPCFactionInSink(sourceId) {
+        const npcId = npcSync.selectedNpc?.Sink?.Id
+        if (!npcId) return
+        createNPCFaction.openCreateFactionPreview(sourceId, npcId)
+    }
+
+    // Refreshes the currently-open reference drawer after a successful create — replays with
+    // (sourceId, sourceId), same as refreshReferenceAfterAlign: this NPC's own npc_faction_id is
+    // now sourceId (CreateNPCFaction just set it), not whatever SinkId used to be.
+    function refreshReferenceAfterCreateFaction() {
+        if (!referenceDrawer.referenceDrawerData) return
+        const sourceId = referenceDrawer.referenceDrawerData.SourceId
+        referenceDrawer.openReferenceComparison(referenceDrawer.referenceDrawerType, sourceId, sourceId)
     }
 
     // Single dispatch point for ConfirmSyncReferenceContentModal's executeSyncContent callback —
@@ -469,7 +495,8 @@ function App() {
                 {referenceDrawer.referenceDrawerType === 'faction' && (
                     <FactionComparison comparison={referenceDrawer.referenceDrawerData}
                                        onAlign={(sourceId, sinkId) => alignReferenceId('npc_faction', sourceId, sinkId)}
-                                       onSyncContent={(sourceId, sinkId) => syncReferenceContentForType('npc_faction', sourceId, sinkId)}/>
+                                       onSyncContent={(sourceId, sinkId) => syncReferenceContentForType('npc_faction', sourceId, sinkId)}
+                                       onCreate={npcSync.selectedNpc?.Sink?.Id ? createNPCFactionInSink : undefined}/>
                 )}
                 {referenceDrawer.referenceDrawerType === 'spells' && (
                     <SpellsComparison comparison={referenceDrawer.referenceDrawerData}
@@ -534,6 +561,14 @@ function App() {
                 createError={createLootDrop.createError} createPreview={createLootDrop.createPreview} createSourceId={createLootDrop.createSourceId}
                 creating={createLootDrop.creating}
                 executeCreate={() => createLootDrop.executeCreate(refreshLootAfterCreate)}
+                dbSinkName={connections.dbSinkName}
+            />
+            <ConfirmCreateNPCFactionModal
+                showCreateFactionConfirm={createNPCFaction.showCreateFactionConfirm} setShowCreateFactionConfirm={createNPCFaction.setShowCreateFactionConfirm}
+                createFactionError={createNPCFaction.createFactionError} createFactionPreview={createNPCFaction.createFactionPreview}
+                createFactionSourceId={createNPCFaction.createFactionSourceId}
+                creatingFaction={createNPCFaction.creatingFaction}
+                executeCreateFaction={() => createNPCFaction.executeCreateFaction(refreshReferenceAfterCreateFaction)}
                 dbSinkName={connections.dbSinkName}
             />
             <div className="flex flex-1 min-h-0">

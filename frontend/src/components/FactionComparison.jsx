@@ -14,7 +14,7 @@ function fmtEntry(exists, value, npcValue, temp) {
     return flags.length > 0 ? `${value} (${flags.join(', ')})` : `${value}`
 }
 
-function FactionComparison({comparison, onAlign, onSyncContent}) {
+function FactionComparison({comparison, onAlign, onSyncContent, onCreate}) {
     if (!comparison) {
         return <div className="text-xs text-gray-500">Loading…</div>
     }
@@ -22,6 +22,12 @@ function FactionComparison({comparison, onAlign, onSyncContent}) {
     const sourceFields = comparison.SourceFields
     const sinkFields = comparison.SinkFields
     const entries = comparison.Entries ?? []
+    // Sink has nothing usable at this NPC's own npc_faction_id yet — either no link at all
+    // (SinkId === 0) or a dangling one (nonzero but doesn't resolve, the common case after a plain
+    // npc_types sync copies the raw id verbatim). onCreate is only passed in when there's a real
+    // sink NPC row to link (see App.jsx) — without one, there'd be nothing to point at the new content.
+    const sinkMissing = comparison.SinkId === 0 || (comparison.SinkId !== 0 && !sinkFields)
+    const canCreate = onCreate && sourceFields && sinkMissing
 
     return (
         <>
@@ -71,6 +77,21 @@ function FactionComparison({comparison, onAlign, onSyncContent}) {
                             <button onClick={() => onSyncContent(comparison.SourceId, comparison.SinkId)}
                                     className="px-2 py-1 rounded text-xs border border-amber-700 text-amber-400 hover:border-amber-400 hover:text-amber-300">
                                 Sync content from source →
+                            </button>
+                        </div>
+                    )}
+                    {/* Create — for when Align/Sync Content have nothing on the sink to work with at
+                        all: this NPC's own sink npc_faction_id is either 0 or dangling. Copies
+                        source's npc_faction (+entries) to the sink at source's own id — evicting
+                        whatever else occupies that id on sink first, same squatter-eviction
+                        relocateRow already gives AlignId/CreateLootDrop — then points this NPC's
+                        npc_faction_id at it, since that link (unlike lootdrop→loottable) is
+                        unambiguous: this is the exact id that led here. */}
+                    {canCreate && (
+                        <div className="flex justify-end px-2">
+                            <button onClick={() => onCreate(comparison.SourceId)}
+                                    className="px-2 py-1 rounded text-xs border border-emerald-700 text-emerald-400 hover:border-emerald-400 hover:text-emerald-300">
+                                Create npc_faction in sink →
                             </button>
                         </div>
                     )}

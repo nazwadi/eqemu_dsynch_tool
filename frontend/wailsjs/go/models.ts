@@ -341,6 +341,44 @@ export namespace main {
 	        this.EntriesCreated = source["EntriesCreated"];
 	    }
 	}
+	export class CreateNPCFactionOptions {
+	    SourceId: number;
+	    NPCID: number;
+	    DryRun: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new CreateNPCFactionOptions(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.SourceId = source["SourceId"];
+	        this.NPCID = source["NPCID"];
+	        this.DryRun = source["DryRun"];
+	    }
+	}
+	export class CreateNPCFactionResult {
+	    DryRun: boolean;
+	    SourceId: number;
+	    SquatterSummary: string;
+	    SquatterEvicted: boolean;
+	    NewSquatterId: number;
+	    EntriesCreated: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new CreateNPCFactionResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.DryRun = source["DryRun"];
+	        this.SourceId = source["SourceId"];
+	        this.SquatterSummary = source["SquatterSummary"];
+	        this.SquatterEvicted = source["SquatterEvicted"];
+	        this.NewSquatterId = source["NewSquatterId"];
+	        this.EntriesCreated = source["EntriesCreated"];
+	    }
+	}
 	export class DeleteSpawnGroupOptions {
 	    SpawnGroupId: number;
 	    DryRun: boolean;

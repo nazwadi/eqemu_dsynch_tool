@@ -50,6 +50,10 @@ export function CreateLootDrop(arg1) {
   return window['go']['main']['App']['CreateLootDrop'](arg1);
 }
 
+export function CreateNPCFaction(arg1) {
+  return window['go']['main']['App']['CreateNPCFaction'](arg1);
+}
+
 export function DeleteSpawnGroup(arg1) {
   return window['go']['main']['App']['DeleteSpawnGroup'](arg1);
 }
