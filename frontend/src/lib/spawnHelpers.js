@@ -38,6 +38,19 @@ export function spawnEntriesOnly(row) {
     return row.Status === 'modified' && !row.FieldsDiffer
 }
 
+// Sortable "who's here" key for a spawn point — the alphabetically-first spawn entry's NPCName,
+// so locations sharing a similar roster sort near each other (added 2026-07-26, for the "sort by
+// NPC" option in the diff list / map picker — the actual motivation: comparing source's and sink's
+// spawn entries side by side to decide whether a create/update/delete is really wanted, which is
+// hard to do when new/modified/removed locations for the "same" NPCs are scattered across the
+// list by status/coordinate instead of sitting near each other). Falls back to '' (sorts first)
+// for a location with no spawn entries at all, e.g. a dangling/missing spawngroup.
+export function spawnPrimaryNpcName(point) {
+    const names = (point?.SpawnEntries ?? []).map(se => se.NPCName || '').filter(Boolean)
+    if (names.length === 0) return ''
+    return names.slice().sort((a, b) => a.localeCompare(b))[0]
+}
+
 export function spawnRowMatchesSearch(row, query) {
     if (!query.trim()) return true
     const q = query.trim().toLowerCase()
