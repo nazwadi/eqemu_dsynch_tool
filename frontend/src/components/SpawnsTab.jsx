@@ -8,18 +8,27 @@ import {
     spawnRowSelectable
 } from '../lib/spawnHelpers';
 import {useListArrowKeyNav} from '../hooks/useListArrowKeyNav';
+import SpawnMapView from './SpawnMapView';
 
 // Spawn Points tab body — mirrors NpcsTab's shape (diff list sliding to a sync preview) but with
 // its own sort keys (Status/Spawngroup/Shared), a spawngroup/NPC search filter, and the
 // FieldsDiffer-vs-SpawnEntriesDiffer row treatment specific to spawn2 (see spawnEntriesOnly). Kept
 // separate from NpcsTab rather than a shared generic component — see NpcsTab's header comment.
+//
+// viewMode ('list' | 'map', added 2026-07-26) mirrors GridsTab's identical List/Map toggle —
+// Map mode replaces the diff-list body with SpawnMapView (a Brewall's Maps background with every
+// spawn2 location in the zone overlaid) plus a compact picker list, same shape as GridsTab's Map
+// mode. See SpawnMapView.jsx's own header comment for why its markers work differently from a
+// grid's (a spawn2 location is a single point, not a multi-waypoint path).
 function SpawnsTab({
     spawnDiffRows, spawnDiffLoading, spawnDiffFilter, setSpawnDiffFilter,
     spawnSearchFilter, setSpawnSearchFilter, spawnSortBy, setSpawnSortBy, spawnSortDir, setSpawnSortDir,
     selectableSpawnRows, selectedSpawnKeys, setSelectedSpawnKeys, selectedSpawnRow, setSelectedSpawnRow,
+    viewMode, setViewMode, setShowSpawnMapHelp,
     dbSourceName, dbSinkName, selectedZoneShortName,
     showSpawnSyncPreview, setShowSpawnSyncPreview, spawnSyncPreview, spawnSyncing, spawnSyncOutcome,
-    setShowSpawnSyncConfirm
+    setShowSpawnSyncConfirm,
+    zoneMap, zoneMapLoading
 }) {
     // Same filter/sort chain the list below renders — see NpcsTab's matching comment for why this
     // was pulled out of the inline .map() call.
@@ -66,13 +75,71 @@ function SpawnsTab({
                         className={`text-xs px-3 py-1 rounded border ${spawnDiffFilter === 'diff' ? 'border-yellow-400 text-yellow-400' : 'border-gray-600 text-gray-400 hover:border-gray-400'}`}>
                         Differences Only
                     </button>
-                    <input
-                        className="ml-auto w-48 text-xs border border-gray-600 bg-gray-700 rounded px-2 py-1 disabled:opacity-40 disabled:cursor-not-allowed"
-                        placeholder="Filter by spawngroup or NPC..."
-                        value={spawnSearchFilter}
-                        onChange={e => setSpawnSearchFilter(e.target.value)}
-                        autoCapitalize="off" autoCorrect="off" spellCheck={false}/>
+                    <div className="ml-auto flex items-center gap-2">
+                        {viewMode === 'list' && (
+                            <input
+                                className="w-48 text-xs border border-gray-600 bg-gray-700 rounded px-2 py-1 disabled:opacity-40 disabled:cursor-not-allowed"
+                                placeholder="Filter by spawngroup or NPC..."
+                                value={spawnSearchFilter}
+                                onChange={e => setSpawnSearchFilter(e.target.value)}
+                                autoCapitalize="off" autoCorrect="off" spellCheck={false}/>
+                        )}
+                        <button
+                            onClick={() => setViewMode('list')}
+                            className={`text-xs px-3 py-1 rounded border ${viewMode === 'list' ? 'border-yellow-400 text-yellow-400' : 'border-gray-600 text-gray-400 hover:border-gray-400'}`}>
+                            List
+                        </button>
+                        <button
+                            onClick={() => setViewMode('map')}
+                            className={`text-xs px-3 py-1 rounded border ${viewMode === 'map' ? 'border-yellow-400 text-yellow-400' : 'border-gray-600 text-gray-400 hover:border-gray-400'}`}>
+                            Map
+                        </button>
+                        {viewMode === 'map' && (
+                            <button
+                                onClick={() => setShowSpawnMapHelp(true)}
+                                title="Controls and marker legend for the spawn points map"
+                                className="w-4 h-4 flex items-center justify-center rounded-full border border-gray-600 text-gray-400 text-[10px] hover:border-gray-400 hover:text-white">
+                                ?
+                            </button>
+                        )}
+                    </div>
                 </div>
+                {viewMode === 'map' ? (
+                    <div className="flex flex-1 min-h-0 overflow-hidden">
+                        <div className="w-52 shrink-0 flex flex-col overflow-y-auto border-r border-gray-700">
+                            {zoneMapLoading ? (
+                                <div className="p-2 text-xs text-gray-500">Loading map…</div>
+                            ) : spawnDiffRows.length === 0 ? (
+                                <div className="p-2 text-xs text-gray-600">No spawn points in this zone to plot.</div>
+                            ) : (
+                                spawnDiffRows
+                                    .slice()
+                                    .sort((a, b) => statusOrder[a.Status] - statusOrder[b.Status])
+                                    .map(row => {
+                                        const key = spawnKey(row)
+                                        const point = row.Source ?? row.Sink
+                                        return (
+                                            <div key={key}
+                                                 className={`px-2 py-1 text-xs cursor-pointer hover:bg-gray-800 flex items-start gap-1 ${
+                                                     selectedSpawnRow && spawnKey(selectedSpawnRow) === key ? 'bg-blue-900/40 text-yellow-400' : 'text-gray-300'
+                                                 }`}
+                                                 onClick={() => setSelectedSpawnRow(row)}>
+                                                <span className={
+                                                    row.Status === 'new' ? 'text-green-400' :
+                                                        row.Status === 'removed' ? 'text-red-400' :
+                                                            row.Status === 'modified' ? 'text-yellow-400' : 'text-gray-600'
+                                                }>●</span>
+                                                <span>{spawnRowLabel(point)}</span>
+                                            </div>
+                                        )
+                                    })
+                            )}
+                        </div>
+                        <SpawnMapView zoneMap={zoneMap} spawnDiffRows={spawnDiffRows} selectedSpawnRow={selectedSpawnRow}
+                                      onSelectSpawnRow={setSelectedSpawnRow}/>
+                    </div>
+                ) : (
+                <>
                 <div className="flex gap-2 px-3 py-1 border-b border-gray-700 bg-gray-850">
                     {[
                         {label: 'Status', value: 'status'},
@@ -207,6 +274,8 @@ function SpawnsTab({
                                 )
                             })}
                     </div>
+                )}
+                </>
                 )}
             </div>
 

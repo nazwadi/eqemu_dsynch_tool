@@ -48,7 +48,7 @@ function ZoneMapView({zoneMap, gridDiffRows, selectedGridRow, selectedWaypointNu
     const svgRef = useRef(null)
     const [view, setView] = useState({scale: 1, offsetX: 0, offsetY: 0})
 
-    const bounds = computeMapBounds(segments, grids)
+    const bounds = computeMapBounds(segments, grids.flatMap(g => (g.Entries ?? []).map(e => ({x: e.X, y: e.Y}))))
     const transform = makeTransform(bounds, VIEW_SIZE, VIEW_SIZE)
     const selectedId = selectedGridRow?.Source?.Id
 

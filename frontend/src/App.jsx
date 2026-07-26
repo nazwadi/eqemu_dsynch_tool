@@ -7,6 +7,7 @@ import SpawnHelpDrawer from './components/SpawnHelpDrawer';
 import NpcHelpDrawer from './components/NpcHelpDrawer';
 import SpawngroupHelpDrawer from './components/SpawngroupHelpDrawer';
 import GridMapHelpDrawer from './components/GridMapHelpDrawer';
+import SpawnMapHelpDrawer from './components/SpawnMapHelpDrawer';
 import LootHelpDrawer from './components/LootHelpDrawer';
 import ExcludedFieldsDrawer from './components/ExcludedFieldsDrawer';
 import ReferenceDrawer from './components/ReferenceDrawer';
@@ -100,6 +101,7 @@ function App() {
     const [showNpcHelp, setShowNpcHelp] = useState(false)
     const [showSpawngroupHelp, setShowSpawngroupHelp] = useState(false)
     const [showGridMapHelp, setShowGridMapHelp] = useState(false)
+    const [showSpawnMapHelp, setShowSpawnMapHelp] = useState(false)
     const [showLootHelp, setShowLootHelp] = useState(false)
     const [showConditionsHelp, setShowConditionsHelp] = useState(false)
     const [showExcludedFieldsDrawer, setShowExcludedFieldsDrawer] = useState(false)
@@ -482,6 +484,7 @@ function App() {
             <NpcHelpDrawer showNpcHelp={showNpcHelp} setShowNpcHelp={setShowNpcHelp}/>
             <SpawngroupHelpDrawer showSpawngroupHelp={showSpawngroupHelp} setShowSpawngroupHelp={setShowSpawngroupHelp}/>
             <GridMapHelpDrawer showGridMapHelp={showGridMapHelp} setShowGridMapHelp={setShowGridMapHelp}/>
+            <SpawnMapHelpDrawer showSpawnMapHelp={showSpawnMapHelp} setShowSpawnMapHelp={setShowSpawnMapHelp}/>
             <LootHelpDrawer showLootHelp={showLootHelp} setShowLootHelp={setShowLootHelp}/>
             <ConditionsHelpDrawer showConditionsHelp={showConditionsHelp} setShowConditionsHelp={setShowConditionsHelp}/>
             <ExcludedFieldsDrawer open={showExcludedFieldsDrawer} onClose={() => setShowExcludedFieldsDrawer(false)}
@@ -854,11 +857,13 @@ function App() {
                             selectableSpawnRows={selectableSpawnRows}
                             selectedSpawnKeys={spawnSync.selectedSpawnKeys} setSelectedSpawnKeys={spawnSync.setSelectedSpawnKeys}
                             selectedSpawnRow={spawnSync.selectedSpawnRow} setSelectedSpawnRow={spawnSync.setSelectedSpawnRow}
+                            viewMode={spawnSync.viewMode} setViewMode={spawnSync.setViewMode} setShowSpawnMapHelp={setShowSpawnMapHelp}
                             dbSourceName={connections.dbSourceName} dbSinkName={connections.dbSinkName}
                             selectedZoneShortName={selectedZoneShortName}
                             showSpawnSyncPreview={spawnSync.showSpawnSyncPreview} setShowSpawnSyncPreview={spawnSync.setShowSpawnSyncPreview}
                             spawnSyncPreview={spawnSync.spawnSyncPreview} spawnSyncing={spawnSync.spawnSyncing} spawnSyncOutcome={spawnSync.spawnSyncOutcome}
                             setShowSpawnSyncConfirm={spawnSync.setShowSpawnSyncConfirm}
+                            zoneMap={zoneMap.zoneMap} zoneMapLoading={zoneMap.zoneMapLoading}
                         />
                     )}
 

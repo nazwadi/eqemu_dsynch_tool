@@ -12,6 +12,9 @@ export function useSpawnSync({zoneShortName, zoneVersion, zoneIdNumber}) {
     const [spawnSortDir, setSpawnSortDir] = useState('asc')
     const [selectedSpawnKeys, setSelectedSpawnKeys] = useState(new Set()) // coordinate-based keys — spawn2 has no cross-database ID
     const [selectedSpawnRow, setSelectedSpawnRow] = useState(null)
+    // List/Map toggle (added 2026-07-26, mirrors useGridSync.js's identical viewMode) — not reset
+    // on zone switch, same as the Grids tab's own toggle isn't.
+    const [viewMode, setViewMode] = useState('list') // 'list' | 'map'
     const [showSpawnSyncPreview, setShowSpawnSyncPreview] = useState(false)
     const [spawnSyncPreview, setSpawnSyncPreview] = useState(null)
     const [spawnSyncing, setSpawnSyncing] = useState(false)
@@ -77,6 +80,7 @@ export function useSpawnSync({zoneShortName, zoneVersion, zoneIdNumber}) {
         spawnSortBy, setSpawnSortBy, spawnSortDir, setSpawnSortDir,
         selectedSpawnKeys, setSelectedSpawnKeys,
         selectedSpawnRow, setSelectedSpawnRow,
+        viewMode, setViewMode,
         showSpawnSyncPreview, setShowSpawnSyncPreview,
         spawnSyncPreview, setSpawnSyncPreview,
         spawnSyncing, spawnSyncOutcome, setSpawnSyncOutcome,

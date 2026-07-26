@@ -7,22 +7,24 @@
 // are the same world coordinate system spawn2/grid_entries already use, so two independently
 // computed transforms would silently misalign the overlay against the map.
 
-// computeMapBounds takes the union of every zone map segment's endpoints AND every grid
-// waypoint's own coordinates (segments may not exist yet — a zone with no Brewall coverage still
-// has grids worth plotting on their own bounding box) so the fit-to-container scale always covers
-// everything actually being drawn, not just the background.
-export function computeMapBounds(segments, gridPoints) {
+// computeMapBounds takes the union of every zone map segment's endpoints AND every extra point
+// passed in (segments may not exist yet — a zone with no Brewall coverage still has grids/spawn
+// points worth plotting on their own bounding box) so the fit-to-container scale always covers
+// everything actually being drawn, not just the background. `points` is a flat array of {x, y} in
+// world space — generalized 2026-07-26 (originally grid-waypoint-shaped, `{Entries: [{X,Y}]}`) so
+// the Spawn Points tab's own map view (plain spawn2 coordinates, no nested Entries) could reuse
+// this instead of a near-duplicate bounds function; callers flatten their own shape into {x, y}
+// before calling (see ZoneMapView.jsx/SpawnMapView.jsx).
+export function computeMapBounds(segments, points) {
     const xs = []
     const ys = []
     for (const s of segments) {
         xs.push(s.X1, s.X2)
         ys.push(s.Y1, s.Y2)
     }
-    for (const g of gridPoints) {
-        for (const e of g.Entries ?? []) {
-            xs.push(e.X)
-            ys.push(e.Y)
-        }
+    for (const p of points) {
+        xs.push(p.x)
+        ys.push(p.y)
     }
     if (xs.length === 0) return null
     return {minX: Math.min(...xs), maxX: Math.max(...xs), minY: Math.min(...ys), maxY: Math.max(...ys)}
