@@ -428,9 +428,29 @@ func (a *App) SyncSpawnGroup(options SyncSpawnGroupOptions) (SpawnGroupSyncResul
 
 	targetGroupId := sinkPoint.SpawnGroupId
 	if result.Created {
+		// Real, shipped bug fixed 2026-07-26: this used to insert with no id override at all, so
+		// MySQL auto-assigned whatever id was next in the sink's own sequence — almost never
+		// sourcePoint.SpawnGroupId. But sinkPoint.SpawnGroupId (the dangling id being replaced
+		// here) is ITSELF the raw value SyncSpawnPoints already copied verbatim from source (see
+		// that function's own comment) — so the id correspondence between source and sink already
+		// existed going into this call; letting auto-increment assign a fresh id then repointed
+		// spawn2 onto a NEW id that no longer matches source at all, discarding a correspondence
+		// that was already correct rather than fixing anything. Forcing the explicit id here
+		// (mirroring RelocateSpawnGroup's reclaim step, which does the same for the same reason)
+		// keeps the created spawngroup's id equal to source's own id — the normal case is that
+		// this ends up identical to sinkPoint.SpawnGroupId, making the repoint below a no-op; it
+		// only actually moves anything if the sink's dangling reference had drifted from source's
+		// CURRENT spawngroupID between when spawn2 was synced and now (e.g. source's own spawngroup
+		// link changed in the meantime). If source's id is already occupied by unrelated sink
+		// content, this fails loudly (a real INSERT collision) rather than silently reusing a
+		// wrong id — that's a genuine SpawnGroupCollisionRisk case, meant to be resolved via
+		// Relocate & reclaim first, not papered over here.
+		//
 		// Try source's own name verbatim first; insertSpawnGroupWithNameFallback disambiguates
 		// only if sink already has an unrelated group under that same name — see its own comment.
-		newGroupId, err := insertSpawnGroupWithNameFallback(a.ctx, tx, sourcePoint.SpawnGroupFields, sinkColumns, nil, sourcePoint.SpawnGroupId)
+		newGroupId, err := insertSpawnGroupWithNameFallback(a.ctx, tx, sourcePoint.SpawnGroupFields, sinkColumns, map[string]interface{}{
+			"id": sourcePoint.SpawnGroupId,
+		}, sourcePoint.SpawnGroupId)
 		if err != nil {
 			_ = tx.Rollback()
 			return result, fmt.Errorf("creating spawngroup: %w", err)
@@ -439,7 +459,8 @@ func (a *App) SyncSpawnGroup(options SyncSpawnGroupOptions) (SpawnGroupSyncResul
 		// not just sinkPoint's own row — so a shared spawngroup synced across many new spawn2
 		// locations (all copied with the identical raw source spawngroupID, see SyncSpawnPoints)
 		// resolves to the one real spawngroup just created, not a separate dangling reference per
-		// location.
+		// location. Usually a no-op now that newGroupId is forced to match source's id (see above),
+		// kept regardless since it's still correct — and load-bearing — in the drifted-id edge case.
 		if _, err := tx.ExecContext(a.ctx,
 			"UPDATE spawn2 SET spawngroupID = ? WHERE spawngroupID = ? AND zone = ? AND version = ?",
 			newGroupId, targetGroupId, options.ZoneShortName, options.ZoneVersion,
