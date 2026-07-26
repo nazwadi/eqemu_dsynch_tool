@@ -996,7 +996,14 @@ const [showSyncConfirm, setShowSyncConfirm] = useState(false)  // gates Execute 
 // TODO tab — activeView stays in App.jsx (drives which tab's JSX renders, read by every hook's
 // section in the header/detail panel, not owned by any one tab); todoItems/showDismissedTodos are
 // useTodo.js's.
-const [activeView, setActiveView] = useState('npcs')  // 'npcs' | 'todo' | 'spawns' | 'grids' | 'spawngroups' — tab switcher in the zone header
+const [activeView, setActiveView] = useState('npcs')  // 'npcs' | 'todo' | 'spawns' | 'loot' — 4 top-level tabs (tab switcher in the zone header)
+// spawnsSubView, added 2026-07-25 (tab consolidation) — which of the four spawn-related views shows
+// under the "Spawns" tab; only meaningful when activeView === 'spawns'. See the "Tab consolidation"
+// Sync Design entry for why Spawn Points/Spawngroups/Grids/Conditions collapsed from four top-level
+// tabs into one with this secondary sub-tab row, and DetailPanel.jsx's own comment for how its
+// existing 'spawns'/'spawngroups'/'grids' dispatch values map onto this without DetailPanel itself
+// needing to change.
+const [spawnsSubView, setSpawnsSubView] = useState('points')  // 'points' | 'groups' | 'grids' | 'conditions'
 const [todoItems, setTodoItems] = useState([])        // full archive from LoadTODOItems(), dismissed items included
 const [showDismissedTodos, setShowDismissedTodos] = useState(false)
 
@@ -1257,26 +1264,38 @@ const [expandedSections, setExpandedSections] = useState({
 
 Three columns: a resizable/collapsible **sidebar** (connections + zone list), a **center panel**
 (flex-1, holds whichever tab is active — NPCs slides between its own Diff View and Sync Preview;
-Spawns/Grids/Spawngroups do the same with their own preview slide-overs; TODO and Loot are single-
-view, no slide-over), and a resizable **detail panel** on the right showing whatever's selected in
-the active tab.
+the Spawns tab's own four sub-tabs do the same with their own preview slide-overs where they have
+one; TODO and Loot are single-view, no slide-over), and a resizable **detail panel** on the right
+showing whatever's selected in the active tab/sub-tab.
 
 The persistent zone header sits above the center panel, outside the sliding content, so its width
 never depends on which tab is open: zone name/version, that tab's own diff-count badges
 (`+new ~modified -removed`, plus an amber `⚠` count where a tab has a "differs but not the usual
 way" case — spawn entries only, or ambiguous spawngroup matches), that tab's own sync-trigger
-button if it has one, and the tab switcher itself (NPCs / Spawn Points / Spawngroups / Grids /
-Conditions / Loot / TODO), always last so the switcher's position never shifts as other controls
-come and go.
+button if it has one, and the top-level tab switcher itself (NPCs / Spawns / Loot / TODO), always
+last so the switcher's position never shifts as other controls come and go.
+
+**Tab consolidation, added 2026-07-25:** Spawn Points / Spawngroups / Grids / Conditions —
+previously four separate top-level tabs — collapsed into one "Spawns" tab carrying an aggregate
+badge (sum of the four sub-domains' own counts), with a **secondary sub-tab row** (Points | Groups
+| Grids | Conditions, each still showing its own individual badge) rendered as its own strip
+directly below the persistent header, shown only while the Spawns tab is active. Deliberately kept
+as a separate strip rather than folded into the persistent header row itself, so it doesn't disturb
+that row's own "width never depends on which tab is open" guarantee. Mirrors a pattern the app
+already had one level down: `GridsTab`'s own internal List/Map toggle. See the "Tab consolidation"
+Sync Design entry below for the full design and what didn't change.
 
 The detail panel is shared and switches its content on `activeView`: NPCs shows the field-group
 sections (Identity/Combat/Resistances/Ability Scores/Behavior/References, the last with clickable
-rows that open the faction/spells/merchant reference drawer — see ReferenceDrawer.jsx); Spawns
-shows Location/Behavior/Spawn Entries; Grids shows fields + Waypoints; Spawngroups shows
-Fields/Spawn Entries. The detail panel and its drag handle are omitted entirely on TODO, Loot, and
-Conditions — none has content of its own (Loot's two-column tree already shows everything inline;
-Conditions has no selection concept at all) — so the center panel reclaims that width instead of
-it sitting idle.
+rows that open the faction/spells/merchant reference drawer — see ReferenceDrawer.jsx); the Spawns
+tab's Points/Groups/Grids sub-tabs show Location/Behavior/Spawn Entries, Fields/Spawn Entries, and
+fields + Waypoints respectively. The detail panel and its drag handle are omitted entirely on TODO,
+Loot, and the Spawns tab's Conditions sub-tab — none has content of its own (Loot's two-column tree
+already shows everything inline; Conditions has no selection concept at all) — so the center panel
+reclaims that width instead of it sitting idle. `App.jsx` computes a `detailPanelView` value from
+`activeView`+`spawnsSubView` and passes that into `DetailPanel`'s own `activeView` prop —
+`DetailPanel.jsx` itself is unaware the tab consolidation happened at all, since it already
+dispatched on the same four strings (`npcs`/`spawns`/`grids`/`spawngroups`) this maps back onto.
 
 ## Color Coding
 - **Green** (`bg-green-950`) = new NPC in source, not in sink
@@ -1360,6 +1379,13 @@ it sitting idle.
   - Backend: new `conditions.go` (`SpawnCondition`/`SpawnConditionDiffRow`/`SpawnConditionValue`/`SpawnEvent`/`ZoneConditionsComparison`, `CompareZoneConditions`) — reuses `scanDynamicRows`/`toInt64`/`withoutFields`/`mapsEqual`/`runParallel` entirely as-is, no new low-level helpers needed. Built with `runParallel` from the start (one goroutine per side, mirroring `CompareSpawns`), not retrofitted later the way earlier `Compare*` methods were.
   - Frontend: new `useSpawnConditions.js` (no selection/sync state at all, unlike every other domain hook — there's nothing to select or sync here) and `ConditionsTab.jsx`, a new peer tab with no detail panel (added to the same `activeView !== 'todo' && activeView !== 'loot'` exclusion list, now `&& activeView !== 'conditions'`) and no selection concept anywhere in it — three stacked sections in one scrolling body instead of the usual list+detail-panel shape, since the content is either small enough to show inline (Spawn Conditions) or explicitly not meant to invite interaction (Values/Events). `ConditionsHelpDrawer.jsx` (same `HelpDrawer.jsx` shell every other tab's drawer uses) carries the two non-obvious "why isn't this diffed/paired" explanations, triggered from the tab's own toolbar since there's no detail panel to attach a header button to (same placement reasoning as `LootHelpDrawer`/`GridMapHelpDrawer`).
   - `go build`/`vet`/`test -race` and `vite build` clean; `wails generate module` run for `CompareZoneConditions` and its new types. Not yet manually smoke-tested in `wails dev` against a zone with known spawn_conditions/spawn_events content.
+- **Tab consolidation — Spawn Points/Spawngroups/Grids/Conditions merged under one "Spawns" tab, added 2026-07-25.** Direct follow-up to a UX design-review discussion the same day ("Would it make sense to consolidate spawn points, spawngroups, grids, and conditions as subsections under one top-level Spawns tab?"), which produced a mocked-up Artifact the user didn't commit to at the time ("I'm not sold on the idea of consolidation") before separately deciding to proceed ("Okay now lets consolidate the tabs as planned"). Reduces the tab switcher from 7 flat buttons to 4 (NPCs / Spawns / Loot / TODO); the four merged tabs — all different views onto "what spawns where, and how" — become a secondary sub-tab row (Points | Groups | Grids | Conditions) shown only while Spawns is active, rendered as its own strip below the persistent zone header rather than folded into it, so it doesn't disturb that header's existing "width never depends on which tab is open" guarantee. Mirrors a pattern the app already had one level down — `GridsTab`'s own internal List/Map toggle — Spawns just adds one more layer of the same idea at the top-level tab bar.
+  - Purely a navigation/state restructuring: **no backend changes, no hook changes, and no changes to any of the four tab body components** (`SpawnsTab.jsx`/`SpawngroupsTab.jsx`/`GridsTab.jsx`/`ConditionsTab.jsx`) or their detail panels — only `App.jsx`'s `activeView` wiring, plus one new piece of state, `spawnsSubView` (`'points' | 'groups' | 'grids' | 'conditions'`, default `'points'`). Every `activeView === 'grids' | 'spawngroups' | 'conditions'` check (and the "Spawn Points" meaning of `activeView === 'spawns'`) became a compound `activeView === 'spawns' && spawnsSubView === 'X'` check at each of its ~10 call sites (header badge blocks, primary sync/relocate action buttons, the tab-body mounting conditions). `spawnsSubView` isn't reset on zone switch, same as `activeView` itself always wasn't — all four sub-domains' diff data already loads eagerly on every zone switch regardless of which tab/sub-tab is active (`selectZone`'s fan-out is untouched).
+  - The top-level "Spawns" button carries an aggregate badge — `spawnsAggregateCount`, plain arithmetic summing the same four count variables (`spawnNeedsAttentionCount`/`spawnGroupNeedsAttentionCount`/`selectableGridRows.length`/`conditionsNewCount`+`conditionsModifiedCount`) each sub-domain already individually badged with before consolidation; the new secondary row still shows each one on its own sub-tab button, unchanged.
+  - **`DetailPanel.jsx` needed zero changes.** It already dispatched purely on whatever string its `activeView` prop received, using the exact four values (`npcs`/`spawns`/`grids`/`spawngroups`) that happen to be precisely the four sub-domains being consolidated. `App.jsx` computes a derived `detailPanelView` (`activeView === 'spawns' ? {points:'spawns', groups:'spawngroups', grids:'grids', conditions:null}[spawnsSubView] : (activeView === 'npcs' ? 'npcs' : null)`) and passes that into `DetailPanel`'s `activeView` prop instead of App's own (now 4-value) `activeView` — `DetailPanel` is unaware anything changed. This also replaced the old three-way `activeView !== 'todo' && activeView !== 'loot' && activeView !== 'conditions'` detail-panel-omission check with a single `detailPanelView !== null` — `detailPanelView` is `null` for exactly those same three cases (todo, loot, and the conditions sub-view), expressed once instead of enumerated at each site.
+  - `jumpToGrid(id)` (the pathgrid-navigation entry point from `SpawnDetailPanel`) updated from `setActiveView('grids')` to `setActiveView('spawns'); setSpawnsSubView('grids')`, keeping its existing `gridSync.setSelectedGridRow(row)`/`gridSync.setViewMode('map')` calls unchanged.
+  - **Known, accepted tradeoff, not fixed here:** `GridsTab`'s own internal List/Map `viewMode` toggle now sits three levels deep (Spawns tab → Grids sub-tab → List/Map) — raised explicitly during the design-review discussion, the user chose to proceed anyway.
+  - No Go changes, no `wails generate module` needed. `vite build` clean.
 
 ### What gets queued as TODO (not synced):
 - `loottable` / `loottable_entries` / `lootdrop` / `lootdrop_entries` (via `loottable_id`)

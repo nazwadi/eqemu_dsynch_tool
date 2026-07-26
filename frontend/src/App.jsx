@@ -86,7 +86,12 @@ function App() {
     const [selectedZoneId, setSelectedZoneId] = useState(null)
     const [selectedZoneVersion, setSelectedZoneVersion] = useState(0)
     const [selectedZoneIdNumber, setSelectedZoneIdNumber] = useState(null)
-    const [activeView, setActiveView] = useState('npcs') // 'npcs' | 'todo' | 'spawns' | 'grids' | 'spawngroups' | 'loot'
+    const [activeView, setActiveView] = useState('npcs') // 'npcs' | 'todo' | 'spawns' | 'loot' — 4 top-level tabs
+    // spawnsSubView (added 2026-07-25, tab consolidation) — which of the four spawn-related views is
+    // showing under the "Spawns" tab; only meaningful when activeView === 'spawns'. Not reset on zone
+    // switch, same as activeView itself — all four sub-domains' diff data already loads eagerly on
+    // every zone switch regardless of which tab/sub-tab is active (see selectZone's fan-out below).
+    const [spawnsSubView, setSpawnsSubView] = useState('points') // 'points' | 'groups' | 'grids' | 'conditions'
     const [showSpawnHelp, setShowSpawnHelp] = useState(false) // right-edge drawer explaining spawn2→spawngroup→spawn entries; see the Spawn Point Detail panel's "?" button
     // Same pattern as showSpawnHelp above, one per tab that has a "?" trigger — each too small
     // (open/close only, static content) to warrant its own hook, see CLAUDE.md's Key State notes.
@@ -297,7 +302,8 @@ function App() {
     function jumpToGrid(id) {
         const row = gridSync.gridDiffRows.find(r => r.Source?.Id === id || r.Sink?.Id === id)
         if (!row) return
-        setActiveView('grids')
+        setActiveView('spawns')
+        setSpawnsSubView('grids')
         gridSync.setSelectedGridRow(row)
         gridSync.setViewMode('map')
     }
@@ -390,6 +396,18 @@ function App() {
     const conditionsNewCount = conditionsRows.filter(r => r.Status === 'new').length
     const conditionsModifiedCount = conditionsRows.filter(r => r.Status === 'modified').length
     const conditionsRemovedCount = conditionsRows.filter(r => r.Status === 'removed').length
+    // Aggregate badge for the consolidated top-level "Spawns" tab button — sum of the same four
+    // counts each sub-domain badged individually before consolidation (see the secondary sub-tab
+    // row below, which still shows each one on its own button).
+    const spawnsAggregateCount = spawnNeedsAttentionCount + spawnGroupNeedsAttentionCount + selectableGridRows.length + conditionsNewCount + conditionsModifiedCount
+    // DetailPanel.jsx dispatches on the exact four strings 'npcs'/'spawns'/'grids'/'spawngroups' —
+    // unchanged by the tab consolidation above, since those are the same four sub-domains, just
+    // reached via activeView+spawnsSubView now instead of activeView alone. This maps the new
+    // two-level state back onto what DetailPanel already understands, and doubles as "should the
+    // detail panel render at all" — null for todo/loot/conditions, none of which have one.
+    const detailPanelView = activeView === 'spawns'
+        ? {points: 'spawns', groups: 'spawngroups', grids: 'grids', conditions: null}[spawnsSubView]
+        : (activeView === 'npcs' ? 'npcs' : null)
 
     // Variables for npc_types detail view — one shared object across NPC keys (identity, combat,
     // ...) and spawn/grid/spawngroup keys precisely because they never collide, so collapsed/
@@ -605,7 +623,7 @@ function App() {
                             <span className="px-2 py-0.5 rounded bg-yellow-950 text-yellow-400">~{modifiedCount}</span>
                             <span className="px-2 py-0.5 rounded bg-red-950 text-red-400">-{removedCount}</span>
                         </>}
-                        {activeView === 'spawns' && spawnSync.spawnDiffRows.length > 0 && <>
+                        {activeView === 'spawns' && spawnsSubView === 'points' && spawnSync.spawnDiffRows.length > 0 && <>
                             <span className="px-2 py-0.5 rounded bg-green-950 text-green-400">+{spawnNewCount}</span>
                             <span className="px-2 py-0.5 rounded bg-yellow-950 text-yellow-400">~{spawnModifiedCount}</span>
                             <span className="px-2 py-0.5 rounded bg-red-950 text-red-400">-{spawnRemovedCount}</span>
@@ -616,12 +634,12 @@ function App() {
                                 </span>
                             )}
                         </>}
-                        {activeView === 'grids' && gridSync.gridDiffRows.length > 0 && <>
+                        {activeView === 'spawns' && spawnsSubView === 'grids' && gridSync.gridDiffRows.length > 0 && <>
                             <span className="px-2 py-0.5 rounded bg-green-950 text-green-400">+{gridNewCount}</span>
                             <span className="px-2 py-0.5 rounded bg-yellow-950 text-yellow-400">~{gridModifiedCount}</span>
                             <span className="px-2 py-0.5 rounded bg-red-950 text-red-400">-{gridRemovedCount}</span>
                         </>}
-                        {activeView === 'spawngroups' && spawnGroupsTab.spawnGroupDiffRows.length > 0 && <>
+                        {activeView === 'spawns' && spawnsSubView === 'groups' && spawnGroupsTab.spawnGroupDiffRows.length > 0 && <>
                             <span className="px-2 py-0.5 rounded bg-green-950 text-green-400">+{spawnGroupNewCount}</span>
                             <span className="px-2 py-0.5 rounded bg-yellow-950 text-yellow-400">~{spawnGroupModifiedCount}</span>
                             <span className="px-2 py-0.5 rounded bg-red-950 text-red-400">-{spawnGroupRemovedCount}</span>
@@ -632,7 +650,7 @@ function App() {
                                 </span>
                             )}
                         </>}
-                        {activeView === 'conditions' && conditionsRows.length > 0 && <>
+                        {activeView === 'spawns' && spawnsSubView === 'conditions' && conditionsRows.length > 0 && <>
                             <span className="px-2 py-0.5 rounded bg-green-950 text-green-400">+{conditionsNewCount}</span>
                             <span className="px-2 py-0.5 rounded bg-yellow-950 text-yellow-400">~{conditionsModifiedCount}</span>
                             <span className="px-2 py-0.5 rounded bg-red-950 text-red-400">-{conditionsRemovedCount}</span>
@@ -655,7 +673,7 @@ function App() {
                                 {npcSync.selectedNPCs.size > 0 ? `Sync ${npcSync.selectedNPCs.size} NPCs` : 'Sync NPCs'}
                             </button>
                         )}
-                        {activeView === 'spawns' && (
+                        {activeView === 'spawns' && spawnsSubView === 'points' && (
                             <button
                                 disabled={spawnSync.selectedSpawnKeys.size === 0 || spawnSync.showSpawnSyncPreview}
                                 className={`px-3 py-1 rounded text-xs font-medium ${
@@ -673,7 +691,7 @@ function App() {
                                 {spawnSync.selectedSpawnKeys.size > 0 ? `Sync ${spawnSync.selectedSpawnKeys.size} Spawn Points` : 'Sync Spawn Points'}
                             </button>
                         )}
-                        {activeView === 'spawns' && spawnGroupCollisionIds.length > 0 && (
+                        {activeView === 'spawns' && spawnsSubView === 'points' && spawnGroupCollisionIds.length > 0 && (
                             <button
                                 onClick={() => batchRelocateSpawnGroups.openBatchRelocatePreview(spawnGroupCollisionIds)}
                                 title="Relocate & reclaim every distinct colliding spawngroup found among 'new' spawn points in this zone, in one confirm"
@@ -681,7 +699,7 @@ function App() {
                                 Relocate {spawnGroupCollisionIds.length} colliding spawngroup{spawnGroupCollisionIds.length === 1 ? '' : 's'}
                             </button>
                         )}
-                        {activeView === 'grids' && (
+                        {activeView === 'spawns' && spawnsSubView === 'grids' && (
                             <button
                                 disabled={gridSync.selectedGridIds.size === 0 || gridSync.showGridSyncPreview}
                                 className={`px-3 py-1 rounded text-xs font-medium ${
@@ -708,22 +726,7 @@ function App() {
                             <button
                                 onClick={() => setActiveView('spawns')}
                                 className={`px-2 py-1 rounded text-xs border ${activeView === 'spawns' ? 'border-yellow-400 text-yellow-400' : 'border-gray-600 text-gray-400 hover:border-gray-400'}`}>
-                                Spawn Points{spawnNeedsAttentionCount > 0 && ` (${spawnNeedsAttentionCount})`}
-                            </button>
-                            <button
-                                onClick={() => setActiveView('spawngroups')}
-                                className={`px-2 py-1 rounded text-xs border ${activeView === 'spawngroups' ? 'border-yellow-400 text-yellow-400' : 'border-gray-600 text-gray-400 hover:border-gray-400'}`}>
-                                Spawngroups{spawnGroupNeedsAttentionCount > 0 && ` (${spawnGroupNeedsAttentionCount})`}
-                            </button>
-                            <button
-                                onClick={() => setActiveView('grids')}
-                                className={`px-2 py-1 rounded text-xs border ${activeView === 'grids' ? 'border-yellow-400 text-yellow-400' : 'border-gray-600 text-gray-400 hover:border-gray-400'}`}>
-                                Grids{selectableGridRows.length > 0 && ` (${selectableGridRows.length})`}
-                            </button>
-                            <button
-                                onClick={() => setActiveView('conditions')}
-                                className={`px-2 py-1 rounded text-xs border ${activeView === 'conditions' ? 'border-yellow-400 text-yellow-400' : 'border-gray-600 text-gray-400 hover:border-gray-400'}`}>
-                                Conditions{conditionsNewCount + conditionsModifiedCount > 0 && ` (${conditionsNewCount + conditionsModifiedCount})`}
+                                Spawns{spawnsAggregateCount > 0 && ` (${spawnsAggregateCount})`}
                             </button>
                             <button
                                 onClick={() => setActiveView('loot')}
@@ -737,6 +740,38 @@ function App() {
                             </button>
                         </div>
                     </div>
+
+                    {/* Secondary sub-tab row for the consolidated Spawns tab (Points/Groups/Grids/
+                        Conditions — see CLAUDE.md's tab-consolidation Sync Design entry), rendered as
+                        its own strip below the persistent header rather than inside it, so it doesn't
+                        interact with the header's own "width never depends on active tab" guarantee
+                        (see the wrapper comment further up). Individual badge counts are the same
+                        ones each of the four sub-domains showed on its own flat tab button before
+                        consolidation. */}
+                    {activeView === 'spawns' && (
+                        <div className="flex items-center gap-2 px-3 py-1.5 border-b border-gray-700 bg-gray-850">
+                            <button
+                                onClick={() => setSpawnsSubView('points')}
+                                className={`px-2 py-1 rounded text-xs border ${spawnsSubView === 'points' ? 'border-yellow-400 text-yellow-400' : 'border-gray-600 text-gray-400 hover:border-gray-400'}`}>
+                                Points{spawnNeedsAttentionCount > 0 && ` (${spawnNeedsAttentionCount})`}
+                            </button>
+                            <button
+                                onClick={() => setSpawnsSubView('groups')}
+                                className={`px-2 py-1 rounded text-xs border ${spawnsSubView === 'groups' ? 'border-yellow-400 text-yellow-400' : 'border-gray-600 text-gray-400 hover:border-gray-400'}`}>
+                                Groups{spawnGroupNeedsAttentionCount > 0 && ` (${spawnGroupNeedsAttentionCount})`}
+                            </button>
+                            <button
+                                onClick={() => setSpawnsSubView('grids')}
+                                className={`px-2 py-1 rounded text-xs border ${spawnsSubView === 'grids' ? 'border-yellow-400 text-yellow-400' : 'border-gray-600 text-gray-400 hover:border-gray-400'}`}>
+                                Grids{selectableGridRows.length > 0 && ` (${selectableGridRows.length})`}
+                            </button>
+                            <button
+                                onClick={() => setSpawnsSubView('conditions')}
+                                className={`px-2 py-1 rounded text-xs border ${spawnsSubView === 'conditions' ? 'border-yellow-400 text-yellow-400' : 'border-gray-600 text-gray-400 hover:border-gray-400'}`}>
+                                Conditions{conditionsNewCount + conditionsModifiedCount > 0 && ` (${conditionsNewCount + conditionsModifiedCount})`}
+                            </button>
+                        </div>
+                    )}
 
                     {/* Tab content + detail panel share this row; the header above is a sibling of
                         this row (not a child of #input), so its width doesn't depend on whether
@@ -774,7 +809,7 @@ function App() {
                     )}
 
                     {/* Spawns view */}
-                    {activeView === 'spawns' && (
+                    {activeView === 'spawns' && spawnsSubView === 'points' && (
                         <SpawnsTab
                             spawnDiffRows={spawnSync.spawnDiffRows} spawnDiffLoading={spawnSync.spawnDiffLoading}
                             spawnDiffFilter={spawnSync.spawnDiffFilter} setSpawnDiffFilter={spawnSync.setSpawnDiffFilter}
@@ -793,7 +828,7 @@ function App() {
                     )}
 
                     {/* Grids view */}
-                    {activeView === 'grids' && (
+                    {activeView === 'spawns' && spawnsSubView === 'grids' && (
                         <GridsTab
                             gridDiffRows={gridSync.gridDiffRows} gridDiffLoading={gridSync.gridDiffLoading}
                             gridDiffFilter={gridSync.gridDiffFilter} setGridDiffFilter={gridSync.setGridDiffFilter}
@@ -810,7 +845,7 @@ function App() {
                     )}
 
                     {/* Spawngroups view */}
-                    {activeView === 'spawngroups' && (
+                    {activeView === 'spawns' && spawnsSubView === 'groups' && (
                         <SpawngroupsTab
                             spawnGroupDiffRows={spawnGroupsTab.spawnGroupDiffRows} spawnGroupDiffLoading={spawnGroupsTab.spawnGroupDiffLoading}
                             spawnGroupDiffFilter={spawnGroupsTab.spawnGroupDiffFilter} setSpawnGroupDiffFilter={spawnGroupsTab.setSpawnGroupDiffFilter}
@@ -836,7 +871,7 @@ function App() {
                             setShowLootHelp={setShowLootHelp}
                         />
                     )}
-                    {activeView === 'conditions' && (
+                    {activeView === 'spawns' && spawnsSubView === 'conditions' && (
                         <ConditionsTab
                             conditionsComparison={spawnConditions.conditionsComparison}
                             conditionsLoading={spawnConditions.conditionsLoading}
@@ -846,12 +881,13 @@ function App() {
                     )}
                     </div>
                     {/* Drag handle + detail panel are omitted entirely on the TODO, Loot, and
-                        Conditions tabs — none of the three has corresponding detail-panel content
+                        Conditions sub-tab — none of the three has corresponding detail-panel content
                         (Conditions has no selection/detail concept at all, see conditions.go/
                         ConditionsTab.jsx), so hiding both lets the center panel reclaim that width
                         instead of it sitting idle. This only affects the content row's width, not
-                        the header's — see the wrapper comment above. */}
-                    {activeView !== 'todo' && activeView !== 'loot' && activeView !== 'conditions' && (
+                        the header's — see the wrapper comment above. detailPanelView is null for
+                        exactly these three cases, see its own comment above. */}
+                    {detailPanelView !== null && (
                         <>
                             <div
                                 className="w-1 bg-gray-700 hover:bg-yellow-400 cursor-col-resize"
@@ -876,7 +912,7 @@ function App() {
                             />
                             {/* Detail panel (NPC / Spawn Point / Grid, depending on active tab) */}
                             <DetailPanel
-                                activeView={activeView} setShowSpawnHelp={setShowSpawnHelp} detailWidth={uiPrefs.detailWidth}
+                                activeView={detailPanelView} setShowSpawnHelp={setShowSpawnHelp} detailWidth={uiPrefs.detailWidth}
                                 setShowNpcHelp={setShowNpcHelp} setShowSpawngroupHelp={setShowSpawngroupHelp}
                                 selectedNpc={npcSync.selectedNpc}
                                 excludedNpcFields={connections.excludedNpcFields} onToggleExcludedNpcField={toggleExcludedNpcField}
