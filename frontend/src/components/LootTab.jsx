@@ -380,7 +380,7 @@ function LootTab({
                     </span>
                     <button
                         onClick={() => onAlignLoottable(lootComparison.SourceId, lootComparison.SinkId)}
-                        className="text-cyan-400 hover:text-cyan-300 underline shrink-0 ml-2">
+                        className="px-2 py-1 rounded text-xs border border-cyan-700 text-cyan-400 hover:border-cyan-400 hover:text-cyan-300 shrink-0 ml-2">
                         Align loottable ID to source →
                     </button>
                 </div>
@@ -392,7 +392,7 @@ function LootTab({
                     </span>
                     <button
                         onClick={() => onSyncLoottableContent(lootComparison.SourceId, lootComparison.SinkId)}
-                        className="text-amber-400 hover:text-amber-300 underline shrink-0 ml-2">
+                        className="px-2 py-1 rounded text-xs border border-amber-700 text-amber-400 hover:border-amber-400 hover:text-amber-300 shrink-0 ml-2">
                         Sync content from source →
                     </button>
                 </div>
@@ -417,7 +417,7 @@ function LootTab({
                         <button onClick={() => { setArmedSourceDrop(null); setArmedSinkDrop(null) }}
                                 className="text-gray-400 hover:text-white">Cancel</button>
                         <button onClick={confirmDropAlign}
-                                className="text-yellow-400 hover:text-yellow-300 underline font-medium">Align →</button>
+                                className="px-2 py-1 rounded text-xs border border-yellow-600 text-yellow-400 font-medium hover:border-yellow-400 hover:text-yellow-300">Align →</button>
                     </div>
                 </div>
             )}

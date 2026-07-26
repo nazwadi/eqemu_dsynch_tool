@@ -43,7 +43,7 @@ function SpawnGroupDetailPanel({selectedSpawnGroupRow, openSyncSpawnGroupPreview
                                 </div>
                                 <button
                                     onClick={() => openDeleteSpawnGroupPreview(row)}
-                                    className="text-xs text-red-400 hover:text-red-300 underline text-left"
+                                    className="self-start px-2 py-1 rounded text-xs border border-red-700 text-red-400 hover:border-red-400 hover:text-red-300"
                                     title="Delete this spawngroup and its spawn entries from the sink — blocked if any spawn2 row still references it">
                                     Delete spawngroup from sink →
                                 </button>
@@ -64,7 +64,7 @@ function SpawnGroupDetailPanel({selectedSpawnGroupRow, openSyncSpawnGroupPreview
                                 </div>
                                 <button
                                     onClick={() => openSyncSpawnGroupPreviewFromSpawnGroup(row)}
-                                    className="text-xs text-amber-400 hover:text-amber-300 underline text-left"
+                                    className="self-start px-2 py-1 rounded text-xs border border-amber-700 text-amber-400 hover:border-amber-400 hover:text-amber-300"
                                     title="Replace this spawngroup's fields and entries on the sink to match source">
                                     Sync spawngroup from source →
                                 </button>

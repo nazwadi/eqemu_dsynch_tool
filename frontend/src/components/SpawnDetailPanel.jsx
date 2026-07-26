@@ -35,7 +35,7 @@ function SpawnDetailPanel({
                                 </div>
                                 <button
                                     onClick={() => openRelocatePreview(selectedSpawnRow)}
-                                    className="text-xs text-red-400 hover:text-red-300 underline text-left"
+                                    className="self-start px-2 py-1 rounded text-xs border border-red-700 text-red-400 hover:border-red-400 hover:text-red-300"
                                     title="Move whatever's currently at this ID to a new one (repointing anywhere else it's used), then recreate this ID with your source's spawngroup for this zone.">
                                     Relocate & reclaim spawngroup →
                                 </button>
@@ -47,7 +47,7 @@ function SpawnDetailPanel({
                                 </div>
                                 <button
                                     onClick={() => openSyncSpawnGroupPreview(selectedSpawnRow)}
-                                    className="text-xs text-red-400 hover:text-red-300 underline text-left"
+                                    className="self-start px-2 py-1 rounded text-xs border border-red-700 text-red-400 hover:border-red-400 hover:text-red-300"
                                     title="Create the missing spawngroup on the sink and populate it with source's spawn entries — repoints every sink spawn2 row sharing this same dangling reference, not just this one.">
                                     Sync spawngroup from source →
                                 </button>
@@ -59,7 +59,7 @@ function SpawnDetailPanel({
                                 </div>
                                 <button
                                     onClick={() => openSyncSpawnGroupPreview(selectedSpawnRow)}
-                                    className="text-xs text-amber-400 hover:text-amber-300 underline text-left"
+                                    className="self-start px-2 py-1 rounded text-xs border border-amber-700 text-amber-400 hover:border-amber-400 hover:text-amber-300"
                                     title="Replace this spawngroup's entries on the sink to match source — its own fields (spawn_limit, wander box, etc.) are brought in line too if they differ. For a fuller field-level view, see the Spawngroups tab.">
                                     Sync spawngroup from source →
                                 </button>

@@ -28,6 +28,8 @@ import TodoTab from './components/TodoTab';
 import GridsTab from './components/GridsTab';
 import SpawngroupsTab from './components/SpawngroupsTab';
 import LootTab from './components/LootTab';
+import ConditionsTab from './components/ConditionsTab';
+import ConditionsHelpDrawer from './components/ConditionsHelpDrawer';
 import DetailPanel from './components/DetailPanel';
 import GlobalProgressBar from './components/GlobalProgressBar';
 import {spawnCoords, spawnRowSelectable, collidingSpawnGroupIds} from './lib/spawnHelpers';
@@ -45,6 +47,7 @@ import {useRelocateSpawnGroup} from './hooks/useRelocateSpawnGroup';
 import {useBatchRelocateSpawnGroups} from './hooks/useBatchRelocateSpawnGroups';
 import {useDeleteSpawnGroup} from './hooks/useDeleteSpawnGroup';
 import {useGridSync} from './hooks/useGridSync';
+import {useSpawnConditions} from './hooks/useSpawnConditions';
 import {useLoot} from './hooks/useLoot';
 import {useZoneMap} from './hooks/useZoneMap';
 import {useAlignId} from './hooks/useAlignId';
@@ -91,6 +94,7 @@ function App() {
     const [showSpawngroupHelp, setShowSpawngroupHelp] = useState(false)
     const [showGridMapHelp, setShowGridMapHelp] = useState(false)
     const [showLootHelp, setShowLootHelp] = useState(false)
+    const [showConditionsHelp, setShowConditionsHelp] = useState(false)
     const [showExcludedFieldsDrawer, setShowExcludedFieldsDrawer] = useState(false)
 
     const zoneIdentity = {zoneShortName: selectedZoneShortName, zoneVersion: selectedZoneVersion, zoneIdNumber: selectedZoneIdNumber}
@@ -125,6 +129,7 @@ function App() {
         }
     })
     const gridSync = useGridSync(zoneIdentity)
+    const spawnConditions = useSpawnConditions()
     const loot = useLoot()
     const alignId = useAlignId()
     const syncReferenceContent = useSyncReferenceContent()
@@ -331,6 +336,7 @@ function App() {
         spawnSync.onZoneChange(zone)
         gridSync.onZoneChange(zone)
         spawnGroupsTab.onZoneChange(zone)
+        spawnConditions.onZoneChange(zone)
         loot.resetForZoneChange()
         zoneMap.loadZoneMap(zone.ShortName)
     }
@@ -377,6 +383,13 @@ function App() {
     // look (new/modified/ambiguous), not just what's currently syncable — same "actionable, not
     // auto-syncable" semantics as npcActionableCount/spawnNeedsAttentionCount above.
     const spawnGroupNeedsAttentionCount = spawnGroupsTab.spawnGroupDiffRows.filter(r => r.Status !== 'match' && r.Status !== 'removed').length
+    // Only Spawn Conditions has real diff status (Condition Values/Spawn Events are read-only
+    // listings, never diffed — see conditions.go/ConditionsHelpDrawer.jsx), so these counts are
+    // over conditionsComparison.Conditions only, same as every other tab's badge counts.
+    const conditionsRows = spawnConditions.conditionsComparison?.Conditions ?? []
+    const conditionsNewCount = conditionsRows.filter(r => r.Status === 'new').length
+    const conditionsModifiedCount = conditionsRows.filter(r => r.Status === 'modified').length
+    const conditionsRemovedCount = conditionsRows.filter(r => r.Status === 'removed').length
 
     // Variables for npc_types detail view — one shared object across NPC keys (identity, combat,
     // ...) and spawn/grid/spawngroup keys precisely because they never collide, so collapsed/
@@ -426,6 +439,7 @@ function App() {
             <SpawngroupHelpDrawer showSpawngroupHelp={showSpawngroupHelp} setShowSpawngroupHelp={setShowSpawngroupHelp}/>
             <GridMapHelpDrawer showGridMapHelp={showGridMapHelp} setShowGridMapHelp={setShowGridMapHelp}/>
             <LootHelpDrawer showLootHelp={showLootHelp} setShowLootHelp={setShowLootHelp}/>
+            <ConditionsHelpDrawer showConditionsHelp={showConditionsHelp} setShowConditionsHelp={setShowConditionsHelp}/>
             <ExcludedFieldsDrawer open={showExcludedFieldsDrawer} onClose={() => setShowExcludedFieldsDrawer(false)}
                                    excludedFields={connections.excludedNpcFields} setExcludedFields={connections.setExcludedNpcFields}
                                    candidateFields={npcAllFieldNames(npcSync.diffRows)}/>
@@ -618,31 +632,28 @@ function App() {
                                 </span>
                             )}
                         </>}
+                        {activeView === 'conditions' && conditionsRows.length > 0 && <>
+                            <span className="px-2 py-0.5 rounded bg-green-950 text-green-400">+{conditionsNewCount}</span>
+                            <span className="px-2 py-0.5 rounded bg-yellow-950 text-yellow-400">~{conditionsModifiedCount}</span>
+                            <span className="px-2 py-0.5 rounded bg-red-950 text-red-400">-{conditionsRemovedCount}</span>
+                        </>}
                         {activeView === 'npcs' && (
-                            <>
-                                <button
-                                    disabled={npcSync.selectedNPCs.size === 0 || npcSync.showSyncPreview}
-                                    className={`px-3 py-1 rounded text-xs font-medium ${
-                                        npcSync.selectedNPCs.size > 0 && !npcSync.showSyncPreview
-                                            ? 'bg-yellow-400 text-gray-900 cursor-pointer hover:bg-yellow-300'
-                                            : 'bg-gray-700 text-gray-500 cursor-not-allowed'
-                                    }`}
-                                    onClick={() => {
-                                        npcSync.setShowSyncPreview(true)
-                                        npcSync.setSyncPreview(null)
-                                        npcSync.setSyncOutcome(null)
-                                        npcSync.runSync(true).then(npcSync.setSyncPreview).catch(err => npcSync.setSyncPreview({Errors: [String(err)]}))
-                                    }}
-                                >
-                                    {npcSync.selectedNPCs.size > 0 ? `Sync ${npcSync.selectedNPCs.size} NPCs` : 'Sync NPCs'}
-                                </button>
-                                <button
-                                    onClick={() => setShowExcludedFieldsDrawer(true)}
-                                    title="Choose npc_types columns Sync should never overwrite on an existing sink row"
-                                    className="px-2 py-1 rounded text-xs border border-gray-600 text-gray-400 hover:border-gray-400 hover:text-white">
-                                    Excluded fields{connections.excludedNpcFields.length > 0 ? ` (${connections.excludedNpcFields.length})` : ''}
-                                </button>
-                            </>
+                            <button
+                                disabled={npcSync.selectedNPCs.size === 0 || npcSync.showSyncPreview}
+                                className={`px-3 py-1 rounded text-xs font-medium ${
+                                    npcSync.selectedNPCs.size > 0 && !npcSync.showSyncPreview
+                                        ? 'bg-yellow-400 text-gray-900 cursor-pointer hover:bg-yellow-300'
+                                        : 'bg-gray-700 text-gray-500 cursor-not-allowed'
+                                }`}
+                                onClick={() => {
+                                    npcSync.setShowSyncPreview(true)
+                                    npcSync.setSyncPreview(null)
+                                    npcSync.setSyncOutcome(null)
+                                    npcSync.runSync(true).then(npcSync.setSyncPreview).catch(err => npcSync.setSyncPreview({Errors: [String(err)]}))
+                                }}
+                            >
+                                {npcSync.selectedNPCs.size > 0 ? `Sync ${npcSync.selectedNPCs.size} NPCs` : 'Sync NPCs'}
+                            </button>
                         )}
                         {activeView === 'spawns' && (
                             <button
@@ -710,6 +721,11 @@ function App() {
                                 Grids{selectableGridRows.length > 0 && ` (${selectableGridRows.length})`}
                             </button>
                             <button
+                                onClick={() => setActiveView('conditions')}
+                                className={`px-2 py-1 rounded text-xs border ${activeView === 'conditions' ? 'border-yellow-400 text-yellow-400' : 'border-gray-600 text-gray-400 hover:border-gray-400'}`}>
+                                Conditions{conditionsNewCount + conditionsModifiedCount > 0 && ` (${conditionsNewCount + conditionsModifiedCount})`}
+                            </button>
+                            <button
                                 onClick={() => setActiveView('loot')}
                                 className={`px-2 py-1 rounded text-xs border ${activeView === 'loot' ? 'border-yellow-400 text-yellow-400' : 'border-gray-600 text-gray-400 hover:border-gray-400'}`}>
                                 Loot
@@ -743,6 +759,7 @@ function App() {
                             showSyncPreview={npcSync.showSyncPreview} setShowSyncPreview={npcSync.setShowSyncPreview}
                             syncPreview={npcSync.syncPreview} syncing={npcSync.syncing} syncOutcome={npcSync.syncOutcome}
                             setShowSyncConfirm={npcSync.setShowSyncConfirm}
+                            excludedNpcFields={connections.excludedNpcFields} setShowExcludedFieldsDrawer={setShowExcludedFieldsDrawer}
                         />
                     )}
 
@@ -819,13 +836,22 @@ function App() {
                             setShowLootHelp={setShowLootHelp}
                         />
                     )}
+                    {activeView === 'conditions' && (
+                        <ConditionsTab
+                            conditionsComparison={spawnConditions.conditionsComparison}
+                            conditionsLoading={spawnConditions.conditionsLoading}
+                            selectedZoneShortName={selectedZoneShortName}
+                            setShowConditionsHelp={setShowConditionsHelp}
+                        />
+                    )}
                     </div>
-                    {/* Drag handle + detail panel are omitted entirely on the TODO and Loot tabs —
-                        neither has corresponding detail-panel content (Loot's two-column tree
-                        already shows everything inline), so hiding both lets the center panel
-                        reclaim that width instead of it sitting idle. This only affects the
-                        content row's width, not the header's — see the wrapper comment above. */}
-                    {activeView !== 'todo' && activeView !== 'loot' && (
+                    {/* Drag handle + detail panel are omitted entirely on the TODO, Loot, and
+                        Conditions tabs — none of the three has corresponding detail-panel content
+                        (Conditions has no selection/detail concept at all, see conditions.go/
+                        ConditionsTab.jsx), so hiding both lets the center panel reclaim that width
+                        instead of it sitting idle. This only affects the content row's width, not
+                        the header's — see the wrapper comment above. */}
+                    {activeView !== 'todo' && activeView !== 'loot' && activeView !== 'conditions' && (
                         <>
                             <div
                                 className="w-1 bg-gray-700 hover:bg-yellow-400 cursor-col-resize"

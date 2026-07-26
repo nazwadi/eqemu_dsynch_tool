@@ -34,6 +34,10 @@ export function CompareSpawns(arg1, arg2, arg3) {
   return window['go']['main']['App']['CompareSpawns'](arg1, arg2, arg3);
 }
 
+export function CompareZoneConditions(arg1) {
+  return window['go']['main']['App']['CompareZoneConditions'](arg1);
+}
+
 export function CompareZones(arg1, arg2, arg3, arg4) {
   return window['go']['main']['App']['CompareZones'](arg1, arg2, arg3, arg4);
 }

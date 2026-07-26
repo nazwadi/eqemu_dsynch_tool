@@ -130,7 +130,7 @@ function SpellsComparison({comparison, onAlign, onSyncContent}) {
                     {comparison.SourceId !== 0 && comparison.SinkId !== 0 && comparison.SourceId !== comparison.SinkId && (
                         <div className="flex justify-end px-2">
                             <button onClick={() => onAlign(comparison.SourceId, comparison.SinkId)}
-                                    className="text-xs text-cyan-400 hover:text-cyan-300 underline">
+                                    className="px-2 py-1 rounded text-xs border border-cyan-700 text-cyan-400 hover:border-cyan-400 hover:text-cyan-300">
                                 Align npc_spells ID to source →
                             </button>
                         </div>
@@ -140,7 +140,7 @@ function SpellsComparison({comparison, onAlign, onSyncContent}) {
                     {comparison.SourceId !== 0 && comparison.SinkId !== 0 && (
                         <div className="flex justify-end px-2">
                             <button onClick={() => onSyncContent(comparison.SourceId, comparison.SinkId)}
-                                    className="text-xs text-amber-400 hover:text-amber-300 underline">
+                                    className="px-2 py-1 rounded text-xs border border-amber-700 text-amber-400 hover:border-amber-400 hover:text-amber-300">
                                 Sync content from source →
                             </button>
                         </div>

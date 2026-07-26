@@ -1030,6 +1030,70 @@ export namespace main {
 	        this.Reason = source["Reason"];
 	    }
 	}
+	export class SpawnCondition {
+	    Id: number;
+	    Fields: Record<string, any>;
+	
+	    static createFrom(source: any = {}) {
+	        return new SpawnCondition(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.Id = source["Id"];
+	        this.Fields = source["Fields"];
+	    }
+	}
+	export class SpawnConditionDiffRow {
+	    Status: string;
+	    Source?: SpawnCondition;
+	    Sink?: SpawnCondition;
+	
+	    static createFrom(source: any = {}) {
+	        return new SpawnConditionDiffRow(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.Status = source["Status"];
+	        this.Source = this.convertValues(source["Source"], SpawnCondition);
+	        this.Sink = this.convertValues(source["Sink"], SpawnCondition);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class SpawnConditionValue {
+	    Id: number;
+	    InstanceId: number;
+	    Value: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new SpawnConditionValue(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.Id = source["Id"];
+	        this.InstanceId = source["InstanceId"];
+	        this.Value = source["Value"];
+	    }
+	}
 	export class SpawnPoint {
 	    Id: number;
 	    SpawnGroupId: number;
@@ -1115,6 +1179,20 @@ export namespace main {
 		}
 	}
 	
+	export class SpawnEvent {
+	    Id: number;
+	    Fields: Record<string, any>;
+	
+	    static createFrom(source: any = {}) {
+	        return new SpawnEvent(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.Id = source["Id"];
+	        this.Fields = source["Fields"];
+	    }
+	}
 	export class SpawnGroupDiffRow {
 	    Status: string;
 	    SourceGroupId: number;
@@ -1493,6 +1571,44 @@ export namespace main {
 	        this.ShortName = source["ShortName"];
 	        this.LongName = source["LongName"];
 	    }
+	}
+	export class ZoneConditionsComparison {
+	    Conditions: SpawnConditionDiffRow[];
+	    SourceValues: SpawnConditionValue[];
+	    SinkValues: SpawnConditionValue[];
+	    SourceEvents: SpawnEvent[];
+	    SinkEvents: SpawnEvent[];
+	
+	    static createFrom(source: any = {}) {
+	        return new ZoneConditionsComparison(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.Conditions = this.convertValues(source["Conditions"], SpawnConditionDiffRow);
+	        this.SourceValues = this.convertValues(source["SourceValues"], SpawnConditionValue);
+	        this.SinkValues = this.convertValues(source["SinkValues"], SpawnConditionValue);
+	        this.SourceEvents = this.convertValues(source["SourceEvents"], SpawnEvent);
+	        this.SinkEvents = this.convertValues(source["SinkEvents"], SpawnEvent);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 	export class ZoneMap {
 	    Segments: MapLineSegment[];

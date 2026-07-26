@@ -24,6 +24,7 @@ If you run an EQEmu server, you've lived this: you build and test content — NP
 - Spawngroups — spawngroup fields (`spawn_limit`, wander box, timing) and rosters, source vs sink, synced together; delete-on-sync for removed groups (blocked if anything on the sink still references them)
 - Grids — patrol path (`grid`/`grid_entries`) diffing and sync, with an optional map view that plots every grid over your own Brewall's Maps files (point the app at your maps folder once, in the sidebar)
 - Loot / Faction / Spells / Merchant — source-vs-sink comparisons for every shared reference table an NPC can point at; realign a table's local ID to match source (see **ID alignment**), or overwrite its actual content to match source directly from the comparison view — see **Reference content sync** below
+- Conditions — read-only visibility for `spawn_conditions` (full diff), plus `spawn_condition_values` and `spawn_events` shown for reference (not diffed — the former is live per-instance server state, not authored content; the latter has no portable id to match across databases)
 
 **Safety**
 - TODO checklist — shared references get queued for manual review on every sync instead of being blindly overwritten, with a zone-scoped, dismissible tracking tab
@@ -103,6 +104,7 @@ The Spawn Points, Spawngroups, and Grids tabs follow the same diff → select �
 - [x] Grids map view: plot every patrol grid in a zone over your own Brewall's Maps files, with the selected grid highlighted (waypoints, heading, centerpoints) and every other grid shown dim for context
 - [x] Diff queries run source and sink concurrently instead of sequentially, plus a global progress indicator — aimed squarely at the lag an SSH-tunneled connection otherwise makes obvious
 - [x] Shared reference table sync (phase 2): overwriting loot/faction/spells/merchant *content* to match source (distinct from realigning their IDs, above) — triggered standalone from the comparison view, warns how many other NPCs on the sink share the row before you commit but never blocks the write
+- [x] Conditions tab: read-only visibility for `spawn_conditions` (a real diff), `spawn_condition_values`, and `spawn_events` (both shown for reference, never diffed — the former is live per-instance server state, the latter has no portable id across databases)
 
 ## Contributing
 

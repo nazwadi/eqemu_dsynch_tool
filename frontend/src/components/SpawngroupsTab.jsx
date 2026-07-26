@@ -1,5 +1,15 @@
 import {spawnGroupRowId, spawnGroupRowLabel} from '../lib/spawnGroupHelpers';
 import {useListArrowKeyNav} from '../hooks/useListArrowKeyNav';
+import IconLegend from './IconLegend';
+
+// The bare ⚠ glyph means two different things in this tab depending on which row it's on — the
+// row's own background tint is what actually disambiguates them (orange for ambiguous, yellow for
+// an otherwise-ordinary "modified" row), so both meanings are spelled out here rather than trying
+// to give the glyph itself two different looks.
+const spawnGroupRowIcons = [
+    {icon: '⚠', label: 'ambiguous match (orange row) — resolved to more than one sink spawngroup'},
+    {icon: '⚠', label: 'spawn entries differ (yellow row)'}
+]
 
 // Spawngroups tab body: a diff list only, no sync preview/confirm slide-over like the other tabs —
 // syncing a spawngroup is a deliberate, single-row action (mirroring how the Spawn Points tab's
@@ -40,6 +50,7 @@ function SpawngroupsTab({
             <div className="px-3 py-1 text-xs text-gray-500 border-b border-gray-700 bg-gray-850">
                 Each row is one <span className="text-gray-400">spawngroup</span>, matched by looking up which sink spawngroup(s) its member spawn2 locations resolve to — not by ID, which isn't portable across databases. Select a row to view its fields and sync it from the detail panel.
             </div>
+            <IconLegend items={spawnGroupRowIcons}/>
             <div className="flex items-center border-b border-gray-700 bg-gray-800">
                 <div className="flex-1 text-xs px-2 py-1 text-gray-400 uppercase tracking-wider">
                     Source

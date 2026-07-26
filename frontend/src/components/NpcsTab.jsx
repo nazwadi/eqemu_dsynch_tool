@@ -1,6 +1,13 @@
 import {npcFieldsOnlyExcluded, npcRowHasMissingReferences, npcRowMatchesSearch, npcRowSelectable} from '../lib/npcHelpers';
 import {statusOrder} from '../lib/constants';
 import {useListArrowKeyNav} from '../hooks/useListArrowKeyNav';
+import IconLegend from './IconLegend';
+
+const npcRowIcons = [
+    {icon: '⚡', label: 'quest-spawned — no static spawn point'},
+    {icon: '⚠', label: 'missing reference — points at a row that doesn\'t exist in its own database'},
+    {icon: '⊘', label: 'excluded from sync — differs only in fields Sync won\'t overwrite'}
+]
 
 function npcRowKey(row) {
     return `${row.Source?.Id ?? ''}-${row.Sink?.Id ?? ''}`
@@ -16,7 +23,8 @@ function NpcsTab({
     sortBy, setSortBy, sortDir, setSortDir,
     selectableRows, selectedNPCs, setSelectedNPCs, selectedRowKey, setSelectedRowKey, setSelectedNpc,
     dbSourceName, dbSinkName, selectedZoneShortName,
-    showSyncPreview, setShowSyncPreview, syncPreview, syncing, syncOutcome, setShowSyncConfirm
+    showSyncPreview, setShowSyncPreview, syncPreview, syncing, syncOutcome, setShowSyncConfirm,
+    excludedNpcFields, setShowExcludedFieldsDrawer
 }) {
     // Same filter/sort chain the list below renders — extracted here (rather than left inline in
     // the .map() call) so arrow-key nav moves through the exact same visible order, not some other
@@ -92,7 +100,14 @@ function NpcsTab({
                             {sort.label} {sortBy === sort.value ? (sortDir === 'asc' ? '↑' : '↓') : ''}
                         </button>
                     ))}
+                    <button
+                        onClick={() => setShowExcludedFieldsDrawer(true)}
+                        title="Choose npc_types columns Sync should never overwrite on an existing sink row"
+                        className="ml-auto px-2 py-1 rounded text-xs border border-gray-600 text-gray-400 hover:border-gray-400 hover:text-white">
+                        Excluded fields{excludedNpcFields.length > 0 ? ` (${excludedNpcFields.length})` : ''}
+                    </button>
                 </div>
+                <IconLegend items={npcRowIcons}/>
                 <div className="flex items-center border-b border-gray-700 bg-gray-800">
                     <input type="checkbox"
                            className="accent-yellow-400 cursor-pointer w-3 h-3 mx-2"
