@@ -80,6 +80,63 @@ export function npcAllFieldNames(diffRows) {
     return Array.from(names).sort()
 }
 
+// Name-first summary of new/missing NPCs for the NPC Diff panel — compares raw name COUNTS across
+// the entire source/sink population for this zone, completely independent of npc_types.id and of
+// CompareZones' own id-based Status. This is deliberately NOT built on top of Status='new'/
+// 'removed' rows (an earlier version of this function was) — real, verified data from a live
+// zone (Skyfire, both databases, 2026-07-30) showed why that doesn't work: npc_types.id is
+// AUTO_INCREMENT, not portable lineage, and some custom EQEmu content additionally reuses a
+// `zoneidnumber*1000 + offset` id convention independently on each database. For Skyfire, EVERY
+// one of source's 37 ids happened to also exist in sink — but 21 of those 37 id-matched pairs
+// were two completely unrelated NPCs (e.g. id 91002 was "Guardian_of_Felia" in source and
+// "a_mature_wyvern" in sink). CompareZones correctly calls a row like that "modified" (the id
+// matched, the fields differ) — but semantically it's not a modified NPC at all, it's two
+// different NPCs colliding on a number. The real practical effect: those NPCs' true same-name
+// counterparts on the other side never show up in the 'new'/'removed' buckets at all (they got
+// silently absorbed into a false id-match instead), so a reconciliation built on those buckets
+// has nothing to reconcile against and can't fix this case.
+//
+// Counting names directly across the FULL population sidesteps the whole problem: it never looks
+// at which id matched which, only "how many NPCs named X exist in source" vs "...in sink" —
+// so a real content gap (sink has 5 `a_bottomless_devourer` scattered across ids, source has 1)
+// shows up correctly as "+4" regardless of which specific ids happened to collide along the way.
+//
+// **Summary-only lens, on purpose.** The full diff table and Sync's own selection stay strictly
+// id-matched, exactly as before — npc_types.id is still the real primary key Sync writes against,
+// and a shared name is not a safe basis for deciding what gets synced, only for helping a human
+// understand what they're looking at. Real name collisions (EQ trash mobs like "a bat" or "a fear
+// creature," sharing one name across many genuinely distinct spawns) mean a name's counts can
+// coincidentally line up even when the underlying NPCs differ — an accepted blind spot for a
+// summary view, not something to silently paper over by guessing which specific bat is which.
+export function npcNameGroupDiff(diffRows) {
+    const countByName = (side) => {
+        const counts = new Map()
+        for (const row of diffRows) {
+            const npc = row[side]
+            if (!npc) continue
+            const name = npc.Fields?.name || `NPC ${npc.Id}`
+            counts.set(name, (counts.get(name) ?? 0) + 1)
+        }
+        return counts
+    }
+    const sourceCounts = countByName('Source')
+    const sinkCounts = countByName('Sink')
+
+    const onlyInSource = []
+    const onlyInSink = []
+    for (const name of new Set([...sourceCounts.keys(), ...sinkCounts.keys()])) {
+        const sourceCount = sourceCounts.get(name) ?? 0
+        const sinkCount = sinkCounts.get(name) ?? 0
+        if (sourceCount > sinkCount) onlyInSource.push({name, sourceCount, sinkCount, delta: sourceCount - sinkCount})
+        else if (sinkCount > sourceCount) onlyInSink.push({name, sourceCount, sinkCount, delta: sinkCount - sourceCount})
+    }
+    const sortByName = (a, b) => a.name.localeCompare(b.name)
+    return {
+        onlyInSource: onlyInSource.sort(sortByName),
+        onlyInSink: onlyInSink.sort(sortByName)
+    }
+}
+
 // True if either side's NPC.MissingReferences (npc_faction_id/npc_spells_id/merchant_id pointing
 // at a row that doesn't exist in that same database — see app.go's annotateMissingReferences)
 // has anything in it — drives the diff list's row-level flag, the same "subtle badge before you

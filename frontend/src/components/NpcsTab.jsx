@@ -1,4 +1,5 @@
-import {npcFieldsOnlyExcluded, npcRowHasMissingReferences, npcRowMatchesSearch, npcRowSelectable} from '../lib/npcHelpers';
+import {useState} from 'react';
+import {npcNameGroupDiff, npcFieldsOnlyExcluded, npcRowHasMissingReferences, npcRowMatchesSearch, npcRowSelectable} from '../lib/npcHelpers';
 import {statusOrder} from '../lib/constants';
 import {useListArrowKeyNav} from '../hooks/useListArrowKeyNav';
 import IconLegend from './IconLegend';
@@ -11,6 +12,82 @@ const npcRowIcons = [
 
 function npcRowKey(row) {
     return `${row.Source?.Id ?? ''}-${row.Sink?.Id ?? ''}`
+}
+
+// Shared disclosure-triangle button — same shape as LootTab's Disclosure, left-aligned in reading
+// order rather than trailing after other text.
+function Disclosure({expanded}) {
+    return (
+        <span className={`w-4 shrink-0 text-center text-sm ${expanded ? 'text-yellow-400' : 'text-gray-400'}`}>
+            {expanded ? '▾' : '▸'}
+        </span>
+    )
+}
+
+// NPC-level source-vs-sink summary, above the full diff list — quick-glance answer to "which NPCs
+// are added or missing overall," mirroring LootTab's ItemDiffSummary. Built entirely on NAME
+// counts across the whole population (npcNameGroupDiff), deliberately ignoring npc_types.id and
+// CompareZones' own Status — see that function's own comment for the real, verified case (Skyfire,
+// both databases, 2026-07-30) that ruled out building this from the id-matched new/removed rows:
+// some custom content reuses ids independently on each side (a `zoneidnumber*1000 + offset`
+// convention), which makes CompareZones pair up two UNRELATED NPCs as one false "modified" row —
+// and once that happens, neither NPC ever reaches the new/removed buckets this panel used to
+// reconcile from. Pure name-count comparison sidesteps that: it never looks at which id paired
+// with which, only how many of each name exist on each side, so a real gap shows up correctly no
+// matter how tangled the underlying ids are. Collapsed by default when there's something to show
+// (the header's own counts already say whether it's worth opening). Reuses ItemDiffSummary's
+// exact list-box shape (bordered, plain block rows, not flex) — the same bug that shape was built
+// to avoid (flex children silently squashing/overlapping past ~30 rows, see CLAUDE.md's Loot tab
+// notes) applies just as much to a zone with hundreds of NPCs.
+function NpcDiffSummary({diffRows, sourceNpcCount, sinkNpcCount}) {
+    const [expanded, setExpanded] = useState(false)
+    const {onlyInSource, onlyInSink} = npcNameGroupDiff(diffRows)
+    const sourceExtra = onlyInSource.reduce((sum, g) => sum + g.delta, 0)
+    const sinkExtra = onlyInSink.reduce((sum, g) => sum + g.delta, 0)
+
+    if (onlyInSource.length === 0 && onlyInSink.length === 0) return null
+
+    return (
+        <div className="border-b border-gray-700 bg-gray-850">
+            <div className="flex items-center gap-2 px-3 py-1.5 cursor-pointer hover:bg-gray-800"
+                 onClick={() => setExpanded(e => !e)}>
+                <Disclosure expanded={expanded}/>
+                <span className="text-xs text-gray-400 uppercase tracking-wider">NPC Diff (by name)</span>
+                <span className="text-xs text-gray-500">
+                    {sourceExtra > 0 && <span className="text-green-400">+{sourceExtra} in source</span>}
+                    {sourceExtra > 0 && sinkExtra > 0 && ' · '}
+                    {sinkExtra > 0 && <span className="text-red-400">+{sinkExtra} in sink</span>}
+                </span>
+                <span className="text-xs text-gray-600 ml-auto shrink-0">
+                    source {sourceNpcCount} · sink {sinkNpcCount}
+                </span>
+            </div>
+            {expanded && (
+                <div className="flex gap-4 px-3 pb-3 text-xs">
+                    <div className="flex-1 min-w-0">
+                        <div className="text-green-400 mb-1">More in source ({onlyInSource.length} name{onlyInSource.length === 1 ? '' : 's'})</div>
+                        <div className="max-h-72 overflow-y-auto rounded border border-gray-700 bg-gray-900/40 p-2 space-y-0.5">
+                            {onlyInSource.length === 0 ? <div className="text-gray-600">—</div> : onlyInSource.map(({name, sourceCount, sinkCount, delta}) => (
+                                <div key={name} className="text-gray-300 truncate">
+                                    {name} <span className="text-gray-600">(source {sourceCount}, sink {sinkCount}, +{delta})</span>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                        <div className="text-red-400 mb-1">More in sink ({onlyInSink.length} name{onlyInSink.length === 1 ? '' : 's'})</div>
+                        <div className="max-h-72 overflow-y-auto rounded border border-gray-700 bg-gray-900/40 p-2 space-y-0.5">
+                            {onlyInSink.length === 0 ? <div className="text-gray-600">—</div> : onlyInSink.map(({name, sourceCount, sinkCount, delta}) => (
+                                <div key={name} className="text-gray-300 truncate">
+                                    {name} <span className="text-gray-600">(source {sourceCount}, sink {sinkCount}, +{delta})</span>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+            )}
+        </div>
+    )
 }
 
 // NPCs tab body: the diff list (Show All/Differences/sort, checkbox selection) sliding to a sync
@@ -26,6 +103,14 @@ function NpcsTab({
     showSyncPreview, setShowSyncPreview, syncPreview, syncing, syncOutcome, setShowSyncConfirm,
     excludedNpcFields, setShowExcludedFieldsDrawer
 }) {
+    // Total NPC counts per side, regardless of the current filter/search — answers "how many NPCs
+    // are actually in each database for this zone" so a diff count like "54 missing from source"
+    // has scale to be read against (54 out of 60 sink NPCs reads very differently from 54 out of
+    // 600). Counted straight off diffRows rather than visibleRows since a total shouldn't shrink
+    // just because the user is currently filtered to "Differences Only" or a name search.
+    const sourceNpcCount = diffRows.filter(row => row.Source).length
+    const sinkNpcCount = diffRows.filter(row => row.Sink).length
+
     // Same filter/sort chain the list below renders — extracted here (rather than left inline in
     // the .map() call) so arrow-key nav moves through the exact same visible order, not some other
     // one. Pure refactor, no behavior change to the rendered list itself.
@@ -107,6 +192,7 @@ function NpcsTab({
                         Excluded fields{excludedNpcFields.length > 0 ? ` (${excludedNpcFields.length})` : ''}
                     </button>
                 </div>
+                {!diffLoading && <NpcDiffSummary diffRows={diffRows} sourceNpcCount={sourceNpcCount} sinkNpcCount={sinkNpcCount}/>}
                 <IconLegend items={npcRowIcons}/>
                 <div className="flex items-center border-b border-gray-700 bg-gray-800">
                     <input type="checkbox"
@@ -121,11 +207,11 @@ function NpcsTab({
                            }}
                     />
                     <div className="flex-1 text-xs px-2 py-1 text-gray-400 uppercase tracking-wider">
-                        Source: {dbSourceName}
+                        Source: {dbSourceName} <span className="text-gray-600 normal-case tracking-normal">({sourceNpcCount} NPCs)</span>
                     </div>
                     <div
                         className="flex-1 text-xs px-2 py-1 text-gray-400 uppercase tracking-wider border-l border-gray-700">
-                        Sink: {dbSinkName}
+                        Sink: {dbSinkName} <span className="text-gray-600 normal-case tracking-normal">({sinkNpcCount} NPCs)</span>
                     </div>
                 </div>
                 {/*Diff List of NPCs*/}
