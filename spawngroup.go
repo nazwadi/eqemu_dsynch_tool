@@ -84,14 +84,23 @@ type SpawnGroupDiffRow struct {
 	Status              string // "new" | "modified" | "removed" | "match" | "ambiguous"
 	SourceGroupId       int64
 	SinkGroupId         int64
-	Name                string                 // source's name if this spawngroup exists there, else sink's — cosmetic/local, never diffed (see FieldsDiffer)
+	Name                string                 // source's name if this spawngroup exists there, else sink's — display label only
 	SourceFields        map[string]interface{} // spawngroup columns, minus id — includes name
 	SinkFields          map[string]interface{}
 	SourceSpawnEntries  []SpawnEntry
 	SinkSpawnEntries    []SpawnEntry
 	SourceLocationCount int // spawn2 rows in this zone/version referencing SourceGroupId — informational only, doesn't drive Status
 	SinkLocationCount   int
-	FieldsDiffer        bool // spawngroup's own columns differ, "name" excluded — see updateSpawnGroupFields
+	// FieldsDiffer covers every spawngroup column, "name" included (2026-07-30 — previously
+	// excluded here, on the reasoning that name is a cosmetic, independently-auto-generated label;
+	// requested back in explicitly so the comparison view holds nothing back). Sync itself
+	// (updateSpawnGroupFields) still never writes "name" — that exclusion is a separate, deliberate
+	// write-safety decision (two independently-evolved databases routinely reuse the same
+	// auto-generated name for unrelated groups, so overwriting it risks a collision) unrelated to
+	// what this comparison shows. A row whose ONLY difference is "name" will show FieldsDiffer=true
+	// here but produce a no-op on that one column if synced — same shape as NPCDiffRow's
+	// excluded-field caveat, just not (yet) surfaced with its own separate flag the way that one is.
+	FieldsDiffer        bool
 	SpawnEntriesDiffer  bool
 	// Populated only when Status == "ambiguous": every distinct sink spawngroupID the source
 	// spawngroup's member locations resolved to. Flagged rather than guessed at, same "shared data
@@ -101,13 +110,43 @@ type SpawnGroupDiffRow struct {
 	// X/Y/Z SyncSpawnGroup already uses to identify a spawngroup indirectly, so a row from this
 	// tab can drive the exact same sync action the Spawn Points detail panel already triggers.
 	SampleCoord [3]float64
+	// SourceIdOutOfZoneRange/SinkIdOutOfZoneRange (added 2026-07-30) flag a spawngroup id that
+	// falls OUTSIDE [zoneIdNumber*1000, zoneIdNumber*1000+1000) — the same per-zone numbering
+	// block convention npc_types' quest-spawn id range already relies on (see EQEmu Schema Notes),
+	// which some custom content also applies to spawngroup.id. Confirmed against real data
+	// (Skyfire, zoneIdNumber 91, both databases, 2026-07-30): 43 of 47 spawngroups shared the
+	// EXACT SAME id between source and sink, every one of them in [91000, 92000) — the 4
+	// exceptions were legacy sink-side ids from before this convention was applied there, never
+	// migrated. So for a zone that follows this convention, SourceGroupId != SinkGroupId isn't by
+	// itself alarming, but an id landing outside the zone's own numbering block usually is — this
+	// is the concrete, checkable version of "this looks like unmigrated leftover content," as
+	// opposed to a merely-differing id, which two independent auto-increment sequences produce
+	// routinely and harmlessly. False for id 0 (nothing to check) and computed unconditionally
+	// otherwise — a zone that never used this convention at all will just show every row flagged,
+	// which is itself useful context (this zone doesn't follow the convention, so don't read
+	// anything into it) rather than something requiring its own special case.
+	SourceIdOutOfZoneRange bool
+	SinkIdOutOfZoneRange   bool
+}
+
+// idOutOfZoneRange reports whether id falls outside the [zoneIdNumber*1000, zoneIdNumber*1000+1000)
+// numbering block some custom content uses for spawngroup.id (and, separately, npc_types' own
+// quest-spawn id range — see GetNPCsForZone). id == 0 (no group on this side) and zoneIdNumber == 0
+// (shouldn't happen — every real zone row has one — but guarded rather than assumed) both report
+// false: there's nothing to flag either way.
+func idOutOfZoneRange(id, zoneIdNumber int64) bool {
+	if id == 0 || zoneIdNumber == 0 {
+		return false
+	}
+	low := zoneIdNumber * 1000
+	return id < low || id >= low+1000
 }
 
 // CompareSpawnGroups diffs spawngroups for a zone/version, one row per spawngroup rather than per
 // spawn2 location (see SpawnGroupDiffRow). Reuses getSpawnPointsForZone's existing zone-scoped
 // fetch — this view is just a different grouping of the same spawn2/spawngroup/spawnentry data
 // CompareSpawns already pulls, not a second dedicated query.
-func (a *App) CompareSpawnGroups(shortName string, version int8) ([]SpawnGroupDiffRow, error) {
+func (a *App) CompareSpawnGroups(shortName string, version int8, zoneIdNumber int64) ([]SpawnGroupDiffRow, error) {
 	// Each side's fetch+orphan-name-resolve pipeline runs concurrently — same reasoning as
 	// CompareSpawns (which this reuses getSpawnPointsForZone with), see runParallel's own comment.
 	var sourcePoints, sinkPoints []SpawnPoint
@@ -191,11 +230,12 @@ func (a *App) CompareSpawnGroups(shortName string, version int8) ([]SpawnGroupDi
 		}
 
 		row := SpawnGroupDiffRow{
-			SourceGroupId:       sourceGroupId,
-			Name:                fmt.Sprintf("%v", sg.rep.SpawnGroupFields["name"]),
-			SourceFields:        sg.rep.SpawnGroupFields,
-			SourceSpawnEntries:  sg.rep.SpawnEntries,
-			SourceLocationCount: sg.count,
+			SourceGroupId:          sourceGroupId,
+			Name:                   fmt.Sprintf("%v", sg.rep.SpawnGroupFields["name"]),
+			SourceFields:           sg.rep.SpawnGroupFields,
+			SourceSpawnEntries:     sg.rep.SpawnEntries,
+			SourceLocationCount:    sg.count,
+			SourceIdOutOfZoneRange: idOutOfZoneRange(sourceGroupId, zoneIdNumber),
 		}
 
 		switch len(matched) {
@@ -211,7 +251,8 @@ func (a *App) CompareSpawnGroups(shortName string, version int8) ([]SpawnGroupDi
 			row.SinkFields = skg.rep.SpawnGroupFields
 			row.SinkSpawnEntries = skg.rep.SpawnEntries
 			row.SinkLocationCount = skg.count
-			row.FieldsDiffer = !mapsEqual(withoutFields(row.SourceFields, "name"), withoutFields(row.SinkFields, "name"))
+			row.SinkIdOutOfZoneRange = idOutOfZoneRange(row.SinkGroupId, zoneIdNumber)
+			row.FieldsDiffer = !mapsEqual(row.SourceFields, row.SinkFields)
 			row.SpawnEntriesDiffer = !spawnEntriesEqual(row.SourceSpawnEntries, row.SinkSpawnEntries)
 			if row.FieldsDiffer || row.SpawnEntriesDiffer {
 				row.Status = "modified"
@@ -233,12 +274,13 @@ func (a *App) CompareSpawnGroups(shortName string, version int8) ([]SpawnGroupDi
 			continue
 		}
 		rows = append(rows, SpawnGroupDiffRow{
-			Status:            "removed",
-			SinkGroupId:       sinkGroupId,
-			Name:              fmt.Sprintf("%v", skg.rep.SpawnGroupFields["name"]),
-			SinkFields:        skg.rep.SpawnGroupFields,
-			SinkSpawnEntries:  skg.rep.SpawnEntries,
-			SinkLocationCount: skg.count,
+			Status:               "removed",
+			SinkGroupId:          sinkGroupId,
+			Name:                 fmt.Sprintf("%v", skg.rep.SpawnGroupFields["name"]),
+			SinkFields:           skg.rep.SpawnGroupFields,
+			SinkSpawnEntries:     skg.rep.SpawnEntries,
+			SinkLocationCount:    skg.count,
+			SinkIdOutOfZoneRange: idOutOfZoneRange(sinkGroupId, zoneIdNumber),
 		})
 	}
 
@@ -932,6 +974,154 @@ func (a *App) RelocateSpawnGroups(options BatchRelocateSpawnGroupsOptions) (Batc
 			continue
 		}
 		result.Outcomes = append(result.Outcomes, RelocateSpawnGroupOutcome{SpawnGroupId: gid, Result: r})
+	}
+	return result, nil
+}
+
+// AlignSpawnGroupIdOptions/Result renumber an ALREADY-MATCHED sink spawngroup's existing id
+// (SinkGroupId) onto source's id (SourceGroupId) — a rename, preserving the sink row's own current
+// field content untouched, exactly the semantics the generic AlignId primitive already uses for
+// lootdrop/loottable/npc_faction/npc_spells ("Sync spawngroup from source" is the separate action
+// for content). For a row the Spawngroups tab already resolved by coordinate (Status "modified" or
+// "match" — see SpawnGroupDiffRow.SourceIdOutOfZoneRange/SinkIdOutOfZoneRange for the concrete
+// signal this exists to fix: real data confirmed most spawngroups in a zone following the
+// zoneIdNumber*1000 convention share the exact same id across source and sink, so a mismatch there
+// is usually unmigrated legacy content worth actually fixing, not just noting).
+//
+// spawngroup was deliberately excluded from idalign.go's generic AlignId primitive — its "owned
+// child content" is spawnentry, which has no surrogate id column of its own (a composite
+// (spawngroupID, npcID) key), so it doesn't fit AlignId's generic insertRow-based copyChildRows.
+// This is a smaller, dedicated version of the same rename+repoint idea, built directly against
+// spawnentry/spawn2's actual shapes.
+//
+// Unlike RelocateSpawnGroup, every spawn2 row anywhere currently referencing SinkGroupId is
+// repointed unconditionally here — no zone carve-out. RelocateSpawnGroup's carve-out exists
+// because it resolves a COLLISION: the id being freed holds unrelated content, and rows already
+// correctly referencing the caller's own zone's group must be left alone since they're not part of
+// what's being relocated. Here there's no collision on that side at all — SinkGroupId IS the
+// caller's own already-matched group, just filed under the wrong number, so every existing
+// reference to it points at the SAME content and should follow the rename regardless of which zone
+// it's in (spawngroup has no zone column of its own — see EQEmu Schema Notes). If SourceGroupId is
+// already occupied by unrelated sink content (a genuine squatter), that squatter is relocated out
+// of the way first via insertSpawnGroupWithNameFallback — the same machinery RelocateSpawnGroup
+// already uses — so both actions agree on what "safe to write to this id" means.
+type AlignSpawnGroupIdOptions struct {
+	SourceGroupId int64
+	SinkGroupId   int64
+	DryRun        bool
+}
+
+type AlignSpawnGroupIdResult struct {
+	DryRun                 bool
+	RenamedFrom, RenamedTo int64
+	SquatterSummary        string // mirrors AlignIdResult's shape — "" if SourceGroupId was free on sink, nothing evicted
+	SquatterEvicted        bool
+	NewSquatterId          int64 // where the squatter ends up — 0 on dry run or if no squatter
+	SpawnPointsRepointed   int   // spawn2 rows, across every zone, that referenced SinkGroupId — computed dry run or not, for the confirm preview
+}
+
+func (a *App) AlignSpawnGroupId(options AlignSpawnGroupIdOptions) (AlignSpawnGroupIdResult, error) {
+	result := AlignSpawnGroupIdResult{DryRun: options.DryRun, RenamedFrom: options.SinkGroupId, RenamedTo: options.SourceGroupId}
+
+	if a.sinkDB == nil {
+		return result, fmt.Errorf("sink database not connected")
+	}
+	if options.SourceGroupId == 0 || options.SinkGroupId == 0 {
+		return result, fmt.Errorf("both source and sink spawngroup ids are required")
+	}
+	if options.SourceGroupId == options.SinkGroupId {
+		return result, fmt.Errorf("source and sink already share id %d — nothing to align", options.SourceGroupId)
+	}
+
+	sinkFields, err := fetchSpawnGroupById(a.ctx, a.sinkDB, options.SinkGroupId)
+	if err != nil {
+		return result, err
+	}
+	if sinkFields == nil {
+		return result, fmt.Errorf("no spawngroup #%d exists on the sink to rename", options.SinkGroupId)
+	}
+
+	squatterFields, err := fetchSpawnGroupById(a.ctx, a.sinkDB, options.SourceGroupId)
+	if err != nil {
+		return result, err
+	}
+	if squatterFields != nil {
+		result.SquatterSummary = fmt.Sprintf("%v", squatterFields["name"])
+	}
+
+	if err := a.sinkDB.QueryRowContext(a.ctx, "SELECT COUNT(*) FROM spawn2 WHERE spawngroupID = ?", options.SinkGroupId).Scan(&result.SpawnPointsRepointed); err != nil {
+		return result, err
+	}
+
+	if options.DryRun {
+		return result, nil
+	}
+
+	sinkColumns, err := getSinkColumns(a.ctx, a.sinkDB, "spawngroup")
+	if err != nil {
+		return result, err
+	}
+
+	tx, err := a.sinkDB.BeginTx(a.ctx, nil)
+	if err != nil {
+		return result, err
+	}
+
+	if squatterFields != nil {
+		squatterEntryRows, err := fetchChildRows(a.ctx, tx, "spawnentry", "spawngroupID", options.SourceGroupId)
+		if err != nil {
+			_ = tx.Rollback()
+			return result, err
+		}
+		newSquatterId, err := insertSpawnGroupWithNameFallback(a.ctx, tx, squatterFields, sinkColumns, nil, options.SourceGroupId)
+		if err != nil {
+			_ = tx.Rollback()
+			return result, fmt.Errorf("relocating squatter spawngroup #%d: %w", options.SourceGroupId, err)
+		}
+		result.NewSquatterId = newSquatterId
+		result.SquatterEvicted = true
+		for _, e := range squatterEntryRows {
+			if _, err := tx.ExecContext(a.ctx,
+				"INSERT INTO spawnentry (spawngroupID, npcID, chance) VALUES (?, ?, ?)",
+				newSquatterId, toInt64(e["npcID"]), toInt64(e["chance"]),
+			); err != nil {
+				_ = tx.Rollback()
+				return result, fmt.Errorf("relocating spawn entry for NPC %v: %w", e["npcID"], err)
+			}
+		}
+		if _, err := tx.ExecContext(a.ctx, "UPDATE spawn2 SET spawngroupID = ? WHERE spawngroupID = ?", newSquatterId, options.SourceGroupId); err != nil {
+			_ = tx.Rollback()
+			return result, fmt.Errorf("repointing spawn2 rows off squatter spawngroup #%d: %w", options.SourceGroupId, err)
+		}
+		if _, err := tx.ExecContext(a.ctx, "DELETE FROM spawnentry WHERE spawngroupID = ?", options.SourceGroupId); err != nil {
+			_ = tx.Rollback()
+			return result, fmt.Errorf("clearing squatter spawn entries for #%d: %w", options.SourceGroupId, err)
+		}
+		if _, err := tx.ExecContext(a.ctx, "DELETE FROM spawngroup WHERE id = ?", options.SourceGroupId); err != nil {
+			_ = tx.Rollback()
+			return result, fmt.Errorf("clearing squatter spawngroup #%d: %w", options.SourceGroupId, err)
+		}
+	}
+
+	// Rename the sink's own row onto source's id, then repoint everything that referenced it under
+	// the old id — spawnentry's composite key means MySQL won't cascade this on its own the way it
+	// might with a declared foreign key (EQEmu's schema doesn't declare one here), so both spawnentry
+	// and spawn2 need their own explicit UPDATE.
+	if _, err := tx.ExecContext(a.ctx, "UPDATE spawngroup SET id = ? WHERE id = ?", options.SourceGroupId, options.SinkGroupId); err != nil {
+		_ = tx.Rollback()
+		return result, fmt.Errorf("renaming spawngroup #%d to #%d: %w", options.SinkGroupId, options.SourceGroupId, err)
+	}
+	if _, err := tx.ExecContext(a.ctx, "UPDATE spawnentry SET spawngroupID = ? WHERE spawngroupID = ?", options.SourceGroupId, options.SinkGroupId); err != nil {
+		_ = tx.Rollback()
+		return result, fmt.Errorf("repointing spawn entries from #%d to #%d: %w", options.SinkGroupId, options.SourceGroupId, err)
+	}
+	if _, err := tx.ExecContext(a.ctx, "UPDATE spawn2 SET spawngroupID = ? WHERE spawngroupID = ?", options.SourceGroupId, options.SinkGroupId); err != nil {
+		_ = tx.Rollback()
+		return result, fmt.Errorf("repointing spawn2 rows from #%d to #%d: %w", options.SinkGroupId, options.SourceGroupId, err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return result, err
 	}
 	return result, nil
 }

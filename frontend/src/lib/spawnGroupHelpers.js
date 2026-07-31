@@ -9,6 +9,21 @@ export function spawnGroupRowId(row) {
     return row.SourceGroupId || row.SinkGroupId
 }
 
+// True when both sides have a spawngroup at this row (matched by member spawn2 coordinates, see
+// CompareSpawnGroups) but under different raw ids. **Not automatically benign** — some custom
+// content assigns spawngroup.id following the same zoneIdNumber*1000+offset block npc_types' own
+// quest-spawn range uses (see EQEmu Schema Notes), and for a zone that does, source and sink
+// mostly end up with the EXACT SAME id, not just "both plausible." Confirmed against real data
+// (Skyfire, 2026-07-30): 43 of 47 spawngroups matched id-for-id across both databases; the 4 that
+// didn't were legacy sink-side ids never migrated onto the convention source now uses. See
+// row.SourceIdOutOfZoneRange/SinkIdOutOfZoneRange for the sharper, more specific signal — an id
+// outside the zone's own numbering block is the concrete, checkable version of "this is probably
+// unmigrated leftover content," whereas this flag alone just means the two numbers don't match
+// (which is unremarkable for a zone that never used the convention in the first place).
+export function spawnGroupIdsDiffer(row) {
+    return !!row.SourceGroupId && !!row.SinkGroupId && row.SourceGroupId !== row.SinkGroupId
+}
+
 // Only "modified" rows are syncable from this tab. "new" rows have no sink spawn2 location to
 // attach a spawngroup to yet (SyncSpawnGroup, like the entries-only sync it generalizes, requires
 // an existing sink spawn2 row to identify the target — sync that spawn point itself first, same as

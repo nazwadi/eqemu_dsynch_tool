@@ -1,9 +1,9 @@
 import {spawnEntryRows} from '../lib/spawnHelpers';
-import {spawnGroupRowSelectable} from '../lib/spawnGroupHelpers';
+import {spawnGroupIdsDiffer, spawnGroupRowSelectable} from '../lib/spawnGroupHelpers';
 
 // Spawngroups branch of the shared detail panel — see DetailPanel.jsx for the dispatcher/chrome
 // this plugs into.
-function SpawnGroupDetailPanel({selectedSpawnGroupRow, openSyncSpawnGroupPreviewFromSpawnGroup, openDeleteSpawnGroupPreview, expandedSections, setExpandedSections}) {
+function SpawnGroupDetailPanel({selectedSpawnGroupRow, openSyncSpawnGroupPreviewFromSpawnGroup, openDeleteSpawnGroupPreview, openAlignSpawnGroupIdPreview, expandedSections, setExpandedSections}) {
     return (
         <>
             {!selectedSpawnGroupRow && (
@@ -13,15 +13,16 @@ function SpawnGroupDetailPanel({selectedSpawnGroupRow, openSyncSpawnGroupPreview
             )}
             {selectedSpawnGroupRow && (() => {
                 const row = selectedSpawnGroupRow
-                // "name" is cosmetic/local (see CLAUDE.md's EQEmu Schema Notes on
-                // spawngroup.name) — shown once as the row's label, never diffed
-                // alongside spawn_limit/dist/etc. the way spawn2's x/y/z are shown
-                // once instead of diffed for the same "this isn't meaningfully
-                // comparable" reason.
+                // Every spawngroup column is compared here, "name" included — this app's own
+                // Sync action (updateSpawnGroupFields) still never WRITES name (two independently-
+                // evolved databases routinely reuse the same auto-generated name for unrelated
+                // groups, so overwriting it risks a collision), but that's a write-safety decision
+                // separate from what this comparison shows. A row whose only difference is "name"
+                // will show up here as differing but produce a no-op on that one column if synced.
                 const allFields = Array.from(new Set([
                     ...Object.keys(row.SourceFields ?? {}),
                     ...Object.keys(row.SinkFields ?? {})
-                ])).filter(f => f !== 'name').sort()
+                ])).sort()
                 return (
                     <>
                         <div className="px-2 pt-1 text-gray-200 text-sm">"{row.Name}"</div>
@@ -67,6 +68,34 @@ function SpawnGroupDetailPanel({selectedSpawnGroupRow, openSyncSpawnGroupPreview
                                     className="self-start px-2 py-1 rounded text-xs border border-amber-700 text-amber-400 hover:border-amber-400 hover:text-amber-300"
                                     title="Replace this spawngroup's fields and entries on the sink to match source">
                                     Sync spawngroup from source →
+                                </button>
+                            </div>
+                        )}
+                        {(row.SourceIdOutOfZoneRange || row.SinkIdOutOfZoneRange) && (
+                            <div className="text-red-400 px-2 py-1 flex items-center gap-1">
+                                <span>⚠</span>
+                                <span>
+                                    {row.SinkIdOutOfZoneRange && !row.SourceIdOutOfZoneRange
+                                        ? "Sink's id doesn't fall in this zone's own numbering block — likely unmigrated legacy content"
+                                        : row.SourceIdOutOfZoneRange && !row.SinkIdOutOfZoneRange
+                                            ? "Source's id doesn't fall in this zone's own numbering block"
+                                            : "Neither side's id falls in this zone's own numbering block"}
+                                </span>
+                            </div>
+                        )}
+                        <div className="flex justify-between px-2 py-0.5" title={spawnGroupIdsDiffer(row) ? 'Source/sink spawngroup ids differ' : undefined}>
+                            <span className="text-gray-500 w-24 shrink-0">spawngroup id</span>
+                            <span className={row.SourceIdOutOfZoneRange ? 'text-red-400' : spawnGroupIdsDiffer(row) ? 'text-amber-400' : 'text-gray-300'}>{row.SourceGroupId || '—'}</span>
+                            <span className="text-gray-600 px-1">→</span>
+                            <span className={row.SinkIdOutOfZoneRange ? 'text-red-400' : spawnGroupIdsDiffer(row) ? 'text-amber-400' : 'text-gray-300'}>{row.SinkGroupId || '—'}</span>
+                        </div>
+                        {spawnGroupIdsDiffer(row) && (row.Status === 'modified' || row.Status === 'match') && (
+                            <div className="px-2 pb-1">
+                                <button
+                                    onClick={() => openAlignSpawnGroupIdPreview(row)}
+                                    className="px-2 py-1 rounded text-xs border border-cyan-700 text-cyan-400 hover:border-cyan-400 hover:text-cyan-300"
+                                    title="Renumber sink's spawngroup id to match source's — a rename, its fields/spawn entries are left untouched">
+                                    Align spawngroup ID to source →
                                 </button>
                             </div>
                         )}

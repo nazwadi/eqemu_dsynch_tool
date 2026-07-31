@@ -42,6 +42,46 @@ export namespace main {
 	        this.ReferencesRepointed = source["ReferencesRepointed"];
 	    }
 	}
+	export class AlignSpawnGroupIdOptions {
+	    SourceGroupId: number;
+	    SinkGroupId: number;
+	    DryRun: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new AlignSpawnGroupIdOptions(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.SourceGroupId = source["SourceGroupId"];
+	        this.SinkGroupId = source["SinkGroupId"];
+	        this.DryRun = source["DryRun"];
+	    }
+	}
+	export class AlignSpawnGroupIdResult {
+	    DryRun: boolean;
+	    RenamedFrom: number;
+	    RenamedTo: number;
+	    SquatterSummary: string;
+	    SquatterEvicted: boolean;
+	    NewSquatterId: number;
+	    SpawnPointsRepointed: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new AlignSpawnGroupIdResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.DryRun = source["DryRun"];
+	        this.RenamedFrom = source["RenamedFrom"];
+	        this.RenamedTo = source["RenamedTo"];
+	        this.SquatterSummary = source["SquatterSummary"];
+	        this.SquatterEvicted = source["SquatterEvicted"];
+	        this.NewSquatterId = source["NewSquatterId"];
+	        this.SpawnPointsRepointed = source["SpawnPointsRepointed"];
+	    }
+	}
 	export class BatchRelocateSpawnGroupsOptions {
 	    ZoneShortName: string;
 	    ZoneVersion: number;
@@ -1246,6 +1286,8 @@ export namespace main {
 	    SpawnEntriesDiffer: boolean;
 	    AmbiguousSinkGroupIds: number[];
 	    SampleCoord: number[];
+	    SourceIdOutOfZoneRange: boolean;
+	    SinkIdOutOfZoneRange: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new SpawnGroupDiffRow(source);
@@ -1267,6 +1309,8 @@ export namespace main {
 	        this.SpawnEntriesDiffer = source["SpawnEntriesDiffer"];
 	        this.AmbiguousSinkGroupIds = source["AmbiguousSinkGroupIds"];
 	        this.SampleCoord = source["SampleCoord"];
+	        this.SourceIdOutOfZoneRange = source["SourceIdOutOfZoneRange"];
+	        this.SinkIdOutOfZoneRange = source["SinkIdOutOfZoneRange"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

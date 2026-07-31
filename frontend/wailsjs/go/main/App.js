@@ -6,6 +6,10 @@ export function AlignId(arg1) {
   return window['go']['main']['App']['AlignId'](arg1);
 }
 
+export function AlignSpawnGroupId(arg1) {
+  return window['go']['main']['App']['AlignSpawnGroupId'](arg1);
+}
+
 export function CompareGrids(arg1) {
   return window['go']['main']['App']['CompareGrids'](arg1);
 }
@@ -26,8 +30,8 @@ export function CompareNPCSpells(arg1, arg2) {
   return window['go']['main']['App']['CompareNPCSpells'](arg1, arg2);
 }
 
-export function CompareSpawnGroups(arg1, arg2) {
-  return window['go']['main']['App']['CompareSpawnGroups'](arg1, arg2);
+export function CompareSpawnGroups(arg1, arg2, arg3) {
+  return window['go']['main']['App']['CompareSpawnGroups'](arg1, arg2, arg3);
 }
 
 export function CompareSpawns(arg1, arg2, arg3) {

@@ -25,6 +25,7 @@ function DetailPanel({
     onJumpToGrid,
     selectedGridRow, selectedWaypointNumber, onSelectWaypoint,
     selectedSpawnGroupRow, openSyncSpawnGroupPreviewFromSpawnGroup, openDeleteSpawnGroupPreview,
+    openAlignSpawnGroupIdPreview,
     expandedSections, setExpandedSections
 }) {
     // One "?" help-drawer trigger per tab that has one — keyed the same way detailPanelTitles is,
@@ -80,6 +81,7 @@ function DetailPanel({
                             selectedSpawnGroupRow={selectedSpawnGroupRow}
                             openSyncSpawnGroupPreviewFromSpawnGroup={openSyncSpawnGroupPreviewFromSpawnGroup}
                             openDeleteSpawnGroupPreview={openDeleteSpawnGroupPreview}
+                            openAlignSpawnGroupIdPreview={openAlignSpawnGroupIdPreview}
                             expandedSections={expandedSections} setExpandedSections={setExpandedSections}
                         />
                     )}

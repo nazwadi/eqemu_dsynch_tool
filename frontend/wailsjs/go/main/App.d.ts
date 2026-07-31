@@ -4,6 +4,8 @@ import {main} from '../models';
 
 export function AlignId(arg1:main.AlignIdOptions):Promise<main.AlignIdResult>;
 
+export function AlignSpawnGroupId(arg1:main.AlignSpawnGroupIdOptions):Promise<main.AlignSpawnGroupIdResult>;
+
 export function CompareGrids(arg1:number):Promise<Array<main.GridDiffRow>>;
 
 export function CompareNPCFaction(arg1:number,arg2:number):Promise<main.NPCFactionComparison>;
@@ -14,7 +16,7 @@ export function CompareNPCMerchant(arg1:number,arg2:number):Promise<main.NPCMerc
 
 export function CompareNPCSpells(arg1:number,arg2:number):Promise<main.NPCSpellsComparison>;
 
-export function CompareSpawnGroups(arg1:string,arg2:number):Promise<Array<main.SpawnGroupDiffRow>>;
+export function CompareSpawnGroups(arg1:string,arg2:number,arg3:number):Promise<Array<main.SpawnGroupDiffRow>>;
 
 export function CompareSpawns(arg1:string,arg2:number,arg3:number):Promise<Array<main.SpawnDiffRow>>;
 

@@ -1,4 +1,4 @@
-import {spawnGroupRowId, spawnGroupRowLabel} from '../lib/spawnGroupHelpers';
+import {spawnGroupIdsDiffer, spawnGroupRowId, spawnGroupRowLabel} from '../lib/spawnGroupHelpers';
 import {useListArrowKeyNav} from '../hooks/useListArrowKeyNav';
 import IconLegend from './IconLegend';
 
@@ -8,7 +8,9 @@ import IconLegend from './IconLegend';
 // to give the glyph itself two different looks.
 const spawnGroupRowIcons = [
     {icon: '⚠', label: 'ambiguous match (orange row) — resolved to more than one sink spawngroup'},
-    {icon: '⚠', label: 'spawn entries differ (yellow row)'}
+    {icon: '⚠', label: 'spawn entries differ (yellow row)'},
+    {icon: '#12', label: 'amber id badge — source/sink spawngroup ids simply differ'},
+    {icon: '#12', label: 'red id badge — id falls outside this zone\'s own numbering block, likely unmigrated legacy content'}
 ]
 
 // Spawngroups tab body: a diff list only, no sync preview/confirm slide-over like the other tabs —
@@ -94,10 +96,26 @@ function SpawngroupsTab({
                                         <span className="text-amber-400 text-xs px-1" title="Spawn entries differ from source">⚠</span>
                                     )}
                                     <div className="flex-1 text-xs px-2 py-1">
-                                        {row.SourceGroupId ? spawnGroupRowLabel(row.Name, row.SourceSpawnEntries, row.SourceLocationCount) : '-'}
+                                        {row.SourceGroupId ? (
+                                            <>
+                                                <span className={row.SourceIdOutOfZoneRange ? 'text-red-400' : spawnGroupIdsDiffer(row) ? 'text-amber-400' : 'text-gray-500'}
+                                                      title={row.SourceIdOutOfZoneRange ? 'This id falls outside the zone\'s own numbering block — doesn\'t follow the zoneIdNumber convention this zone otherwise uses' : spawnGroupIdsDiffer(row) ? 'Source/sink spawngroup ids differ' : undefined}>
+                                                    #{row.SourceGroupId}
+                                                </span>{' '}
+                                                {spawnGroupRowLabel(row.Name, row.SourceSpawnEntries, row.SourceLocationCount)}
+                                            </>
+                                        ) : '-'}
                                     </div>
                                     <div className="flex-1 text-xs px-2 py-1 border-l border-gray-700">
-                                        {row.SinkGroupId ? spawnGroupRowLabel(row.Name, row.SinkSpawnEntries, row.SinkLocationCount) : '-'}
+                                        {row.SinkGroupId ? (
+                                            <>
+                                                <span className={row.SinkIdOutOfZoneRange ? 'text-red-400' : spawnGroupIdsDiffer(row) ? 'text-amber-400' : 'text-gray-500'}
+                                                      title={row.SinkIdOutOfZoneRange ? 'This id falls outside the zone\'s own numbering block — likely unmigrated legacy content (see the Fields section for a comparable case)' : spawnGroupIdsDiffer(row) ? 'Source/sink spawngroup ids differ' : undefined}>
+                                                    #{row.SinkGroupId}
+                                                </span>{' '}
+                                                {spawnGroupRowLabel(row.Name, row.SinkSpawnEntries, row.SinkLocationCount)}
+                                            </>
+                                        ) : '-'}
                                     </div>
                                 </div>
                             )
