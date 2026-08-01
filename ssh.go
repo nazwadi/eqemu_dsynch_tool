@@ -269,6 +269,45 @@ func (a *App) Connect(c *ConnectionConfig, isSource bool) error {
 	return nil
 }
 
+// Disconnect closes one side's db pool and SSH tunnel (if any) on demand and clears both fields —
+// the on-demand counterpart to Connect(), added 2026-08-01 alongside AutoConnect specifically so a
+// live connection (an SSH tunnel especially) can be torn down without exiting the app, e.g. while
+// rebuilding during development. Mirrors shutdown()'s per-side cleanup exactly, but unlike
+// shutdown() it MUST nil out sourceDB/sourceTunnel (or sinkDB/sinkTunnel) afterward — shutdown()
+// never bothered because the process is exiting anyway, but every other read site in this app
+// (the `if a.sourceDB == nil` guard in nearly every Compare*/Sync* method) depends on nil meaning
+// "not connected" to behave correctly after this call. Holds the same per-side mutex Connect()
+// does, so this can't race a Connect() still in flight for the same side.
+func (a *App) Disconnect(isSource bool) error {
+	mu := &a.sinkMu
+	if isSource {
+		mu = &a.sourceMu
+	}
+	mu.Lock()
+	defer mu.Unlock()
+
+	if isSource {
+		if a.sourceDB != nil {
+			_ = a.sourceDB.Close()
+			a.sourceDB = nil
+		}
+		if a.sourceTunnel != nil {
+			_ = a.sourceTunnel.Close()
+			a.sourceTunnel = nil
+		}
+	} else {
+		if a.sinkDB != nil {
+			_ = a.sinkDB.Close()
+			a.sinkDB = nil
+		}
+		if a.sinkTunnel != nil {
+			_ = a.sinkTunnel.Close()
+			a.sinkTunnel = nil
+		}
+	}
+	return nil
+}
+
 // PickPrivateKeyFile opens a native "choose a file" dialog for the SSH private key field, so the
 // user can browse to e.g. ~/.ssh/id_rsa instead of typing the path by hand. Returns "" (no error)
 // if the user cancels the dialog — the frontend treats that as "leave the field unchanged."

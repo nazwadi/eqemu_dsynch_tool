@@ -67,6 +67,16 @@ type ConnectionConfig struct {
 	Password  string
 	UseSSH    bool
 	SshConfig SshConfig
+	// AutoConnect (added 2026-08-01) — whether this side connects automatically on app startup.
+	// Defaults to true for a config.json written before this field existed (Go's zero value for
+	// bool is false, which would silently stop auto-connecting every existing user's saved
+	// connections the moment they upgrade — LoadConfig corrects for this the same way UIPrefs'
+	// zero-means-unset fields already do, see useConnections.js's hydration). Independent of
+	// whether the side is CURRENTLY connected — toggling this off doesn't disconnect anything by
+	// itself, it only changes what happens on the next app start (see Disconnect for the separate,
+	// on-demand action). The direct answer to "I don't want an active SSH connection restarting
+	// every time I rebuild during development."
+	AutoConnect bool
 }
 
 type Zone struct {

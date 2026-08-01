@@ -480,6 +480,10 @@ function App() {
                 dbSinkName={connections.dbSinkName} setDbSinkName={connections.setDbSinkName}
                 ssh={connections.activeModal === 'source' ? connections.sourceSsh : connections.sinkSsh}
                 setSsh={connections.activeModal === 'source' ? connections.setSourceSsh : connections.setSinkSsh}
+                status={connections.activeModal === 'source' ? connections.sourceStatus : connections.sinkStatus}
+                autoConnect={connections.activeModal === 'source' ? connections.sourceAutoConnect : connections.sinkAutoConnect}
+                setAutoConnect={connections.activeModal === 'source' ? connections.setSourceAutoConnect : connections.setSinkAutoConnect}
+                onDisconnect={() => connections.disconnect(connections.activeModal === 'source')}
             />
             <ConfirmSyncModal
                 showSyncConfirm={npcSync.showSyncConfirm} setShowSyncConfirm={npcSync.setShowSyncConfirm}
@@ -609,9 +613,16 @@ function App() {
                 ) : (
                     <>
                         <Sidebar
-                            sourceConnected={connections.sourceConnected} sourceHost={connections.sourceHost}
-                            sinkConnected={connections.sinkConnected} sinkHost={connections.sinkHost}
+                            sourceStatus={connections.sourceStatus} sourceHost={connections.sourceHost}
+                            dbSourceName={connections.dbSourceName} sourceSshEnabled={connections.sourceSsh.enabled}
+                            sourceAutoConnect={connections.sourceAutoConnect} setSourceAutoConnect={connections.setSourceAutoConnect}
+                            sourceLastError={connections.sourceLastError}
+                            sinkStatus={connections.sinkStatus} sinkHost={connections.sinkHost}
+                            dbSinkName={connections.dbSinkName} sinkSshEnabled={connections.sinkSsh.enabled}
+                            sinkAutoConnect={connections.sinkAutoConnect} setSinkAutoConnect={connections.setSinkAutoConnect}
+                            sinkLastError={connections.sinkLastError}
                             setActiveModal={connections.setActiveModal} setConnectError={connections.setConnectError}
+                            onDisconnect={connections.disconnect}
                             searchFilter={searchFilter} setSearchFilter={setSearchFilter}
                             showSyncPreview={npcSync.showSyncPreview} showSpawnSyncPreview={spawnSync.showSpawnSyncPreview}
                             zones={connections.zones} selectedZoneId={selectedZoneId} onSelectZone={selectZone}

@@ -66,6 +66,10 @@ export function DeleteSpawnGroup(arg1) {
   return window['go']['main']['App']['DeleteSpawnGroup'](arg1);
 }
 
+export function Disconnect(arg1) {
+  return window['go']['main']['App']['Disconnect'](arg1);
+}
+
 export function GetLootTable(arg1, arg2) {
   return window['go']['main']['App']['GetLootTable'](arg1, arg2);
 }

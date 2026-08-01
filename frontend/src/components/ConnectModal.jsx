@@ -21,7 +21,8 @@ function ConnectModal({
     sourcePassword, setSourcePassword, dbSourceName, setDbSourceName,
     sinkHost, setSinkHost, sinkPort, setSinkPort, sinkUsername, setSinkUsername,
     sinkPassword, setSinkPassword, dbSinkName, setDbSinkName,
-    ssh, setSsh
+    ssh, setSsh,
+    status, autoConnect, setAutoConnect, onDisconnect
 }) {
     const {ref, handleKeyDown} = useModalFocusTrap(activeModal, () => {
         setActiveModal(null)
@@ -62,15 +63,23 @@ function ConnectModal({
                         setConnectError(null)
                     }} className="text-gray-400 hover:text-white cursor-pointer">✕</button>
                 </div>
-                <label>Host</label>
-                <input className="border border-gray-600 bg-gray-700 rounded px-2 py-1"
-                       value={activeModal === 'source' ? sourceHost : sinkHost}
-                       onChange={e => activeModal === 'source' ? setSourceHost(e.target.value) : setSinkHost(e.target.value)}
-                       autoCapitalize="off" autoCorrect="off" spellCheck={false}/>
-                <label>Port</label>
-                <input className="border border-gray-600 bg-gray-700 rounded px-2 py-1"
-                       value={activeModal === 'source' ? sourcePort : sinkPort}
-                       onChange={e => activeModal === 'source' ? setSourcePort(e.target.value) : setSinkPort(e.target.value)}/>
+                {/* Host+Port share a row, Host taking the space Port doesn't need — the same
+                    layout TablePlus/DBeaver/DataGrip all use for this exact pair of fields. */}
+                <div className="flex gap-2">
+                    <div className="flex-1 flex flex-col gap-1">
+                        <label>Host</label>
+                        <input className="border border-gray-600 bg-gray-700 rounded px-2 py-1"
+                               value={activeModal === 'source' ? sourceHost : sinkHost}
+                               onChange={e => activeModal === 'source' ? setSourceHost(e.target.value) : setSinkHost(e.target.value)}
+                               autoCapitalize="off" autoCorrect="off" spellCheck={false}/>
+                    </div>
+                    <div className="w-20 flex flex-col gap-1">
+                        <label>Port</label>
+                        <input className="border border-gray-600 bg-gray-700 rounded px-2 py-1"
+                               value={activeModal === 'source' ? sourcePort : sinkPort}
+                               onChange={e => activeModal === 'source' ? setSourcePort(e.target.value) : setSinkPort(e.target.value)}/>
+                    </div>
+                </div>
                 <label>Username</label>
                 <input className="border border-gray-600 bg-gray-700 rounded px-2 py-1"
                        value={activeModal === 'source' ? sourceUsername : sinkUsername}
@@ -158,15 +167,32 @@ function ConnectModal({
                     )}
                 </div>
 
+                <label className="flex items-center gap-2 text-xs text-gray-400 cursor-pointer border-t border-gray-700 pt-3"
+                       title="Automatically connect this side when the app starts. Turn off if you're rebuilding/restarting a lot and don't want an SSH tunnel repeatedly reconnecting.">
+                    <input type="checkbox"
+                           className="accent-yellow-400 cursor-pointer w-3.5 h-3.5"
+                           checked={autoConnect}
+                           onChange={e => setAutoConnect(e.target.checked)}/>
+                    Auto-connect on startup
+                </label>
+
                 {connectError && (
                     <div className="text-xs text-red-400 bg-red-950 border border-red-800 rounded px-2 py-1">
                         {connectError}
                     </div>
                 )}
-                <button onClick={connect} disabled={connecting}
-                        className="text-sm px-3 py-2 rounded font-medium bg-yellow-400 text-gray-900 hover:bg-yellow-300 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer">
-                    {connecting ? 'Connecting…' : (activeModal === 'source' ? 'Connect Source' : 'Connect Sink')}
-                </button>
+                <div className="flex gap-2">
+                    {status === 'connected' && (
+                        <button onClick={onDisconnect}
+                                className="text-sm px-3 py-2 rounded font-medium border border-red-800 text-red-400 hover:border-red-500 hover:text-red-300 cursor-pointer">
+                            Disconnect
+                        </button>
+                    )}
+                    <button onClick={connect} disabled={connecting}
+                            className="flex-1 text-sm px-3 py-2 rounded font-medium bg-yellow-400 text-gray-900 hover:bg-yellow-300 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer">
+                        {connecting ? 'Connecting…' : status === 'connected' ? 'Reconnect' : (activeModal === 'source' ? 'Connect Source' : 'Connect Sink')}
+                    </button>
+                </div>
             </div>
         </div>
     )

@@ -272,6 +272,7 @@ export namespace main {
 	    Password: string;
 	    UseSSH: boolean;
 	    SshConfig: SshConfig;
+	    AutoConnect: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new ConnectionConfig(source);
@@ -286,6 +287,7 @@ export namespace main {
 	        this.Password = source["Password"];
 	        this.UseSSH = source["UseSSH"];
 	        this.SshConfig = this.convertValues(source["SshConfig"], SshConfig);
+	        this.AutoConnect = source["AutoConnect"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
