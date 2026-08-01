@@ -16,6 +16,8 @@ export function CompareNPCMerchant(arg1:number,arg2:number):Promise<main.NPCMerc
 
 export function CompareNPCSpells(arg1:number,arg2:number):Promise<main.NPCSpellsComparison>;
 
+export function CompareNPCSpellsEffects(arg1:number,arg2:number):Promise<main.NPCSpellsEffectsComparison>;
+
 export function CompareSpawnGroups(arg1:string,arg2:number,arg3:number):Promise<Array<main.SpawnGroupDiffRow>>;
 
 export function CompareSpawns(arg1:string,arg2:number,arg3:number):Promise<Array<main.SpawnDiffRow>>;

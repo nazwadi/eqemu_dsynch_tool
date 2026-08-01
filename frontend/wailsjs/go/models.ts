@@ -1013,6 +1013,67 @@ export namespace main {
 		    return a;
 		}
 	}
+	export class NPCSpellsEffectsEntryDiff {
+	    SpellEffectID: number;
+	    SourceExists: boolean;
+	    SourceFields: Record<string, any>;
+	    SinkExists: boolean;
+	    SinkFields: Record<string, any>;
+	    Differs: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new NPCSpellsEffectsEntryDiff(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.SpellEffectID = source["SpellEffectID"];
+	        this.SourceExists = source["SourceExists"];
+	        this.SourceFields = source["SourceFields"];
+	        this.SinkExists = source["SinkExists"];
+	        this.SinkFields = source["SinkFields"];
+	        this.Differs = source["Differs"];
+	    }
+	}
+	export class NPCSpellsEffectsComparison {
+	    SourceId: number;
+	    SinkId: number;
+	    SourceFields: Record<string, any>;
+	    SinkFields: Record<string, any>;
+	    Entries: NPCSpellsEffectsEntryDiff[];
+	
+	    static createFrom(source: any = {}) {
+	        return new NPCSpellsEffectsComparison(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.SourceId = source["SourceId"];
+	        this.SinkId = source["SinkId"];
+	        this.SourceFields = source["SourceFields"];
+	        this.SinkFields = source["SinkFields"];
+	        this.Entries = this.convertValues(source["Entries"], NPCSpellsEffectsEntryDiff);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
 	
 	export class SpawnEntry {
 	    NPCID: number;

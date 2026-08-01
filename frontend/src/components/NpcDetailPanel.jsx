@@ -77,12 +77,12 @@ function NpcDetailPanel({selectedNpc, openReferenceComparison, onInspectLoot, ex
                                     {isExcluded && <span className="text-orange-500 shrink-0" title="Excluded from sync — won't be overwritten on an existing sink row">⊘</span>}
                                 </span>
                                 <span
-                                    className={`flex-1 ${srcMissing ? 'text-red-400' : valueClass}`}
-                                    title={srcMissing ? "Doesn't exist in source's own table" : undefined}>{srcVal ?? '—'}</span>
+                                    className={`flex-1 truncate ${srcMissing ? 'text-red-400' : valueClass}`}
+                                    title={srcMissing ? "Doesn't exist in source's own table" : srcVal ?? undefined}>{srcVal ?? '—'}</span>
                                 <span className="text-gray-600 px-1 shrink-0">→</span>
                                 <span
-                                    className={`flex-1 ${sinkMissing ? 'text-red-400' : valueClass}`}
-                                    title={sinkMissing ? "Doesn't exist in sink's own table — likely copied verbatim by npc_types sync" : undefined}>{sinkVal ?? '—'}</span>
+                                    className={`flex-1 truncate ${sinkMissing ? 'text-red-400' : valueClass}`}
+                                    title={sinkMissing ? "Doesn't exist in sink's own table — likely copied verbatim by npc_types sync" : sinkVal ?? undefined}>{sinkVal ?? '—'}</span>
                                 <button
                                     onClick={e => {
                                         e.stopPropagation()

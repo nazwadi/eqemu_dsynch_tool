@@ -14,6 +14,7 @@ import ReferenceDrawer from './components/ReferenceDrawer';
 import FactionComparison from './components/FactionComparison';
 import SpellsComparison from './components/SpellsComparison';
 import MerchantComparison from './components/MerchantComparison';
+import SpellEffectsComparison from './components/SpellEffectsComparison';
 import ConfirmSpawnGroupSyncModal from './components/ConfirmSpawnGroupSyncModal';
 import ConfirmRelocateSpawnGroupModal from './components/ConfirmRelocateSpawnGroupModal';
 import ConfirmBatchRelocateSpawnGroupsModal from './components/ConfirmBatchRelocateSpawnGroupsModal';
@@ -65,7 +66,8 @@ import {instrumentGoCalls} from './lib/pendingGoCalls';
 const referenceDrawerTitles = {
     faction: 'Faction Reference',
     spells: 'Spells Reference',
-    merchant: 'Merchant Reference'
+    merchant: 'Merchant Reference',
+    spellEffects: 'Spell Effects Reference'
 }
 
 // App.jsx is the coordinator: each tab's own state/handlers live in their own hook
@@ -209,7 +211,7 @@ function App() {
         loot.refreshLoot()
     }
 
-    // Triggered from the npc_faction/npc_spells reference drawer's own "Align ID to source"
+    // Triggered from the npc_faction/npc_spells/npc_spells_effects reference drawer's own "Align ID to source"
     // button — unlike loot, these headers have no entry-level ID-alignment need at all: their
     // Entries are keyed by the portable faction_id/spellid, not a local surrogate, so only the
     // header's own npc_faction_id/npc_spells_id ever needs realigning, same single-button shape
@@ -235,7 +237,7 @@ function App() {
         const target = alignId.alignTarget?.target
         if (target === 'lootdrop' || target === 'loottable') {
             refreshLootAfterAlign()
-        } else if (target === 'npc_faction' || target === 'npc_spells') {
+        } else if (target === 'npc_faction' || target === 'npc_spells' || target === 'npc_spells_effects') {
             refreshReferenceAfterAlign()
         }
     }
@@ -247,7 +249,7 @@ function App() {
         syncReferenceContent.openSyncContentPreview({target: 'loottable', sourceId, sinkId, label: 'loottable'})
     }
 
-    // Triggered from the npc_faction/npc_spells/merchant reference drawer's own "Sync content from
+    // Triggered from the npc_faction/npc_spells/merchant/npc_spells_effects reference drawer's own "Sync content from
     // source" button — same single-button shape as alignReferenceId above, since none of these
     // three have an equivalent pairing ambiguity (their Entries are keyed by portable ids).
     function syncReferenceContentForType(target, sourceId, sinkId) {
@@ -302,7 +304,7 @@ function App() {
         const target = syncReferenceContent.syncContentTarget?.target
         if (target === 'loottable') {
             refreshLootAfterSyncContent()
-        } else if (target === 'npc_faction' || target === 'npc_spells' || target === 'merchantlist') {
+        } else if (target === 'npc_faction' || target === 'npc_spells' || target === 'merchantlist' || target === 'npc_spells_effects') {
             refreshReferenceAfterSyncContent()
         }
     }
@@ -517,6 +519,11 @@ function App() {
                 {referenceDrawer.referenceDrawerType === 'merchant' && (
                     <MerchantComparison comparison={referenceDrawer.referenceDrawerData}
                                         onSyncContent={(sourceId, sinkId) => syncReferenceContentForType('merchantlist', sourceId, sinkId)}/>
+                )}
+                {referenceDrawer.referenceDrawerType === 'spellEffects' && (
+                    <SpellEffectsComparison comparison={referenceDrawer.referenceDrawerData}
+                                       onAlign={(sourceId, sinkId) => alignReferenceId('npc_spells_effects', sourceId, sinkId)}
+                                       onSyncContent={(sourceId, sinkId) => syncReferenceContentForType('npc_spells_effects', sourceId, sinkId)}/>
                 )}
             </ReferenceDrawer>
             <ConfirmSpawnGroupSyncModal

@@ -25,10 +25,11 @@ type fkRef struct{ table, column string }
 // carve-out these four targets have no equivalent for (see idalign.go's own design note in
 // CLAUDE.md for why unconditional repoint is correct here, not just simpler).
 var idAlignmentTargets = map[string]idAlignmentTarget{
-	"lootdrop":    {"lootdrop", "lootdrop_entries", "lootdrop_id", []fkRef{{"loottable_entries", "lootdrop_id"}}},
-	"loottable":   {"loottable", "loottable_entries", "loottable_id", []fkRef{{"npc_types", "loottable_id"}}},
-	"npc_faction": {"npc_faction", "npc_faction_entries", "npc_faction_id", []fkRef{{"npc_types", "npc_faction_id"}}},
-	"npc_spells":  {"npc_spells", "npc_spells_entries", "npc_spells_id", []fkRef{{"npc_types", "npc_spells_id"}}},
+	"lootdrop":           {"lootdrop", "lootdrop_entries", "lootdrop_id", []fkRef{{"loottable_entries", "lootdrop_id"}}},
+	"loottable":          {"loottable", "loottable_entries", "loottable_id", []fkRef{{"npc_types", "loottable_id"}}},
+	"npc_faction":        {"npc_faction", "npc_faction_entries", "npc_faction_id", []fkRef{{"npc_types", "npc_faction_id"}}},
+	"npc_spells":         {"npc_spells", "npc_spells_entries", "npc_spells_id", []fkRef{{"npc_types", "npc_spells_id"}}},
+	"npc_spells_effects": {"npc_spells_effects", "npc_spells_effects_entries", "npc_spells_effects_id", []fkRef{{"npc_types", "npc_spells_effects_id"}}},
 }
 
 type AlignIdOptions struct {

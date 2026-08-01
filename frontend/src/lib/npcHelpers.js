@@ -6,11 +6,27 @@ export const fieldGroups = {
     combat: ['level', 'maxlevel', 'scalerate', 'hp', 'mana', 'AC', 'ATK', 'mindmg', 'maxdmg', 'attack_count', 'attack_speed', 'attack_delay', 'hp_regen_rate', 'mana_regen_rate'],
     resistances: ['MR', 'CR', 'DR', 'FR', 'PR', 'Corrup', 'PhR'],
     ability_scores: ['STR', 'STA', 'DEX', 'AGI', 'INT', 'WIS', 'CHA'],
-    behavior: ['aggroradius', 'assistradius', 'npc_aggro', 'always_aggro', 'see_invis', 'see_invis_undead', 'see_hide', 'trackable', 'flymode'],
+    // special_abilities (added 2026-08-01) — a caret/comma-encoded flag string covering ~40
+    // unrelated abilities (Rampage/Flurry/Area Rampage's own "percent chance of a bonus melee
+    // attack" among them — the closest thing to an "attack proc" that exists on npc_types; there is
+    // no dedicated attack_proc/ranged_proc column, confirmed against EQEmu's own schema docs).
+    // Already participated in the full field diff/Sync upsert like any other npc_types column —
+    // this was the only thing actually missing: without it in a field group, a difference here
+    // could flip a row to "modified" with no way to see WHY in the detail panel. Shown as one
+    // opaque string, not parsed into individual abilities — a deliberate choice: this app already
+    // errs on the side of never guessing at an undocumented format for something that could get
+    // written back to a live server, and this format's positional per-ability parameters aren't
+    // documented cleanly enough to trust that decoding without real risk of getting one wrong.
+    // npcspecialattks (the pre-special_abilities predecessor column) is excluded — official docs
+    // mark it deprecated, so it's not worth cluttering this section with a fully superseded field.
+    behavior: ['aggroradius', 'assistradius', 'npc_aggro', 'always_aggro', 'see_invis', 'see_invis_undead', 'see_hide', 'trackable', 'flymode', 'special_abilities'],
     // merchant_id, not merchantid — npc_types spells it with an underscore even though the table
     // it points at (merchantlist) doesn't; confirmed via SHOW COLUMNS after "merchantid" here (and
     // in app.go's referenceFKColumns/buildTODOItems) silently returned nothing for every NPC.
-    references: ['loottable_id', 'npc_spells_id', 'npc_faction_id', 'merchant_id', 'alt_currency_id']
+    // npc_spells_effects_id (added 2026-08-01) — EQEmu's "NPC Spell Effects" system, structurally a
+    // clone of npc_spells; 0 NPCs used it on the database this was verified against, built ahead of
+    // adoption anyway (see CompareNPCSpellsEffects's own comment).
+    references: ['loottable_id', 'npc_spells_id', 'npc_faction_id', 'merchant_id', 'alt_currency_id', 'npc_spells_effects_id']
 }
 
 // Which References fields currently have a working source-vs-sink comparison drawer — extend this
@@ -21,7 +37,8 @@ export const fieldGroups = {
 export const referenceComparisonTypes = {
     npc_faction_id: 'faction',
     npc_spells_id: 'spells',
-    merchant_id: 'merchant'
+    merchant_id: 'merchant',
+    npc_spells_effects_id: 'spellEffects'
 }
 
 // loottable_id is clickable too, but doesn't open the shared ReferenceDrawer the way the three

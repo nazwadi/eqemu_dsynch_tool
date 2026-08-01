@@ -445,6 +445,149 @@ func resolveSpellNames(ctx context.Context, db *sql.DB, entries []map[string]int
 	return names, rows.Err()
 }
 
+// NPCSpellsEffectsEntryDiff is one spell_effect_id row from npc_spells_effects_entries, merged
+// across source and sink by spell_effect_id — EQEmu's "NPC Spell Effects" system, structurally a
+// near-exact clone of npc_spells/npc_spells_entries (own header row + a list of entries, added
+// 2026-08-01). Unlike SpellID/FactionID/ItemID, spell_effect_id is NOT a row in any database
+// table — it's a fixed numeric spell-effect-attribute (SPA) constant hardcoded in the EQEmu server
+// itself (e.g. critical melee chance, damage shield), so there's no name to resolve here and no
+// portability risk the way a local surrogate id would have — the raw number IS the identity, shown
+// as-is rather than guessed at with a hardcoded SPA-name table that could drift out of date.
+// minlevel/maxlevel/se_base/se_limit/se_max are shown as plain comparable fields, mirroring
+// NPCSpellsEntryDiff's drift-tolerant field-map shape rather than hardcoded struct fields.
+type NPCSpellsEffectsEntryDiff struct {
+	SpellEffectID int64
+	SourceExists  bool
+	SourceFields  map[string]interface{} // npc_spells_effects_entries columns, minus id/npc_spells_effects_id/spell_effect_id
+	SinkExists    bool
+	SinkFields    map[string]interface{}
+	Differs       bool
+}
+
+// NPCSpellsEffectsComparison is the read-only source-vs-sink view behind the References section's
+// "npc_spells_effects_id" reference. As of this pass, 0 NPCs on the checked source database
+// actually use it (npc_spells_effects_id is 0 on every row) — built ahead of adoption anyway,
+// mirroring CompareNPCSpells's exact shape, so it's ready the moment content starts using it rather
+// than needing to be built reactively later.
+type NPCSpellsEffectsComparison struct {
+	SourceId     int64
+	SinkId       int64
+	SourceFields map[string]interface{} // npc_spells_effects header row, minus id
+	SinkFields   map[string]interface{}
+	Entries      []NPCSpellsEffectsEntryDiff
+}
+
+// CompareNPCSpellsEffects mirrors CompareNPCSpells exactly, one level simpler (no name resolution
+// pass — see NPCSpellsEffectsEntryDiff for why spell_effect_id needs none).
+func (a *App) CompareNPCSpellsEffects(sourceId, sinkId int64) (NPCSpellsEffectsComparison, error) {
+	result := NPCSpellsEffectsComparison{SourceId: sourceId, SinkId: sinkId}
+
+	if a.sourceDB == nil {
+		return result, fmt.Errorf("source database not connected")
+	}
+	if a.sinkDB == nil {
+		return result, fmt.Errorf("sink database not connected")
+	}
+
+	var sourceFields, sinkFields map[string]interface{}
+	var sourceEntries, sinkEntries []map[string]interface{}
+	err := runParallel(
+		func() error {
+			if sourceId == 0 {
+				return nil
+			}
+			fields, err := fetchNPCSpellsEffectsHeader(a.ctx, a.sourceDB, sourceId)
+			if err != nil {
+				return err
+			}
+			sourceFields = fields
+			entries, err := fetchNPCSpellsEffectsEntries(a.ctx, a.sourceDB, sourceId)
+			if err != nil {
+				return err
+			}
+			sourceEntries = entries
+			return nil
+		},
+		func() error {
+			if sinkId == 0 {
+				return nil
+			}
+			fields, err := fetchNPCSpellsEffectsHeader(a.ctx, a.sinkDB, sinkId)
+			if err != nil {
+				return err
+			}
+			sinkFields = fields
+			entries, err := fetchNPCSpellsEffectsEntries(a.ctx, a.sinkDB, sinkId)
+			if err != nil {
+				return err
+			}
+			sinkEntries = entries
+			return nil
+		},
+	)
+	if err != nil {
+		return result, err
+	}
+	result.SourceFields = sourceFields
+	result.SinkFields = sinkFields
+
+	byId := make(map[int64]*NPCSpellsEffectsEntryDiff)
+	for _, e := range sourceEntries {
+		id := toInt64(e["spell_effect_id"])
+		byId[id] = &NPCSpellsEffectsEntryDiff{
+			SpellEffectID: id,
+			SourceExists:  true,
+			SourceFields:  withoutFields(e, "id", "npc_spells_effects_id", "spell_effect_id"),
+		}
+	}
+	for _, e := range sinkEntries {
+		id := toInt64(e["spell_effect_id"])
+		diff, ok := byId[id]
+		if !ok {
+			diff = &NPCSpellsEffectsEntryDiff{SpellEffectID: id}
+			byId[id] = diff
+		}
+		diff.SinkExists = true
+		diff.SinkFields = withoutFields(e, "id", "npc_spells_effects_id", "spell_effect_id")
+	}
+	for _, diff := range byId {
+		diff.Differs = diff.SourceExists != diff.SinkExists || !mapsEqual(diff.SourceFields, diff.SinkFields)
+		result.Entries = append(result.Entries, *diff)
+	}
+	sort.Slice(result.Entries, func(i, j int) bool {
+		return result.Entries[i].SpellEffectID < result.Entries[j].SpellEffectID
+	})
+
+	return result, nil
+}
+
+func fetchNPCSpellsEffectsHeader(ctx context.Context, db *sql.DB, id int64) (map[string]interface{}, error) {
+	rows, err := db.QueryContext(ctx, "SELECT * FROM npc_spells_effects WHERE id = ?", id)
+	if err != nil {
+		return nil, err
+	}
+	result, err := scanDynamicRows(rows)
+	_ = rows.Close()
+	if err != nil {
+		return nil, err
+	}
+	if len(result) == 0 {
+		return nil, nil
+	}
+	delete(result[0], "id")
+	return result[0], nil
+}
+
+func fetchNPCSpellsEffectsEntries(ctx context.Context, db *sql.DB, npcSpellsEffectsId int64) ([]map[string]interface{}, error) {
+	rows, err := db.QueryContext(ctx, "SELECT * FROM npc_spells_effects_entries WHERE npc_spells_effects_id = ?", npcSpellsEffectsId)
+	if err != nil {
+		return nil, err
+	}
+	result, err := scanDynamicRows(rows)
+	_ = rows.Close()
+	return result, err
+}
+
 // CompareNPCMerchant fetches the merchantlist rows a specific NPC links to on each side, by that
 // side's own raw merchantid — same anchor-via-NPC reasoning as CompareNPCFaction/CompareNPCSpells,
 // except there's no header row to fetch first (see NPCMerchantComparison). Entries are merged by

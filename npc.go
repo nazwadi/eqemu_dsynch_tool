@@ -268,10 +268,11 @@ func (a *App) CompareZones(shortName string, version int8, zoneIdNumber int64, e
 // after this mismatch caused a real, shipped bug (see Repo Meta): code had used "merchantid" for
 // the npc_types side too, so every npc_types.Fields["merchantid"] lookup silently returned nothing.
 var referenceFKColumns = map[string]struct{ table, column string }{
-	"npc_faction_id": {"npc_faction", "id"},
-	"npc_spells_id":  {"npc_spells", "id"},
-	"merchant_id":    {"merchantlist", "merchantid"},
-	"loottable_id":   {"loottable", "id"},
+	"npc_faction_id":        {"npc_faction", "id"},
+	"npc_spells_id":         {"npc_spells", "id"},
+	"merchant_id":           {"merchantlist", "merchantid"},
+	"loottable_id":          {"loottable", "id"},
+	"npc_spells_effects_id": {"npc_spells_effects", "id"},
 }
 
 // annotateMissingReferences flags, per NPC, any of referenceFKColumns whose nonzero value doesn't
@@ -330,6 +331,7 @@ func buildTODOItems(sourceNpc NPC, sinkNpc *NPC, zoneShortName string, zoneVersi
 		{"npc_faction_id", "faction"},
 		{"merchant_id", "merchant"},
 		{"alt_currency_id", "alt_currency"},
+		{"npc_spells_effects_id", "spellEffects"},
 	}
 	name := fmt.Sprintf("%v", sourceNpc.Fields["name"])
 	var items []TODOItem

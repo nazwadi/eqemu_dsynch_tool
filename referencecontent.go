@@ -26,10 +26,11 @@ type referenceContentTarget struct {
 // CreateLootDrop for its own content, and loottable's own entry here only ever copies lootdrop_id
 // references verbatim, never lootdrop content itself (see SyncReferenceContent's own comment).
 var referenceContentTargets = map[string]referenceContentTarget{
-	"npc_faction":  {"npc_faction", "npc_faction_entries", "npc_faction_id", "npc_faction_id"},
-	"npc_spells":   {"npc_spells", "npc_spells_entries", "npc_spells_id", "npc_spells_id"},
-	"merchantlist": {"", "merchantlist", "merchantid", "merchant_id"},
-	"loottable":    {"loottable", "loottable_entries", "loottable_id", "loottable_id"},
+	"npc_faction":        {"npc_faction", "npc_faction_entries", "npc_faction_id", "npc_faction_id"},
+	"npc_spells":         {"npc_spells", "npc_spells_entries", "npc_spells_id", "npc_spells_id"},
+	"merchantlist":       {"", "merchantlist", "merchantid", "merchant_id"},
+	"loottable":          {"loottable", "loottable_entries", "loottable_id", "loottable_id"},
+	"npc_spells_effects": {"npc_spells_effects", "npc_spells_effects_entries", "npc_spells_effects_id", "npc_spells_effects_id"},
 }
 
 type SyncReferenceContentOptions struct {

@@ -30,6 +30,10 @@ export function CompareNPCSpells(arg1, arg2) {
   return window['go']['main']['App']['CompareNPCSpells'](arg1, arg2);
 }
 
+export function CompareNPCSpellsEffects(arg1, arg2) {
+  return window['go']['main']['App']['CompareNPCSpellsEffects'](arg1, arg2);
+}
+
 export function CompareSpawnGroups(arg1, arg2, arg3) {
   return window['go']['main']['App']['CompareSpawnGroups'](arg1, arg2, arg3);
 }
