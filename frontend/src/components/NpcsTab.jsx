@@ -4,6 +4,7 @@ import {statusOrder} from '../lib/constants';
 import {useListArrowKeyNav} from '../hooks/useListArrowKeyNav';
 import IconLegend from './IconLegend';
 import ExactMatchToggle from './ExactMatchToggle';
+import ConnectionNotice from './ConnectionNotice';
 
 const npcRowIcons = [
     {icon: '⚡', label: 'quest-spawned — no static spawn point'},
@@ -102,6 +103,7 @@ function NpcsTab({
     sortBy, setSortBy, sortDir, setSortDir,
     selectableRows, selectedNPCs, setSelectedNPCs, selectedRowKey, setSelectedRowKey, setSelectedNpc,
     dbSourceName, dbSinkName, selectedZoneShortName,
+    sourceStatus, sinkStatus,
     showSyncPreview, setShowSyncPreview, syncPreview, syncing, syncOutcome, setShowSyncConfirm,
     excludedNpcFields, setShowExcludedFieldsDrawer
 }) {
@@ -149,7 +151,17 @@ function NpcsTab({
                 showSyncPreview ? '-translate-x-full' : 'translate-x-0'
             }`}>
 
+                {/* Filter input + Exact toggle always lead the toolbar, in every tab that has one
+                    (Loot/Factions already did; NPCs/Spawns are brought in line here) — a
+                    predictable spot rather than each tab burying it wherever else happened to fit. */}
                 <div className="flex items-center gap-2 px-3 py-2 border-b border-gray-700">
+                    <input
+                        className="w-48 text-xs border border-gray-600 bg-gray-700 rounded px-2 py-1 disabled:opacity-40 disabled:cursor-not-allowed"
+                        placeholder="Filter by NPC name..."
+                        value={npcSearchFilter}
+                        onChange={e => setNpcSearchFilter(e.target.value)}
+                        autoCapitalize="off" autoCorrect="off" spellCheck={false}/>
+                    <ExactMatchToggle checked={npcSearchExact} onChange={setNpcSearchExact}/>
                     <button
                         onClick={() => setDiffFilter('all')}
                         className={`text-xs px-3 py-1 rounded border ${diffFilter === 'all' ? 'border-yellow-400 text-yellow-400' : 'border-gray-600 text-gray-400 hover:border-gray-400'}`}>
@@ -167,13 +179,6 @@ function NpcsTab({
                         className="ml-auto text-xs px-2 py-1 rounded bg-gray-700 text-gray-300 hover:bg-gray-600 disabled:opacity-40 disabled:cursor-not-allowed">
                         ⟳ Refresh
                     </button>
-                    <input
-                        className="w-48 text-xs border border-gray-600 bg-gray-700 rounded px-2 py-1 disabled:opacity-40 disabled:cursor-not-allowed"
-                        placeholder="Filter by NPC name..."
-                        value={npcSearchFilter}
-                        onChange={e => setNpcSearchFilter(e.target.value)}
-                        autoCapitalize="off" autoCorrect="off" spellCheck={false}/>
-                    <ExactMatchToggle checked={npcSearchExact} onChange={setNpcSearchExact}/>
                 </div>
                 <div className="flex gap-2 px-3 py-1 border-b border-gray-700 bg-gray-850">
                     {[
@@ -225,7 +230,9 @@ function NpcsTab({
                     </div>
                 </div>
                 {/*Diff List of NPCs*/}
-                {diffLoading ? (
+                {sourceStatus !== 'connected' || sinkStatus !== 'connected' ? (
+                    <ConnectionNotice sourceStatus={sourceStatus} sinkStatus={sinkStatus}/>
+                ) : diffLoading ? (
                     <div className="flex-1 flex items-center justify-center text-gray-500 text-sm">
                         Loading NPCs…
                     </div>

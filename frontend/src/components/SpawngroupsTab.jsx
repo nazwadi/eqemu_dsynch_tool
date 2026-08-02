@@ -1,6 +1,7 @@
 import {spawnGroupIdsDiffer, spawnGroupRowId, spawnGroupRowLabel} from '../lib/spawnGroupHelpers';
 import {useListArrowKeyNav} from '../hooks/useListArrowKeyNav';
 import IconLegend from './IconLegend';
+import ConnectionNotice from './ConnectionNotice';
 
 // The bare ⚠ glyph means two different things in this tab depending on which row it's on — the
 // row's own background tint is what actually disambiguates them (orange for ambiguous, yellow for
@@ -23,7 +24,8 @@ const spawnGroupRowIcons = [
 function SpawngroupsTab({
     spawnGroupDiffRows, spawnGroupDiffLoading, spawnGroupDiffFilter, setSpawnGroupDiffFilter,
     selectedSpawnGroupRow, setSelectedSpawnGroupRow,
-    selectedZoneShortName
+    selectedZoneShortName,
+    sourceStatus, sinkStatus
 }) {
     // Same filter chain the list below renders — see NpcsTab's matching comment for why this was
     // pulled out of the inline .map() call.
@@ -61,7 +63,9 @@ function SpawngroupsTab({
                     Sink
                 </div>
             </div>
-            {spawnGroupDiffLoading ? (
+            {sourceStatus !== 'connected' || sinkStatus !== 'connected' ? (
+                <ConnectionNotice sourceStatus={sourceStatus} sinkStatus={sinkStatus}/>
+            ) : spawnGroupDiffLoading ? (
                 <div className="flex-1 flex items-center justify-center text-gray-500 text-sm">
                     Loading spawngroups…
                 </div>

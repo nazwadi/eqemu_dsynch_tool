@@ -923,6 +923,7 @@ function App() {
                             selectedRowKey={npcSync.selectedRowKey} setSelectedRowKey={npcSync.setSelectedRowKey}
                             setSelectedNpc={npcSync.setSelectedNpc}
                             dbSourceName={connections.dbSourceName} dbSinkName={connections.dbSinkName}
+                            sourceStatus={connections.sourceStatus} sinkStatus={connections.sinkStatus}
                             selectedZoneShortName={selectedZoneShortName}
                             showSyncPreview={npcSync.showSyncPreview} setShowSyncPreview={npcSync.setShowSyncPreview}
                             syncPreview={npcSync.syncPreview} syncing={npcSync.syncing} syncOutcome={npcSync.syncOutcome}
@@ -955,6 +956,7 @@ function App() {
                             selectedSpawnRow={spawnSync.selectedSpawnRow} setSelectedSpawnRow={spawnSync.setSelectedSpawnRow}
                             viewMode={spawnSync.viewMode} setViewMode={spawnSync.setViewMode} setShowSpawnMapHelp={setShowSpawnMapHelp}
                             dbSourceName={connections.dbSourceName} dbSinkName={connections.dbSinkName}
+                            sourceStatus={connections.sourceStatus} sinkStatus={connections.sinkStatus}
                             selectedZoneShortName={selectedZoneShortName}
                             showSpawnSyncPreview={spawnSync.showSpawnSyncPreview} setShowSpawnSyncPreview={spawnSync.setShowSpawnSyncPreview}
                             spawnSyncPreview={spawnSync.spawnSyncPreview} spawnSyncing={spawnSync.spawnSyncing} spawnSyncOutcome={spawnSync.spawnSyncOutcome}
@@ -977,6 +979,7 @@ function App() {
                             gridSyncPreview={gridSync.gridSyncPreview} gridSyncing={gridSync.gridSyncing} gridSyncOutcome={gridSync.gridSyncOutcome}
                             setShowGridSyncConfirm={gridSync.setShowGridSyncConfirm}
                             zoneMap={zoneMap.zoneMap} zoneMapLoading={zoneMap.zoneMapLoading}
+                            sourceStatus={connections.sourceStatus} sinkStatus={connections.sinkStatus}
                         />
                     )}
 
@@ -987,6 +990,7 @@ function App() {
                             spawnGroupDiffFilter={spawnGroupsTab.spawnGroupDiffFilter} setSpawnGroupDiffFilter={spawnGroupsTab.setSpawnGroupDiffFilter}
                             selectedSpawnGroupRow={spawnGroupsTab.selectedSpawnGroupRow} setSelectedSpawnGroupRow={spawnGroupsTab.setSelectedSpawnGroupRow}
                             selectedZoneShortName={selectedZoneShortName}
+                            sourceStatus={connections.sourceStatus} sinkStatus={connections.sinkStatus}
                         />
                     )}
 
@@ -1001,6 +1005,7 @@ function App() {
                             lootComparison={loot.lootComparison} lootLoading={loot.lootLoading} lootError={loot.lootError}
                             onSelectNpc={loot.lookupLootByNpc} onLookupRawId={loot.lookupLootByRawId} onRefresh={loot.refreshLoot}
                             dbSourceName={connections.dbSourceName} dbSinkName={connections.dbSinkName}
+                            sourceStatus={connections.sourceStatus} sinkStatus={connections.sinkStatus}
                             selectedZoneShortName={selectedZoneShortName}
                             onAlignLoottable={alignLoottable} onAlignLootdrop={alignLootdrop}
                             onCreateLootDrop={createLootDropInSink}
@@ -1013,7 +1018,8 @@ function App() {
                     {activeView === 'factions' && (
                         <FactionsTab
                             sourceList={factionsTab.sourceList} sinkList={factionsTab.sinkList}
-                            loaded={factionsTab.loaded} loading={factionsTab.loading} loadError={factionsTab.loadError}
+                            sourceLoaded={factionsTab.sourceLoaded} sinkLoaded={factionsTab.sinkLoaded} loading={factionsTab.loading}
+                            sourceLoadError={factionsTab.sourceLoadError} sinkLoadError={factionsTab.sinkLoadError}
                             searchFilter={factionsTab.searchFilter} setSearchFilter={factionsTab.setSearchFilter}
                             searchExact={factionsTab.searchExact} setSearchExact={factionsTab.setSearchExact}
                             sortBy={factionsTab.sortBy} setSortBy={factionsTab.setSortBy}
@@ -1025,6 +1031,7 @@ function App() {
                             armSource={factionsTab.armSource} armSink={factionsTab.armSink} clearArmed={factionsTab.clearArmed}
                             refresh={factionsTab.refresh}
                             dbSourceName={connections.dbSourceName} dbSinkName={connections.dbSinkName}
+                            sourceStatus={connections.sourceStatus} sinkStatus={connections.sinkStatus}
                             onAlign={alignFactionFromFactionsTab} onSyncContent={syncFactionContentFromFactionsTab}
                             onCreateInSink={createFactionInSinkFromFactionsTab}
                         />
@@ -1034,6 +1041,7 @@ function App() {
                             conditionsComparison={spawnConditions.conditionsComparison}
                             conditionsLoading={spawnConditions.conditionsLoading}
                             selectedZoneShortName={selectedZoneShortName}
+                            sourceStatus={connections.sourceStatus} sinkStatus={connections.sinkStatus}
                             setShowConditionsHelp={setShowConditionsHelp}
                         />
                     )}

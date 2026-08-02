@@ -1,4 +1,5 @@
 import {useState} from 'react';
+import ConnectionNotice from './ConnectionNotice';
 
 // Row background convention shared with every other diff list in the app.
 function statusBg(status) {
@@ -44,13 +45,16 @@ function SpawnEventRow({event}) {
 // spawn_events (added 2026-07-25). No selection, no detail panel, no sync action anywhere in this
 // tab: Spawn Conditions is the only one of the three with a real diff; Condition Values and Spawn
 // Events are informational listings only — see ConditionsHelpDrawer.jsx / conditions.go for why.
-function ConditionsTab({conditionsComparison, conditionsLoading, selectedZoneShortName, setShowConditionsHelp}) {
+function ConditionsTab({conditionsComparison, conditionsLoading, selectedZoneShortName, sourceStatus, sinkStatus, setShowConditionsHelp}) {
     const conditions = conditionsComparison?.Conditions ?? []
     const sourceValues = conditionsComparison?.SourceValues ?? []
     const sinkValues = conditionsComparison?.SinkValues ?? []
     const sourceEvents = conditionsComparison?.SourceEvents ?? []
     const sinkEvents = conditionsComparison?.SinkEvents ?? []
 
+    if (sourceStatus !== 'connected' || sinkStatus !== 'connected') {
+        return <ConnectionNotice sourceStatus={sourceStatus} sinkStatus={sinkStatus}/>
+    }
     if (conditionsLoading) {
         return (
             <div className="flex-1 flex items-center justify-center text-gray-500 text-sm">

@@ -13,9 +13,17 @@ import {GetNPCFactionDetail, ListNPCFactions} from "../../wailsjs/go/main/App";
 export function useFactionsTab({isActive}) {
     const [sourceList, setSourceList] = useState([])
     const [sinkList, setSinkList] = useState([])
-    const [loaded, setLoaded] = useState(false)
+    // Per-side, not one combined flag — real, found-in-passing bug: the original version fetched
+    // both sides via Promise.all and only ever flipped ONE shared `loaded` true once BOTH resolved,
+    // so if either side's connection was down, the other side's successful fetch was silently
+    // thrown away too (Promise.all rejects the instant either promise does) and BOTH columns stayed
+    // stuck on "Loading…" forever — even the connected one. Fetching independently means a
+    // connected side's data shows up regardless of what the other side is doing.
+    const [sourceLoaded, setSourceLoaded] = useState(false)
+    const [sinkLoaded, setSinkLoaded] = useState(false)
     const [loading, setLoading] = useState(false)
-    const [loadError, setLoadError] = useState(null)
+    const [sourceLoadError, setSourceLoadError] = useState(null)
+    const [sinkLoadError, setSinkLoadError] = useState(null)
     const [searchFilter, setSearchFilter] = useState('')
     const [searchExact, setSearchExact] = useState(false) // exact vs substring match, see lib/searchHelpers.js
     // Sort applies to both columns at once (one shared control, not one per column) so the two
@@ -40,19 +48,27 @@ export function useFactionsTab({isActive}) {
 
     function loadLists() {
         setLoading(true)
-        setLoadError(null)
-        Promise.all([ListNPCFactions(true), ListNPCFactions(false)])
-            .then(([source, sink]) => {
+        setSourceLoadError(null)
+        setSinkLoadError(null)
+        const sourcePromise = ListNPCFactions(true)
+            .then(source => {
                 setSourceList(source ?? [])
-                setSinkList(sink ?? [])
-                setLoaded(true)
+                setSourceLoaded(true)
             })
-            .catch(err => setLoadError(String(err)))
-            .finally(() => setLoading(false))
+            .catch(err => setSourceLoadError(String(err)))
+        const sinkPromise = ListNPCFactions(false)
+            .then(sink => {
+                setSinkList(sink ?? [])
+                setSinkLoaded(true)
+            })
+            .catch(err => setSinkLoadError(String(err)))
+        // allSettled, not all — loading only needs to know both attempts finished, one way or
+        // another; each side's own success/failure is already handled independently above.
+        Promise.allSettled([sourcePromise, sinkPromise]).finally(() => setLoading(false))
     }
 
     useEffect(() => {
-        if (isActive && !loaded && !loading) {
+        if (isActive && !sourceLoaded && !sinkLoaded && !loading) {
             loadLists()
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -108,7 +124,7 @@ export function useFactionsTab({isActive}) {
     }
 
     return {
-        sourceList, sinkList, loaded, loading, loadError,
+        sourceList, sinkList, sourceLoaded, sinkLoaded, loading, sourceLoadError, sinkLoadError,
         searchFilter, setSearchFilter, searchExact, setSearchExact,
         sortBy, setSortBy, sortDir, setSortDir,
         sourceDetailById, sinkDetailById,

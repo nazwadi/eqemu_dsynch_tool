@@ -114,11 +114,21 @@ function FactionRow({faction, expanded, onToggle, detail, armed, onArm, onCreate
     )
 }
 
+// Same status vocabulary ConnectionNotice.jsx / Sidebar.jsx already use, inlined here rather than
+// reusing that shared component directly — ConnectionNotice always describes BOTH sides together,
+// but Factions' two columns are informed independently (see ListNPCFactions' own comment), so each
+// column needs its own standalone message, not a combined one.
+const columnStatusLabel = {
+    connecting: 'still connecting',
+    error: 'failed to connect',
+    disconnected: 'disconnected'
+}
+
 // One side's full npc_faction list — independent of the other column, same restraint LootTab's
 // own LootTableColumn already established for lootdrop trees. onCreateInSink is only ever passed
 // for the Source column (see FactionsTab below) — mirrors LootTab's "source is the reference
 // dataset" convention, no sink→source creation.
-function FactionColumn({label, dbName, list, loaded, searchFilter, searchExact, sortBy, sortDir, expandedIds, detailById, onToggle, armedId, onArm, onCreateInSink}) {
+function FactionColumn({label, dbName, list, loaded, loadError, status, searchFilter, searchExact, sortBy, sortDir, expandedIds, detailById, onToggle, armedId, onArm, onCreateInSink}) {
     const visible = sortFactions(list.filter(f => factionMatchesSearch(f, searchFilter, searchExact)), sortBy, sortDir)
     return (
         <div className="flex-1 min-w-0 flex flex-col overflow-y-auto border-l border-gray-700 first:border-l-0">
@@ -126,7 +136,11 @@ function FactionColumn({label, dbName, list, loaded, searchFilter, searchExact, 
                 {label}: {dbName} {loaded && <span className="text-gray-600">({visible.length} of {list.length})</span>}
             </div>
             <div className="flex flex-col gap-1 p-2">
-                {!loaded ? (
+                {status !== 'connected' ? (
+                    <div className="text-xs text-gray-600">{label} is {columnStatusLabel[status] ?? 'disconnected'} — connect it from the sidebar to use this tab.</div>
+                ) : loadError ? (
+                    <div className="text-xs text-red-400">{loadError}</div>
+                ) : !loaded ? (
                     <div className="text-xs text-gray-600">Loading…</div>
                 ) : visible.length === 0 ? (
                     <div className="text-xs text-gray-600">No factions match.</div>
@@ -152,14 +166,14 @@ function FactionColumn({label, dbName, list, loaded, searchFilter, searchExact, 
 // name and arms it manually, the same two-step cross-column click the Loot tab's lootdrop
 // alignment already established.
 function FactionsTab({
-    sourceList, sinkList, loaded, loading, loadError,
+    sourceList, sinkList, sourceLoaded, sinkLoaded, loading, sourceLoadError, sinkLoadError,
     searchFilter, setSearchFilter, searchExact, setSearchExact,
     sortBy, setSortBy, sortDir, setSortDir,
     sourceDetailById, sinkDetailById,
     expandedSourceIds, expandedSinkIds, toggleExpand,
     armedSource, armedSink, armSource, armSink, clearArmed,
     refresh,
-    dbSourceName, dbSinkName,
+    dbSourceName, dbSinkName, sourceStatus, sinkStatus,
     onAlign, onSyncContent, onCreateInSink
 }) {
     function confirmAlign() {
@@ -203,16 +217,13 @@ function FactionsTab({
                     onClick={refresh}
                     disabled={loading}
                     title="Re-fetch both lists — useful after aligning/syncing elsewhere"
-                    className="text-xs px-2 py-1 rounded bg-gray-700 text-gray-300 hover:bg-gray-600 disabled:opacity-40 disabled:cursor-not-allowed">
+                    className="ml-auto text-xs px-2 py-1 rounded bg-gray-700 text-gray-300 hover:bg-gray-600 disabled:opacity-40 disabled:cursor-not-allowed">
                     ⟳ Refresh
                 </button>
             </div>
             <div className="px-3 py-1 text-xs text-gray-500 border-b border-gray-700 bg-gray-850">
                 Every <span className="text-gray-400">npc_faction</span> row on each side, independently — npc_faction.id isn't portable across databases, so the two columns are never auto-paired. Recognize a match by name, click <span className="text-cyan-400">align</span> on one row in each column, then align the id or sync its content.
             </div>
-            {loadError && (
-                <div className="px-3 py-2 text-xs text-red-400">{loadError}</div>
-            )}
             {(armedSource || armedSink) && !(armedSource && armedSink) && (
                 <div className="flex items-center justify-between px-3 py-1.5 bg-gray-800 border-b border-gray-700 text-xs">
                     <span className="text-cyan-400">
@@ -244,12 +255,12 @@ function FactionsTab({
                 </div>
             )}
             <div className="flex flex-1 min-h-0 overflow-hidden">
-                <FactionColumn label="Source" dbName={dbSourceName} list={sourceList} loaded={loaded}
+                <FactionColumn label="Source" dbName={dbSourceName} list={sourceList} loaded={sourceLoaded} loadError={sourceLoadError} status={sourceStatus}
                                 searchFilter={searchFilter} searchExact={searchExact} sortBy={sortBy} sortDir={sortDir}
                                 expandedIds={expandedSourceIds} detailById={sourceDetailById}
                                 onToggle={id => toggleExpand(true, id)} armedId={armedSource?.id} onArm={armSource}
                                 onCreateInSink={onCreateInSink}/>
-                <FactionColumn label="Sink" dbName={dbSinkName} list={sinkList} loaded={loaded}
+                <FactionColumn label="Sink" dbName={dbSinkName} list={sinkList} loaded={sinkLoaded} loadError={sinkLoadError} status={sinkStatus}
                                 searchFilter={searchFilter} searchExact={searchExact} sortBy={sortBy} sortDir={sortDir}
                                 expandedIds={expandedSinkIds} detailById={sinkDetailById}
                                 onToggle={id => toggleExpand(false, id)} armedId={armedSink?.id} onArm={armSink}/>

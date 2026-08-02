@@ -1,6 +1,7 @@
 import {useState} from 'react';
 import {lootDropEntryFieldNames, lootItemSetDiff, lootNpcMatchesSearch, lootTableFieldNames} from '../lib/lootHelpers';
 import ExactMatchToggle from './ExactMatchToggle';
+import ConnectionNotice from './ConnectionNotice';
 
 // Small "align to source" link — cyan like the app's other inline action links ("Select all N →",
 // "Sync spawngroup from source →"), armed state shown as a filled dot so a mid-pairing click is
@@ -266,6 +267,7 @@ function LootTab({
     lootComparison, lootLoading, lootError,
     onSelectNpc, onLookupRawId, onRefresh,
     dbSourceName, dbSinkName, selectedZoneShortName,
+    sourceStatus, sinkStatus,
     onAlignLoottable, onAlignLootdrop, onCreateLootDrop, onSyncLoottableContent,
     setShowLootHelp
 }) {
@@ -423,7 +425,9 @@ function LootTab({
                     </div>
                 </div>
             )}
-            {!selectedZoneShortName ? (
+            {sourceStatus !== 'connected' || sinkStatus !== 'connected' ? (
+                <ConnectionNotice sourceStatus={sourceStatus} sinkStatus={sinkStatus}/>
+            ) : !selectedZoneShortName ? (
                 <div className="flex-1 flex items-center justify-center text-gray-600 text-sm">
                     Select a zone to search its NPCs
                 </div>

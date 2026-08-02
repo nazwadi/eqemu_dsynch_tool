@@ -11,6 +11,7 @@ import {
 import {useListArrowKeyNav} from '../hooks/useListArrowKeyNav';
 import SpawnMapView from './SpawnMapView';
 import ExactMatchToggle from './ExactMatchToggle';
+import ConnectionNotice from './ConnectionNotice';
 
 // Spawn Points tab body — mirrors NpcsTab's shape (diff list sliding to a sync preview) but with
 // its own sort keys (Status/Spawngroup/Shared), a spawngroup/NPC search filter, and the
@@ -29,6 +30,7 @@ function SpawnsTab({
     selectableSpawnRows, selectedSpawnKeys, setSelectedSpawnKeys, selectedSpawnRow, setSelectedSpawnRow,
     viewMode, setViewMode, setShowSpawnMapHelp,
     dbSourceName, dbSinkName, selectedZoneShortName,
+    sourceStatus, sinkStatus,
     showSpawnSyncPreview, setShowSpawnSyncPreview, spawnSyncPreview, spawnSyncing, spawnSyncOutcome,
     setShowSpawnSyncConfirm,
     zoneMap, zoneMapLoading
@@ -71,7 +73,17 @@ function SpawnsTab({
                 showSpawnSyncPreview ? '-translate-x-full' : 'translate-x-0'
             }`}>
 
+                {/* Filter input + Exact toggle always lead the toolbar, in every tab that has one
+                    (Loot/Factions already did; NPCs/Spawns are brought in line here) — a
+                    predictable spot rather than each tab burying it wherever else happened to fit. */}
                 <div className="flex items-center gap-2 px-3 py-2 border-b border-gray-700">
+                    <input
+                        className="w-48 text-xs border border-gray-600 bg-gray-700 rounded px-2 py-1 disabled:opacity-40 disabled:cursor-not-allowed"
+                        placeholder="Filter by spawngroup or NPC..."
+                        value={spawnSearchFilter}
+                        onChange={e => setSpawnSearchFilter(e.target.value)}
+                        autoCapitalize="off" autoCorrect="off" spellCheck={false}/>
+                    <ExactMatchToggle checked={spawnSearchExact} onChange={setSpawnSearchExact}/>
                     <button
                         onClick={() => setSpawnDiffFilter('all')}
                         className={`text-xs px-3 py-1 rounded border ${spawnDiffFilter === 'all' ? 'border-yellow-400 text-yellow-400' : 'border-gray-600 text-gray-400 hover:border-gray-400'}`}>
@@ -83,13 +95,6 @@ function SpawnsTab({
                         Differences Only
                     </button>
                     <div className="ml-auto flex items-center gap-2">
-                        <input
-                            className="w-48 text-xs border border-gray-600 bg-gray-700 rounded px-2 py-1 disabled:opacity-40 disabled:cursor-not-allowed"
-                            placeholder="Filter by spawngroup or NPC..."
-                            value={spawnSearchFilter}
-                            onChange={e => setSpawnSearchFilter(e.target.value)}
-                            autoCapitalize="off" autoCorrect="off" spellCheck={false}/>
-                        <ExactMatchToggle checked={spawnSearchExact} onChange={setSpawnSearchExact}/>
                         <button
                             onClick={() => setViewMode('list')}
                             className={`text-xs px-3 py-1 rounded border ${viewMode === 'list' ? 'border-yellow-400 text-yellow-400' : 'border-gray-600 text-gray-400 hover:border-gray-400'}`}>
@@ -197,7 +202,9 @@ function SpawnsTab({
                     </div>
                 </div>
                 {/*Diff List of Spawn Points*/}
-                {spawnDiffLoading ? (
+                {sourceStatus !== 'connected' || sinkStatus !== 'connected' ? (
+                    <ConnectionNotice sourceStatus={sourceStatus} sinkStatus={sinkStatus}/>
+                ) : spawnDiffLoading ? (
                     <div className="flex-1 flex items-center justify-center text-gray-500 text-sm">
                         Loading spawn points…
                     </div>

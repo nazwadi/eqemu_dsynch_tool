@@ -1,5 +1,19 @@
 @import "tailwindcss";
 
+/* This app is dark-themed unconditionally (no light-mode variant anywhere), but nothing ever told
+   the WebView that — color-scheme defaults to "light" absent this declaration. Tailwind classes
+   only ever style elements THIS app draws (a <select>'s own closed box, e.g. LootTab.jsx's
+   Source/Sink dropdown, picks up bg-gray-700 fine), but a native <select>'s open dropdown popup is
+   OS/browser chrome, not something Tailwind reaches at all — real, reported bug: it rendered with
+   light-mode native chrome (white background) while still inheriting this page's light text color
+   meant for a dark background, i.e. unreadable white-on-white. Declaring color-scheme here fixes
+   every native control at once (also scrollbars, date/time pickers, etc., not just this one
+   select) rather than fighting each one individually with CSS that can't reliably reach into
+   OS-rendered popup chrome anyway.  */
+:root {
+    color-scheme: dark;
+}
+
 /* Indeterminate sliding highlight for GlobalProgressBar.jsx — there's no real "% complete" signal
    for a single in-flight backend call, so this mirrors the standard indeterminate-progress pattern
    (Material UI's LinearProgress, GitHub/YouTube's top-of-page loading bar) instead of faking a

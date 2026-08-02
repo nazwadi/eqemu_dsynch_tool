@@ -1,6 +1,7 @@
 import {gridId, gridRowSelectable, gridWaypointSummary} from '../lib/gridHelpers';
 import ZoneMapView from './ZoneMapView';
 import {useListArrowKeyNav} from '../hooks/useListArrowKeyNav';
+import ConnectionNotice from './ConnectionNotice';
 
 // Grids tab body: diff list (Show All/Differences Only, checkbox selection) sliding to a sync
 // preview panel — same shape as NpcsTab/SpawnsTab. No sort/search controls here: grids per zone
@@ -20,6 +21,7 @@ function GridsTab({
     viewMode, setViewMode, setShowGridMapHelp,
     selectedWaypointNumber, onSelectWaypoint,
     selectedZoneShortName,
+    sourceStatus, sinkStatus,
     showGridSyncPreview, setShowGridSyncPreview, gridSyncPreview, gridSyncing, gridSyncOutcome,
     setShowGridSyncConfirm,
     zoneMap, zoneMapLoading
@@ -127,7 +129,9 @@ function GridsTab({
                     </div>
                 </div>
                 {/*Diff List of Grids*/}
-                {gridDiffLoading ? (
+                {sourceStatus !== 'connected' || sinkStatus !== 'connected' ? (
+                    <ConnectionNotice sourceStatus={sourceStatus} sinkStatus={sinkStatus}/>
+                ) : gridDiffLoading ? (
                     <div className="flex-1 flex items-center justify-center text-gray-500 text-sm">
                         Loading grids…
                     </div>
