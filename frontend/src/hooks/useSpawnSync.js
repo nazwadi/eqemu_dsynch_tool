@@ -8,6 +8,7 @@ export function useSpawnSync({zoneShortName, zoneVersion, zoneIdNumber}) {
     const [spawnDiffLoading, setSpawnDiffLoading] = useState(false)
     const [spawnDiffFilter, setSpawnDiffFilter] = useState('all')
     const [spawnSearchFilter, setSpawnSearchFilter] = useState('') // matches spawngroup name or any spawn entry's NPC name
+    const [spawnSearchExact, setSpawnSearchExact] = useState(false) // exact vs substring match, see lib/searchHelpers.js
     const [spawnSortBy, setSpawnSortBy] = useState('status') // 'status' | 'spawngroup' | 'shared'
     const [spawnSortDir, setSpawnSortDir] = useState('asc')
     const [selectedSpawnKeys, setSelectedSpawnKeys] = useState(new Set()) // coordinate-based keys — spawn2 has no cross-database ID
@@ -76,7 +77,7 @@ export function useSpawnSync({zoneShortName, zoneVersion, zoneIdNumber}) {
     return {
         spawnDiffRows, spawnDiffLoading,
         spawnDiffFilter, setSpawnDiffFilter,
-        spawnSearchFilter, setSpawnSearchFilter,
+        spawnSearchFilter, setSpawnSearchFilter, spawnSearchExact, setSpawnSearchExact,
         spawnSortBy, setSpawnSortBy, spawnSortDir, setSpawnSortDir,
         selectedSpawnKeys, setSelectedSpawnKeys,
         selectedSpawnRow, setSelectedSpawnRow,

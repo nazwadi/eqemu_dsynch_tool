@@ -3,6 +3,7 @@ import {npcNameGroupDiff, npcFieldsOnlyExcluded, npcRowHasMissingReferences, npc
 import {statusOrder} from '../lib/constants';
 import {useListArrowKeyNav} from '../hooks/useListArrowKeyNav';
 import IconLegend from './IconLegend';
+import ExactMatchToggle from './ExactMatchToggle';
 
 const npcRowIcons = [
     {icon: '⚡', label: 'quest-spawned — no static spawn point'},
@@ -97,6 +98,7 @@ function NpcDiffSummary({diffRows, sourceNpcCount, sinkNpcCount}) {
 // internally — the same reasoning already used for the confirm modals.
 function NpcsTab({
     diffRows, diffLoading, diffFilter, setDiffFilter, npcSearchFilter, setNpcSearchFilter,
+    npcSearchExact, setNpcSearchExact, onRefresh,
     sortBy, setSortBy, sortDir, setSortDir,
     selectableRows, selectedNPCs, setSelectedNPCs, selectedRowKey, setSelectedRowKey, setSelectedNpc,
     dbSourceName, dbSinkName, selectedZoneShortName,
@@ -116,7 +118,7 @@ function NpcsTab({
     // one. Pure refactor, no behavior change to the rendered list itself.
     const visibleRows = diffRows
         .filter(row => diffFilter === 'all' || row.Status !== 'match')
-        .filter(row => npcRowMatchesSearch(row, npcSearchFilter))
+        .filter(row => npcRowMatchesSearch(row, npcSearchFilter, npcSearchExact))
         .sort((a, b) => {
             let result
             if (sortBy === 'status') {
@@ -158,12 +160,20 @@ function NpcsTab({
                         className={`text-xs px-3 py-1 rounded border ${diffFilter === 'diff' ? 'border-yellow-400 text-yellow-400' : 'border-gray-600 text-gray-400 hover:border-gray-400'}`}>
                         Differences Only
                     </button>
+                    <button
+                        onClick={onRefresh}
+                        disabled={diffLoading}
+                        title="Re-fetch this zone's NPC comparison — useful after fixing something elsewhere (e.g. creating a missing npc_faction in the Factions tab) without needing to re-select the zone"
+                        className="ml-auto text-xs px-2 py-1 rounded bg-gray-700 text-gray-300 hover:bg-gray-600 disabled:opacity-40 disabled:cursor-not-allowed">
+                        ⟳ Refresh
+                    </button>
                     <input
-                        className="ml-auto w-48 text-xs border border-gray-600 bg-gray-700 rounded px-2 py-1 disabled:opacity-40 disabled:cursor-not-allowed"
+                        className="w-48 text-xs border border-gray-600 bg-gray-700 rounded px-2 py-1 disabled:opacity-40 disabled:cursor-not-allowed"
                         placeholder="Filter by NPC name..."
                         value={npcSearchFilter}
                         onChange={e => setNpcSearchFilter(e.target.value)}
                         autoCapitalize="off" autoCorrect="off" spellCheck={false}/>
+                    <ExactMatchToggle checked={npcSearchExact} onChange={setNpcSearchExact}/>
                 </div>
                 <div className="flex gap-2 px-3 py-1 border-b border-gray-700 bg-gray-850">
                     {[

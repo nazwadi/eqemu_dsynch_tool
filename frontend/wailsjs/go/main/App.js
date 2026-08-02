@@ -74,6 +74,10 @@ export function GetLootTable(arg1, arg2) {
   return window['go']['main']['App']['GetLootTable'](arg1, arg2);
 }
 
+export function GetNPCFactionDetail(arg1, arg2) {
+  return window['go']['main']['App']['GetNPCFactionDetail'](arg1, arg2);
+}
+
 export function GetNPCsForZone(arg1, arg2, arg3, arg4) {
   return window['go']['main']['App']['GetNPCsForZone'](arg1, arg2, arg3, arg4);
 }
@@ -84,6 +88,10 @@ export function GetZoneMap(arg1, arg2) {
 
 export function GetZones() {
   return window['go']['main']['App']['GetZones']();
+}
+
+export function ListNPCFactions(arg1) {
+  return window['go']['main']['App']['ListNPCFactions'](arg1);
 }
 
 export function LoadConfig() {

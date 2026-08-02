@@ -32,6 +32,7 @@ import TodoTab from './components/TodoTab';
 import GridsTab from './components/GridsTab';
 import SpawngroupsTab from './components/SpawngroupsTab';
 import LootTab from './components/LootTab';
+import FactionsTab from './components/FactionsTab';
 import ConditionsTab from './components/ConditionsTab';
 import ConditionsHelpDrawer from './components/ConditionsHelpDrawer';
 import DetailPanel from './components/DetailPanel';
@@ -54,6 +55,7 @@ import {useAlignSpawnGroupId} from './hooks/useAlignSpawnGroupId';
 import {useGridSync} from './hooks/useGridSync';
 import {useSpawnConditions} from './hooks/useSpawnConditions';
 import {useLoot} from './hooks/useLoot';
+import {useFactionsTab} from './hooks/useFactionsTab';
 import {useZoneMap} from './hooks/useZoneMap';
 import {useAlignId} from './hooks/useAlignId';
 import {useSyncReferenceContent} from './hooks/useSyncReferenceContent';
@@ -88,12 +90,13 @@ function App() {
     const referenceDrawer = useReferenceDrawer()
 
     const [searchFilter, setSearchFilter] = useState('')
+    const [zoneSearchExact, setZoneSearchExact] = useState(false) // exact vs substring match, see lib/searchHelpers.js
     const [selectedZoneShortName, setSelectedZoneShortName] = useState('')
     const [selectedZoneLongName, setSelectedZoneLongName] = useState('')
     const [selectedZoneId, setSelectedZoneId] = useState(null)
     const [selectedZoneVersion, setSelectedZoneVersion] = useState(0)
     const [selectedZoneIdNumber, setSelectedZoneIdNumber] = useState(null)
-    const [activeView, setActiveView] = useState('npcs') // 'npcs' | 'todo' | 'spawns' | 'loot' — 4 top-level tabs
+    const [activeView, setActiveView] = useState('npcs') // 'npcs' | 'todo' | 'spawns' | 'loot' | 'factions' — 5 top-level tabs
     // spawnsSubView (added 2026-07-25, tab consolidation) — which of the four spawn-related views is
     // showing under the "Spawns" tab; only meaningful when activeView === 'spawns'. Not reset on zone
     // switch, same as activeView itself — all four sub-domains' diff data already loads eagerly on
@@ -150,6 +153,7 @@ function App() {
     const gridSync = useGridSync(zoneIdentity)
     const spawnConditions = useSpawnConditions()
     const loot = useLoot()
+    const factionsTab = useFactionsTab({isActive: activeView === 'factions'})
     const alignId = useAlignId()
     const syncReferenceContent = useSyncReferenceContent()
     const createLootDrop = useCreateLootDrop()
@@ -220,6 +224,14 @@ function App() {
         alignId.openAlignPreview({target, sourceId, sinkId, label: target})
     }
 
+    // Triggered from the Factions tab's own armed-pair confirm banner — same AlignId primitive as
+    // alignReferenceId above, tagged with origin: 'factionsTab' so refreshAfterAlign knows to
+    // refresh THIS tab's two lists rather than the (probably closed) reference drawer, which is
+    // what a bare target: 'npc_faction' would otherwise be assumed to mean.
+    function alignFactionFromFactionsTab(sourceId, sinkId) {
+        alignId.openAlignPreview({target: 'npc_faction', sourceId, sinkId, label: 'npc_faction', origin: 'factionsTab'})
+    }
+
     // Refreshes the currently-open reference drawer after a successful align — reuses
     // openReferenceComparison itself as the refetch (it already does "set type + fetch by raw
     // ids"), rather than needing a new hook function the way useLoot.js's refreshWithIds was —
@@ -235,7 +247,9 @@ function App() {
     // loaded view" needs refreshing depends entirely on which target was just aligned.
     function refreshAfterAlign() {
         const target = alignId.alignTarget?.target
-        if (target === 'lootdrop' || target === 'loottable') {
+        if (alignId.alignTarget?.origin === 'factionsTab') {
+            factionsTab.refresh()
+        } else if (target === 'lootdrop' || target === 'loottable') {
             refreshLootAfterAlign()
         } else if (target === 'npc_faction' || target === 'npc_spells' || target === 'npc_spells_effects') {
             refreshReferenceAfterAlign()
@@ -254,6 +268,12 @@ function App() {
     // three have an equivalent pairing ambiguity (their Entries are keyed by portable ids).
     function syncReferenceContentForType(target, sourceId, sinkId) {
         syncReferenceContent.openSyncContentPreview({target, sourceId, sinkId, label: target})
+    }
+
+    // Triggered from the Factions tab's own armed-pair confirm banner — same origin-tagging
+    // reasoning as alignFactionFromFactionsTab above.
+    function syncFactionContentFromFactionsTab(sourceId, sinkId) {
+        syncReferenceContent.openSyncContentPreview({target: 'npc_faction', sourceId, sinkId, label: 'npc_faction', origin: 'factionsTab'})
     }
 
     // Refreshes the currently-loaded Loot tab comparison after a successful content sync — unlike
@@ -298,11 +318,34 @@ function App() {
         referenceDrawer.openReferenceComparison(referenceDrawer.referenceDrawerType, sourceId, sourceId)
     }
 
+    // Triggered from the Factions tab's own "create in sink" link (source column only, mirroring
+    // LootTab's onCreateInSink convention) — no anchoring NPC, so npcId is omitted entirely
+    // (useCreateNPCFaction.js's openCreateFactionPreview treats a missing second argument as "just
+    // copy the content, don't link anything").
+    function createFactionInSinkFromFactionsTab(sourceId) {
+        createNPCFaction.openCreateFactionPreview(sourceId)
+    }
+
+    // Single dispatch point for ConfirmCreateNPCFactionModal's executeCreateFaction callback — which
+    // "currently loaded view" needs refreshing depends on which of the two trigger points this was.
+    // Unlike refreshAfterAlign/refreshAfterSyncContent, this doesn't need an explicit origin tag:
+    // createFactionNpcId itself already distinguishes the two cases (set only when triggered via an
+    // anchoring NPC), since CreateNPCFactionOptions.NPCID is optional for exactly this reason.
+    function refreshAfterCreateFaction() {
+        if (createNPCFaction.createFactionNpcId != null) {
+            refreshReferenceAfterCreateFaction()
+        } else {
+            factionsTab.refresh()
+        }
+    }
+
     // Single dispatch point for ConfirmSyncReferenceContentModal's executeSyncContent callback —
     // mirrors refreshAfterAlign's shape, dispatching by which target was just synced.
     function refreshAfterSyncContent() {
         const target = syncReferenceContent.syncContentTarget?.target
-        if (target === 'loottable') {
+        if (syncReferenceContent.syncContentTarget?.origin === 'factionsTab') {
+            factionsTab.refresh()
+        } else if (target === 'loottable') {
             refreshLootAfterSyncContent()
         } else if (target === 'npc_faction' || target === 'npc_spells' || target === 'merchantlist' || target === 'npc_spells_effects') {
             refreshReferenceAfterSyncContent()
@@ -594,9 +637,9 @@ function App() {
             <ConfirmCreateNPCFactionModal
                 showCreateFactionConfirm={createNPCFaction.showCreateFactionConfirm} setShowCreateFactionConfirm={createNPCFaction.setShowCreateFactionConfirm}
                 createFactionError={createNPCFaction.createFactionError} createFactionPreview={createNPCFaction.createFactionPreview}
-                createFactionSourceId={createNPCFaction.createFactionSourceId}
+                createFactionSourceId={createNPCFaction.createFactionSourceId} createFactionNpcId={createNPCFaction.createFactionNpcId}
                 creatingFaction={createNPCFaction.creatingFaction}
-                executeCreateFaction={() => createNPCFaction.executeCreateFaction(refreshReferenceAfterCreateFaction)}
+                executeCreateFaction={() => createNPCFaction.executeCreateFaction(refreshAfterCreateFaction)}
                 dbSinkName={connections.dbSinkName}
             />
             <div className="flex flex-1 min-h-0">
@@ -624,8 +667,10 @@ function App() {
                             setActiveModal={connections.setActiveModal} setConnectError={connections.setConnectError}
                             onDisconnect={connections.disconnect}
                             searchFilter={searchFilter} setSearchFilter={setSearchFilter}
+                            zoneSearchExact={zoneSearchExact} setZoneSearchExact={setZoneSearchExact}
                             showSyncPreview={npcSync.showSyncPreview} showSpawnSyncPreview={spawnSync.showSpawnSyncPreview}
                             zones={connections.zones} selectedZoneId={selectedZoneId} onSelectZone={selectZone}
+                            zoneListRelevant={activeView !== 'factions'}
                             width={uiPrefs.sidebarWidth}
                             mapsDirectory={connections.mapsDirectory} setMapsDirectory={connections.setMapsDirectory}
                         />
@@ -681,12 +726,23 @@ function App() {
                     even though nothing about the window itself changed size. */}
                 <div className="flex-1 flex flex-col overflow-hidden">
 
-                    {/* Persistent zone header - never slides, and its width never changes either */}
+                    {/* Persistent zone header - never slides, and its width never changes either.
+                        Factions is the one tab with nothing to do with the selected zone at all
+                        (a database-wide browse, see FactionsTab's own comment) — showing the zone
+                        name here regardless would silently break the "you're always looking at
+                        zone X" contract every other tab reinforces, so this swaps to a plain label
+                        instead, the same way the sidebar's zone list dims itself below. */}
                     <div
                         className="px-3 py-2 text-xs font-medium text-gray-400 uppercase tracking-wider border-b border-gray-700 flex items-center gap-3">
-                        {selectedZoneLongName} - {selectedZoneShortName}
-                        {selectedZoneShortName && (
-                            <span className="text-gray-500">(zone {selectedZoneIdNumber}, v{selectedZoneVersion})</span>
+                        {activeView === 'factions' ? (
+                            <span className="text-gray-500 normal-case tracking-normal">Factions — all zones, not scoped to a zone</span>
+                        ) : (
+                            <>
+                                {selectedZoneLongName} - {selectedZoneShortName}
+                                {selectedZoneShortName && (
+                                    <span className="text-gray-500">(zone {selectedZoneIdNumber}, v{selectedZoneVersion})</span>
+                                )}
+                            </>
                         )}
                         {activeView === 'npcs' && npcSync.diffRows.length > 0 && <>
                             <span className="px-2 py-0.5 rounded bg-green-950 text-green-400">+{newCount}</span>
@@ -804,6 +860,11 @@ function App() {
                                 Loot
                             </button>
                             <button
+                                onClick={() => setActiveView('factions')}
+                                className={`px-2 py-1 rounded text-xs border ${activeView === 'factions' ? 'border-yellow-400 text-yellow-400' : 'border-gray-600 text-gray-400 hover:border-gray-400'}`}>
+                                Factions
+                            </button>
+                            <button
                                 onClick={() => setActiveView('todo')}
                                 className={`px-2 py-1 rounded text-xs border ${activeView === 'todo' ? 'border-yellow-400 text-yellow-400' : 'border-gray-600 text-gray-400 hover:border-gray-400'}`}>
                                 TODO{openZoneTodoCount > 0 && ` (${openZoneTodoCount})`}
@@ -854,6 +915,8 @@ function App() {
                             diffRows={npcSync.diffRows} diffLoading={npcSync.diffLoading}
                             diffFilter={npcSync.diffFilter} setDiffFilter={npcSync.setDiffFilter}
                             npcSearchFilter={npcSync.npcSearchFilter} setNpcSearchFilter={npcSync.setNpcSearchFilter}
+                            npcSearchExact={npcSync.npcSearchExact} setNpcSearchExact={npcSync.setNpcSearchExact}
+                            onRefresh={() => npcSync.loadDiffs()}
                             sortBy={npcSync.sortBy} setSortBy={npcSync.setSortBy} sortDir={npcSync.sortDir} setSortDir={npcSync.setSortDir}
                             selectableRows={selectableRows}
                             selectedNPCs={npcSync.selectedNPCs} setSelectedNPCs={npcSync.setSelectedNPCs}
@@ -884,6 +947,7 @@ function App() {
                             spawnDiffRows={spawnSync.spawnDiffRows} spawnDiffLoading={spawnSync.spawnDiffLoading}
                             spawnDiffFilter={spawnSync.spawnDiffFilter} setSpawnDiffFilter={spawnSync.setSpawnDiffFilter}
                             spawnSearchFilter={spawnSync.spawnSearchFilter} setSpawnSearchFilter={spawnSync.setSpawnSearchFilter}
+                            spawnSearchExact={spawnSync.spawnSearchExact} setSpawnSearchExact={spawnSync.setSpawnSearchExact}
                             spawnSortBy={spawnSync.spawnSortBy} setSpawnSortBy={spawnSync.setSpawnSortBy}
                             spawnSortDir={spawnSync.spawnSortDir} setSpawnSortDir={spawnSync.setSpawnSortDir}
                             selectableSpawnRows={selectableSpawnRows}
@@ -931,6 +995,7 @@ function App() {
                         <LootTab
                             diffRows={npcSync.diffRows}
                             lootSearchFilter={loot.lootSearchFilter} setLootSearchFilter={loot.setLootSearchFilter}
+                            lootSearchExact={loot.lootSearchExact} setLootSearchExact={loot.setLootSearchExact}
                             lootRawSide={loot.lootRawSide} setLootRawSide={loot.setLootRawSide}
                             lootRawId={loot.lootRawId} setLootRawId={loot.setLootRawId}
                             lootComparison={loot.lootComparison} lootLoading={loot.lootLoading} lootError={loot.lootError}
@@ -941,6 +1006,27 @@ function App() {
                             onCreateLootDrop={createLootDropInSink}
                             onSyncLoottableContent={syncLoottableContent}
                             setShowLootHelp={setShowLootHelp}
+                        />
+                    )}
+                    {/* Factions view — zone-independent, unlike every other tab, see FactionsTab's
+                        own comment for why. */}
+                    {activeView === 'factions' && (
+                        <FactionsTab
+                            sourceList={factionsTab.sourceList} sinkList={factionsTab.sinkList}
+                            loaded={factionsTab.loaded} loading={factionsTab.loading} loadError={factionsTab.loadError}
+                            searchFilter={factionsTab.searchFilter} setSearchFilter={factionsTab.setSearchFilter}
+                            searchExact={factionsTab.searchExact} setSearchExact={factionsTab.setSearchExact}
+                            sortBy={factionsTab.sortBy} setSortBy={factionsTab.setSortBy}
+                            sortDir={factionsTab.sortDir} setSortDir={factionsTab.setSortDir}
+                            sourceDetailById={factionsTab.sourceDetailById} sinkDetailById={factionsTab.sinkDetailById}
+                            expandedSourceIds={factionsTab.expandedSourceIds} expandedSinkIds={factionsTab.expandedSinkIds}
+                            toggleExpand={factionsTab.toggleExpand}
+                            armedSource={factionsTab.armedSource} armedSink={factionsTab.armedSink}
+                            armSource={factionsTab.armSource} armSink={factionsTab.armSink} clearArmed={factionsTab.clearArmed}
+                            refresh={factionsTab.refresh}
+                            dbSourceName={connections.dbSourceName} dbSinkName={connections.dbSinkName}
+                            onAlign={alignFactionFromFactionsTab} onSyncContent={syncFactionContentFromFactionsTab}
+                            onCreateInSink={createFactionInSinkFromFactionsTab}
                         />
                     )}
                     {activeView === 'spawns' && spawnsSubView === 'conditions' && (

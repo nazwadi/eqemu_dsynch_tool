@@ -1,6 +1,7 @@
 // Pure helpers shared by the Spawn Points tab and the Spawn Point Detail panel. Nothing here
 // closes over component state — every dependency is passed in as an argument — so these can be
 // tested, moved, or reused independent of App.jsx's render cycle.
+import {fieldMatches} from './searchHelpers';
 
 export function fmtCoord(n) {
     return Number.isFinite(n) ? n.toFixed(1) : '—'
@@ -51,12 +52,14 @@ export function spawnPrimaryNpcName(point) {
     return names.slice().sort((a, b) => a.localeCompare(b))[0]
 }
 
-export function spawnRowMatchesSearch(row, query) {
+// exact (added 2026-08-02) switches from substring to exact-equality matching — see
+// lib/searchHelpers.js's fieldMatches for why every search box in this app shares the same toggle.
+export function spawnRowMatchesSearch(row, query, exact) {
     if (!query.trim()) return true
     const q = query.trim().toLowerCase()
     return [row.Source, row.Sink].filter(Boolean).some(point =>
-        (point.SpawnGroupFields?.name ?? '').toLowerCase().includes(q) ||
-        (point.SpawnEntries ?? []).some(se => (se.NPCName ?? '').toLowerCase().includes(q))
+        fieldMatches(point.SpawnGroupFields?.name, q, exact) ||
+        (point.SpawnEntries ?? []).some(se => fieldMatches(se.NPCName, q, exact))
     )
 }
 

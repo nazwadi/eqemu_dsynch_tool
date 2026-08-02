@@ -1,13 +1,16 @@
 // Pure helpers for the Loot tab.
+import {fieldMatches} from './searchHelpers';
 
 // Matches an NPC diff row against a name/id search string — mirrors npcRowMatchesSearch's shape,
 // but also matches the numeric NPC id, useful when you already know which NPC you're chasing.
-export function lootNpcMatchesSearch(row, query) {
+// exact (added 2026-08-02) switches from substring to exact-equality matching — see
+// lib/searchHelpers.js's fieldMatches for why every search box in this app shares the same toggle.
+export function lootNpcMatchesSearch(row, query, exact) {
     if (!query.trim()) return true
     const q = query.trim().toLowerCase()
-    const name = (row.Source?.Fields?.name ?? row.Sink?.Fields?.name ?? '').toLowerCase()
-    const id = String(row.Source?.Id ?? row.Sink?.Id ?? '')
-    return name.includes(q) || id.includes(q)
+    const name = row.Source?.Fields?.name ?? row.Sink?.Fields?.name
+    const id = row.Source?.Id ?? row.Sink?.Id
+    return fieldMatches(name, q, exact) || fieldMatches(id, q, exact)
 }
 
 // The loottable_id an NPC diff row carries on each side — 0 if that side has no NPC there, or

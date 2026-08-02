@@ -1,13 +1,15 @@
 import {useModalFocusTrap} from '../hooks/useModalFocusTrap';
 
 // Confirm-before-execute modal for CreateNPCFaction — see useCreateNPCFaction.js. Mirrors
-// ConfirmCreateLootDropModal's shape (same summary-level style, same squatter-eviction notice),
-// but the copy is different in one important way: unlike lootdrop, this also links the NPC you
-// were viewing to the newly-created content, since npc_faction is a direct FK on npc_types with
-// nothing ambiguous to defer the way lootdrop→loottable wiring is.
+// ConfirmCreateLootDropModal's shape (same summary-level style, same squatter-eviction notice).
+// When triggered via an NPC (createFactionNpcId set), this also links that NPC to the newly-
+// created content, since npc_faction is a direct FK on npc_types with nothing ambiguous to defer
+// the way lootdrop→loottable wiring is — but createFactionNpcId is optional (added 2026-08-02 for
+// the Factions tab's own "create in sink" trigger, which has no anchoring NPC at all), so the
+// linking sentence only appears when there's actually an NPC to link.
 function ConfirmCreateNPCFactionModal({
     showCreateFactionConfirm, setShowCreateFactionConfirm,
-    createFactionError, createFactionPreview, createFactionSourceId,
+    createFactionError, createFactionPreview, createFactionSourceId, createFactionNpcId,
     creatingFaction, executeCreateFaction,
     dbSinkName
 }) {
@@ -36,7 +38,8 @@ function ConfirmCreateNPCFactionModal({
                             <div className="text-yellow-400 font-medium">{dbSinkName} (sink)</div>
                         </div>
                         <div className="text-sm text-gray-300">
-                            Source's npc_faction #{createFactionSourceId} and its {createFactionPreview.EntriesCreated} entr{createFactionPreview.EntriesCreated === 1 ? 'y' : 'ies'} will be copied to the sink at the same id, and this NPC's npc_faction_id will be set to #{createFactionSourceId}.
+                            Source's npc_faction #{createFactionSourceId} and its {createFactionPreview.EntriesCreated} entr{createFactionPreview.EntriesCreated === 1 ? 'y' : 'ies'} will be copied to the sink at the same id.
+                            {createFactionNpcId != null && <> This NPC's npc_faction_id will be set to #{createFactionSourceId}.</>}
                         </div>
                         {createFactionPreview.SquatterEvicted && (
                             <div className="text-sm text-cyan-400">

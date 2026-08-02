@@ -144,14 +144,19 @@ func (a *App) AlignId(options AlignIdOptions) (AlignIdResult, error) {
 	return result, nil
 }
 
-// CreateNPCFactionOptions identifies a source npc_faction (SourceId) that a specific sink NPC
-// should end up linked to. Unlike CreateLootDrop (which deliberately never touches npc_types —
-// wiring a lootdrop into a loottable is ambiguous, so it's left as a manual next step), npc_faction
-// is a direct 1:1 FK on npc_types with no such ambiguity: this NPC led you to this exact SourceId,
-// so linking it is the unambiguous, expected outcome of "create this for me."
+// CreateNPCFactionOptions identifies a source npc_faction (SourceId) to copy to the sink, and
+// optionally a specific sink NPC that should end up linked to it. Unlike CreateLootDrop (which
+// deliberately never touches npc_types — wiring a lootdrop into a loottable is ambiguous, so it's
+// left as a manual next step), npc_faction is a direct 1:1 FK on npc_types, so when this is
+// triggered via a specific NPC (the reference drawer's own "Create npc_faction in sink" button)
+// there's no ambiguity: that NPC led you to this exact SourceId, so linking it is the unambiguous,
+// expected outcome of "create this for me." NPCID is optional (0 = don't link) for the OTHER
+// trigger point — the Factions tab's database-wide browse (added 2026-08-02), which has no
+// anchoring NPC at all, just "this source content doesn't exist on sink yet, copy it" — the same
+// no-linking shape CreateLootDrop already has for the identical reason.
 type CreateNPCFactionOptions struct {
 	SourceId int64 // source's npc_faction_id — content is copied from here, and becomes the sink's id too
-	NPCID    int64 // sink npc_types.id to link — its npc_faction_id is set to SourceId once the row exists
+	NPCID    int64 // optional: sink npc_types.id to link — its npc_faction_id is set to SourceId once the row exists. 0 skips linking entirely.
 	DryRun   bool
 }
 
@@ -168,13 +173,15 @@ type CreateNPCFactionResult struct {
 // CreateNPCFaction copies a source npc_faction (fields + npc_faction_entries) to the sink at
 // source's own id — reusing idAlignmentTargets["npc_faction"] and relocateRow exactly the way
 // CreateLootDrop reuses idAlignmentTargets["lootdrop"], so squatter eviction (and repointing every
-// OTHER sink NPC currently referencing the squatter) stays a single, tested implementation. Then,
-// in the same transaction, links NPCID's own npc_faction_id to SourceId — the one thing CreateLootDrop
-// has no equivalent for, since lootdrop has no direct npc_types FK to resolve.
+// OTHER sink NPC currently referencing the squatter) stays a single, tested implementation. If
+// NPCID is given (nonzero), also links that NPC's own npc_faction_id to SourceId in the same
+// transaction — the one thing CreateLootDrop has no equivalent for, since lootdrop has no direct
+// npc_types FK to resolve. NPCID is optional: the Factions tab's own trigger never has an anchoring
+// NPC to link (see CreateNPCFactionOptions' own comment) and just wants the content copied.
 //
-// NPCID's existence is checked with a plain SELECT rather than trusting the final UPDATE's
-// RowsAffected — a MySQL UPDATE that matches a row but doesn't change any column's value (the
-// common case here: NPCID's npc_faction_id is often already SourceId, just dangling) reports 0
+// NPCID's existence (when given) is checked with a plain SELECT rather than trusting the final
+// UPDATE's RowsAffected — a MySQL UPDATE that matches a row but doesn't change any column's value
+// (the common case here: NPCID's npc_faction_id is often already SourceId, just dangling) reports 0
 // rows affected, which would otherwise look identical to "no such NPC."
 func (a *App) CreateNPCFaction(options CreateNPCFactionOptions) (CreateNPCFactionResult, error) {
 	result := CreateNPCFactionResult{DryRun: options.DryRun, SourceId: options.SourceId}
@@ -188,16 +195,15 @@ func (a *App) CreateNPCFaction(options CreateNPCFactionOptions) (CreateNPCFactio
 	if options.SourceId == 0 {
 		return result, fmt.Errorf("no source npc_faction id given")
 	}
-	if options.NPCID == 0 {
-		return result, fmt.Errorf("no sink NPC id given to link")
-	}
 
-	var npcExists int64
-	if err := a.sinkDB.QueryRowContext(a.ctx, "SELECT id FROM npc_types WHERE id = ?", options.NPCID).Scan(&npcExists); err != nil {
-		if err == sql.ErrNoRows {
-			return result, fmt.Errorf("no sink NPC #%d exists to link", options.NPCID)
+	if options.NPCID != 0 {
+		var npcExists int64
+		if err := a.sinkDB.QueryRowContext(a.ctx, "SELECT id FROM npc_types WHERE id = ?", options.NPCID).Scan(&npcExists); err != nil {
+			if err == sql.ErrNoRows {
+				return result, fmt.Errorf("no sink NPC #%d exists to link", options.NPCID)
+			}
+			return result, err
 		}
-		return result, err
 	}
 
 	target := idAlignmentTargets["npc_faction"]
@@ -272,12 +278,16 @@ func (a *App) CreateNPCFaction(options CreateNPCFactionOptions) (CreateNPCFactio
 		}
 	}
 
-	// Link this NPC to the content that now exists — see the function comment on why this always
-	// runs last: relocateRow's own repoint step may have already (harmlessly) redirected NPCID away
-	// from SourceId if it was already dangling there, and this puts it back exactly where it should be.
-	if _, err := tx.ExecContext(a.ctx, "UPDATE npc_types SET npc_faction_id = ? WHERE id = ?", options.SourceId, options.NPCID); err != nil {
-		_ = tx.Rollback()
-		return result, fmt.Errorf("linking NPC #%d to npc_faction #%d: %w", options.NPCID, options.SourceId, err)
+	// Link this NPC to the content that now exists, if one was given — see the function comment on
+	// why this always runs last: relocateRow's own repoint step may have already (harmlessly)
+	// redirected NPCID away from SourceId if it was already dangling there, and this puts it back
+	// exactly where it should be. Skipped entirely when NPCID is 0 (the Factions tab's own
+	// trigger) — nothing to link, this was just "copy the content."
+	if options.NPCID != 0 {
+		if _, err := tx.ExecContext(a.ctx, "UPDATE npc_types SET npc_faction_id = ? WHERE id = ?", options.SourceId, options.NPCID); err != nil {
+			_ = tx.Rollback()
+			return result, fmt.Errorf("linking NPC #%d to npc_faction #%d: %w", options.NPCID, options.SourceId, err)
+		}
 	}
 
 	if err := tx.Commit(); err != nil {

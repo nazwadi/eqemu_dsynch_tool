@@ -7,6 +7,7 @@ import {lootTableIdsForRow} from '../lib/lootHelpers';
 // App.jsx), so lookupLootByNpc only ever needs the row it's handed, not diffRows itself.
 export function useLoot() {
     const [lootSearchFilter, setLootSearchFilter] = useState('')
+    const [lootSearchExact, setLootSearchExact] = useState(false) // exact vs substring match, see lib/searchHelpers.js
     const [lootRawSide, setLootRawSide] = useState('source')
     const [lootRawId, setLootRawId] = useState('')
     const [lootComparison, setLootComparison] = useState(null)
@@ -119,7 +120,7 @@ export function useLoot() {
     }
 
     return {
-        lootSearchFilter, setLootSearchFilter,
+        lootSearchFilter, setLootSearchFilter, lootSearchExact, setLootSearchExact,
         lootRawSide, setLootRawSide,
         lootRawId, setLootRawId,
         lootComparison, lootLoading, lootError,

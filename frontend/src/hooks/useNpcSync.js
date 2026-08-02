@@ -11,6 +11,7 @@ export function useNpcSync({zoneShortName, zoneVersion, zoneIdNumber, excludedNp
     const [diffLoading, setDiffLoading] = useState(false)
     const [diffFilter, setDiffFilter] = useState('all')
     const [npcSearchFilter, setNpcSearchFilter] = useState('') // matches NPC name, see npcRowMatchesSearch()
+    const [npcSearchExact, setNpcSearchExact] = useState(false) // exact vs substring match, see lib/searchHelpers.js
     const [selectedRowKey, setSelectedRowKey] = useState(null)
     const [sortBy, setSortBy] = useState('status')
     const [sortDir, setSortDir] = useState('asc')
@@ -72,7 +73,7 @@ export function useNpcSync({zoneShortName, zoneVersion, zoneIdNumber, excludedNp
     return {
         diffRows, diffLoading,
         diffFilter, setDiffFilter,
-        npcSearchFilter, setNpcSearchFilter,
+        npcSearchFilter, setNpcSearchFilter, npcSearchExact, setNpcSearchExact,
         selectedRowKey, setSelectedRowKey,
         sortBy, setSortBy, sortDir, setSortDir,
         selectedNpc, setSelectedNpc,

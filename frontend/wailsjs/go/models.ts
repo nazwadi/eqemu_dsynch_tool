@@ -857,6 +857,96 @@ export namespace main {
 		    return a;
 		}
 	}
+	export class NPCFactionUsage {
+	    NPCID: number;
+	    NPCName: string;
+	    Zones: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new NPCFactionUsage(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.NPCID = source["NPCID"];
+	        this.NPCName = source["NPCName"];
+	        this.Zones = source["Zones"];
+	    }
+	}
+	export class NPCFactionEntryDetail {
+	    FactionID: number;
+	    FactionName: string;
+	    Value: number;
+	    NPCValue: number;
+	    Temp: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new NPCFactionEntryDetail(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.FactionID = source["FactionID"];
+	        this.FactionName = source["FactionName"];
+	        this.Value = source["Value"];
+	        this.NPCValue = source["NPCValue"];
+	        this.Temp = source["Temp"];
+	    }
+	}
+	export class NPCFactionDetail {
+	    Id: number;
+	    Fields: Record<string, any>;
+	    Entries: NPCFactionEntryDetail[];
+	    UsedBy: NPCFactionUsage[];
+	
+	    static createFrom(source: any = {}) {
+	        return new NPCFactionDetail(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.Id = source["Id"];
+	        this.Fields = source["Fields"];
+	        this.Entries = this.convertValues(source["Entries"], NPCFactionEntryDetail);
+	        this.UsedBy = this.convertValues(source["UsedBy"], NPCFactionUsage);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
+	
+	export class NPCFactionListEntry {
+	    Id: number;
+	    Name: string;
+	    EntryCount: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new NPCFactionListEntry(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.Id = source["Id"];
+	        this.Name = source["Name"];
+	        this.EntryCount = source["EntryCount"];
+	    }
+	}
 	
 	export class NPCLootComparison {
 	    SourceId: number;

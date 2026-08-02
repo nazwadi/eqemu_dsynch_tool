@@ -1,5 +1,6 @@
 import {useState} from 'react';
 import {lootDropEntryFieldNames, lootItemSetDiff, lootNpcMatchesSearch, lootTableFieldNames} from '../lib/lootHelpers';
+import ExactMatchToggle from './ExactMatchToggle';
 
 // Small "align to source" link — cyan like the app's other inline action links ("Select all N →",
 // "Sync spawngroup from source →"), armed state shown as a filled dot so a mid-pairing click is
@@ -260,7 +261,7 @@ function LootTableColumn({label, dbName, table, lookedUp, armedDropId, onArmDrop
 // merchant before any of them got here.
 function LootTab({
     diffRows,
-    lootSearchFilter, setLootSearchFilter,
+    lootSearchFilter, setLootSearchFilter, lootSearchExact, setLootSearchExact,
     lootRawSide, setLootRawSide, lootRawId, setLootRawId,
     lootComparison, lootLoading, lootError,
     onSelectNpc, onLookupRawId, onRefresh,
@@ -273,7 +274,7 @@ function LootTab({
     // the list; an empty box just shows everything, sorted, the same "full list + optional
     // filter" shape the NPCs tab and the zone sidebar already use.
     const npcOptions = diffRows
-        .filter(row => lootNpcMatchesSearch(row, lootSearchFilter))
+        .filter(row => lootNpcMatchesSearch(row, lootSearchFilter, lootSearchExact))
         .sort((a, b) => (a.Source?.Fields?.name ?? a.Sink?.Fields?.name ?? '')
             .localeCompare(b.Source?.Fields?.name ?? b.Sink?.Fields?.name ?? ''))
 
@@ -310,6 +311,7 @@ function LootTab({
                     value={lootSearchFilter}
                     onChange={e => setLootSearchFilter(e.target.value)}
                     autoCapitalize="off" autoCorrect="off" spellCheck={false}/>
+                <ExactMatchToggle checked={lootSearchExact} onChange={setLootSearchExact}/>
                 <div className="w-px h-4 bg-gray-700"/>
                 <span className="text-xs text-gray-500">or loot table ID:</span>
                 <select

@@ -279,6 +279,228 @@ func resolveFactionNames(ctx context.Context, db *sql.DB, entries []map[string]i
 	return names, rows.Err()
 }
 
+// NPCFactionListEntry is one row in the database-wide npc_faction browse list — id, name, and
+// entry count only, cheap enough to fetch for every row in a single query. Backs the Factions
+// tab's two independent columns (see ListNPCFactions) — deliberately NOT anchored to any zone or
+// NPC, and deliberately NOT paired against the other side here: npc_faction.id is a local
+// surrogate (it's one of idAlignmentTargets' own targets specifically because it isn't portable),
+// and even the NPC that would normally anchor a cross-database match (npc_types.id) turned out not
+// to be reliably portable either (confirmed against real source/sink data, 2026-08-02) — so unlike
+// every other diff list in this app, there is no signal left to auto-match by. Source and sink
+// lists are independent by construction, the same restraint NPCLootComparison's two unpaired
+// lootdrop trees already established: the user recognizes a match by name/content and arms it
+// manually (AlignId), this app doesn't guess at the correspondence.
+type NPCFactionListEntry struct {
+	Id         int64
+	Name       string
+	EntryCount int
+}
+
+// ListNPCFactions fetches every npc_faction row on one side, with its own entry count — the
+// Factions tab's whole-database browse list. See NPCFactionListEntry's own comment for why this
+// returns one side's list independently rather than any kind of paired/diffed result.
+//
+// Deliberately does NOT also compute a per-row NPC usage count here, even though that's a natural
+// companion to EntryCount — real, shipped performance bug, found immediately after shipping
+// (2026-08-02): npc_faction_entries.npc_faction_id is indexed (leading column of its own PRIMARY
+// KEY), so EntryCount's correlated subquery is cheap, but npc_types.npc_faction_id has NO index at
+// all. A "how many npc_types rows reference this id" subquery run once per npc_faction row (~1,600
+// rows on the database this was checked against) meant ~1,600 full scans of npc_types (~21,000
+// rows) — about 35 million row scans just to paint the list, on both databases, which is what made
+// the tab appear to hang. NPC usage (GetNPCFactionDetail's UsedBy list) stays exactly where it
+// already was: fetched lazily, only for the one row a user actually expands — that was always fast
+// specifically because it's bounded to one id at a time, never the whole list at once. The lesson
+// generalizes: an eager per-row aggregate over an unindexed foreign key is a real cost, not a free
+// upgrade, even when the underlying single-row query is fast in isolation.
+func (a *App) ListNPCFactions(isSource bool) ([]NPCFactionListEntry, error) {
+	db := a.sinkDB
+	if isSource {
+		db = a.sourceDB
+	}
+	if db == nil {
+		return nil, fmt.Errorf("database not connected")
+	}
+	rows, err := db.QueryContext(a.ctx,
+		"SELECT nf.id, nf.name, "+
+			"(SELECT COUNT(*) FROM npc_faction_entries nfe WHERE nfe.npc_faction_id = nf.id) "+
+			"FROM npc_faction nf ORDER BY nf.name",
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var list []NPCFactionListEntry
+	for rows.Next() {
+		var e NPCFactionListEntry
+		var name sql.NullString
+		if err := rows.Scan(&e.Id, &name, &e.EntryCount); err != nil {
+			return nil, err
+		}
+		e.Name = name.String
+		list = append(list, e)
+	}
+	return list, rows.Err()
+}
+
+// NPCFactionEntryDetail is one faction_id row from npc_faction_entries, one-sided — the Factions
+// tab's inline row-expansion content, plain content rather than a source-vs-sink diff (there's no
+// "other side" to diff against here; see NPCFactionListEntry for why the two sides are never
+// paired at this level).
+type NPCFactionEntryDetail struct {
+	FactionID   int64
+	FactionName string
+	Value       int64
+	NPCValue    int64
+	Temp        int64
+}
+
+// NPCFactionDetail is one npc_faction row's own fields plus its full entries, one-sided — the
+// Factions tab's raw-ID lookup, necessarily one-sided the same way GetLootTable's is: npc_faction.id
+// only means something on the database it came from.
+// NPCFactionUsage is one NPC referencing a given npc_faction row, plus every zone/version that NPC
+// has a real spawn2 presence in — the concrete "why does this exist" signal (added 2026-08-02,
+// direct response to "I can see source has 7 Trakanon%-named factions and sink has 1, but I can't
+// tell why — seeing what NPCs/zones are associated would give me insight"). Zones is via the same
+// spawnentry->spawngroup->spawn2 chain getSpawnPointsForZone already walks, batched across every
+// referencing NPC in one query rather than one query per NPC. Empty Zones means a quest-spawned NPC
+// (no static spawn point anywhere) or one with no spawn2 presence in this database at all — shown
+// as such, not guessed at via the zoneIdNumber-range convention; that's a discovery heuristic for a
+// different problem (see GetNPCsForZone), not something to assert as fact here.
+type NPCFactionUsage struct {
+	NPCID   int64
+	NPCName string
+	Zones   []string // "short_name (vN)" for every zone/version this NPC has a real spawn2 row in
+}
+
+// fetchNPCFactionUsage finds every NPC referencing npcFactionId on one database, then batches a
+// second query to find every zone/version each of those NPCs actually spawns in. Two queries
+// regardless of how many NPCs reference the faction, mirroring getSpawnPointsForZone's own
+// "batch, don't loop" discipline.
+func fetchNPCFactionUsage(ctx context.Context, db *sql.DB, npcFactionId int64) ([]NPCFactionUsage, error) {
+	npcRows, err := db.QueryContext(ctx, "SELECT id, name FROM npc_types WHERE npc_faction_id = ? ORDER BY name", npcFactionId)
+	if err != nil {
+		return nil, err
+	}
+	var usage []NPCFactionUsage
+	ids := make(map[int64]bool)
+	for npcRows.Next() {
+		var u NPCFactionUsage
+		if err := npcRows.Scan(&u.NPCID, &u.NPCName); err != nil {
+			_ = npcRows.Close()
+			return nil, err
+		}
+		usage = append(usage, u)
+		ids[u.NPCID] = true
+	}
+	if err := npcRows.Err(); err != nil {
+		_ = npcRows.Close()
+		return nil, err
+	}
+	_ = npcRows.Close()
+	if len(usage) == 0 {
+		return nil, nil
+	}
+
+	idList := make([]int64, 0, len(ids))
+	for id := range ids {
+		idList = append(idList, id)
+	}
+	placeholders, args := inClausePlaceholders(idList)
+	zoneRows, err := db.QueryContext(ctx,
+		"SELECT DISTINCT se.npcID, s.zone, s.version FROM spawnentry se "+
+			"JOIN spawngroup sg ON sg.id = se.spawngroupID "+
+			"JOIN spawn2 s ON s.spawngroupID = sg.id "+
+			"WHERE se.npcID IN ("+placeholders+")",
+		args...,
+	)
+	if err != nil {
+		return nil, err
+	}
+	zonesByNpc := make(map[int64][]string)
+	for zoneRows.Next() {
+		var npcId int64
+		var zone string
+		var version int8
+		if err := zoneRows.Scan(&npcId, &zone, &version); err != nil {
+			_ = zoneRows.Close()
+			return nil, err
+		}
+		zonesByNpc[npcId] = append(zonesByNpc[npcId], fmt.Sprintf("%s (v%d)", zone, version))
+	}
+	if err := zoneRows.Err(); err != nil {
+		_ = zoneRows.Close()
+		return nil, err
+	}
+	_ = zoneRows.Close()
+
+	for i := range usage {
+		usage[i].Zones = zonesByNpc[usage[i].NPCID]
+	}
+	return usage, nil
+}
+
+type NPCFactionDetail struct {
+	Id      int64
+	Fields  map[string]interface{} // npc_faction header row, minus id
+	Entries []NPCFactionEntryDetail
+	UsedBy  []NPCFactionUsage // every NPC on this side referencing this npc_faction id, see NPCFactionUsage
+}
+
+// GetNPCFactionDetail fetches one npc_faction row's own fields + entries + NPC usage on one side —
+// reuses fetchNPCFactionHeader/fetchNPCFactionEntries/resolveFactionNames exactly as
+// CompareNPCFaction does, just for one side at a time rather than both concurrently, since the
+// Factions tab expands one row (in one column) at a time rather than always fetching both sides
+// together.
+func (a *App) GetNPCFactionDetail(isSource bool, id int64) (NPCFactionDetail, error) {
+	result := NPCFactionDetail{Id: id}
+	db := a.sinkDB
+	if isSource {
+		db = a.sourceDB
+	}
+	if db == nil {
+		return result, fmt.Errorf("database not connected")
+	}
+
+	fields, err := fetchNPCFactionHeader(a.ctx, db, id)
+	if err != nil {
+		return result, err
+	}
+	if fields == nil {
+		return result, fmt.Errorf("no npc_faction #%d on this side", id)
+	}
+	result.Fields = fields
+
+	entries, err := fetchNPCFactionEntries(a.ctx, db, id)
+	if err != nil {
+		return result, err
+	}
+	names, err := resolveFactionNames(a.ctx, db, entries)
+	if err != nil {
+		return result, err
+	}
+	for _, e := range entries {
+		factionId := toInt64(e["faction_id"])
+		result.Entries = append(result.Entries, NPCFactionEntryDetail{
+			FactionID:   factionId,
+			FactionName: names[factionId],
+			Value:       toInt64(e["value"]),
+			NPCValue:    toInt64(e["npc_value"]),
+			Temp:        toInt64(e["temp"]),
+		})
+	}
+	sort.Slice(result.Entries, func(i, j int) bool {
+		return result.Entries[i].FactionID < result.Entries[j].FactionID
+	})
+
+	usage, err := fetchNPCFactionUsage(a.ctx, db, id)
+	if err != nil {
+		return result, err
+	}
+	result.UsedBy = usage
+
+	return result, nil
+}
+
 // CompareNPCSpells fetches the npc_spells header + npc_spells_entries a specific NPC links to on
 // each side, by that side's own raw npc_spells_id — same reasoning as CompareNPCFaction: the NPC
 // itself (already resolved via the portable npc_types.id this whole app is built on) is the

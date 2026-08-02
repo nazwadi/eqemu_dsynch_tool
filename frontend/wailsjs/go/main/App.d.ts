@@ -38,11 +38,15 @@ export function Disconnect(arg1:boolean):Promise<void>;
 
 export function GetLootTable(arg1:boolean,arg2:number):Promise<main.LootTable>;
 
+export function GetNPCFactionDetail(arg1:boolean,arg2:number):Promise<main.NPCFactionDetail>;
+
 export function GetNPCsForZone(arg1:string,arg2:number,arg3:number,arg4:boolean):Promise<Array<main.NPC>>;
 
 export function GetZoneMap(arg1:string,arg2:string):Promise<main.ZoneMap>;
 
 export function GetZones():Promise<Array<main.Zone>>;
+
+export function ListNPCFactions(arg1:boolean):Promise<Array<main.NPCFactionListEntry>>;
 
 export function LoadConfig():Promise<main.Config>;
 

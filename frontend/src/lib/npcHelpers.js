@@ -1,3 +1,5 @@
+import {fieldMatches} from './searchHelpers';
+
 // Field groups for the NPC Detail panel's collapsible sections. Authoritative allowlist (unlike
 // the Spawn Point panel's drift-tolerant Behavior section) since npc_types columns don't drift
 // the same way spawn2 does between schema variants.
@@ -53,12 +55,13 @@ export const referenceNavigationTypes = {
 }
 
 // Mirrors spawnRowMatchesSearch's shape for the NPCs tab — matches either side's name, since a
-// "removed" row only has a Sink name and a "new" row only has a Source one.
-export function npcRowMatchesSearch(row, query) {
+// "removed" row only has a Sink name and a "new" row only has a Source one. exact (added
+// 2026-08-02) switches from substring to exact-equality matching — see lib/searchHelpers.js's
+// fieldMatches for why every search box in this app shares the same toggle.
+export function npcRowMatchesSearch(row, query, exact) {
     if (!query.trim()) return true
     const q = query.trim().toLowerCase()
-    return (row.Source?.Fields?.name ?? '').toLowerCase().includes(q) ||
-        (row.Sink?.Fields?.name ?? '').toLowerCase().includes(q)
+    return fieldMatches(row.Source?.Fields?.name, q, exact) || fieldMatches(row.Sink?.Fields?.name, q, exact)
 }
 
 // A "modified" row can differ purely because of columns the user has chosen to exclude from sync

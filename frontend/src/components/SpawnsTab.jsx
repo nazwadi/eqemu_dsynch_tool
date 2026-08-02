@@ -10,6 +10,7 @@ import {
 } from '../lib/spawnHelpers';
 import {useListArrowKeyNav} from '../hooks/useListArrowKeyNav';
 import SpawnMapView from './SpawnMapView';
+import ExactMatchToggle from './ExactMatchToggle';
 
 // Spawn Points tab body — mirrors NpcsTab's shape (diff list sliding to a sync preview) but with
 // its own sort keys (Status/Spawngroup/Shared), a spawngroup/NPC search filter, and the
@@ -23,7 +24,8 @@ import SpawnMapView from './SpawnMapView';
 // grid's (a spawn2 location is a single point, not a multi-waypoint path).
 function SpawnsTab({
     spawnDiffRows, spawnDiffLoading, spawnDiffFilter, setSpawnDiffFilter,
-    spawnSearchFilter, setSpawnSearchFilter, spawnSortBy, setSpawnSortBy, spawnSortDir, setSpawnSortDir,
+    spawnSearchFilter, setSpawnSearchFilter, spawnSearchExact, setSpawnSearchExact,
+    spawnSortBy, setSpawnSortBy, spawnSortDir, setSpawnSortDir,
     selectableSpawnRows, selectedSpawnKeys, setSelectedSpawnKeys, selectedSpawnRow, setSelectedSpawnRow,
     viewMode, setViewMode, setShowSpawnMapHelp,
     dbSourceName, dbSinkName, selectedZoneShortName,
@@ -35,7 +37,7 @@ function SpawnsTab({
     // was pulled out of the inline .map() call.
     const visibleRows = spawnDiffRows
         .filter(row => spawnDiffFilter === 'all' || row.Status !== 'match')
-        .filter(row => spawnRowMatchesSearch(row, spawnSearchFilter))
+        .filter(row => spawnRowMatchesSearch(row, spawnSearchFilter, spawnSearchExact))
         .sort((a, b) => {
             let result
             if (spawnSortBy === 'spawngroup') {
@@ -87,6 +89,7 @@ function SpawnsTab({
                             value={spawnSearchFilter}
                             onChange={e => setSpawnSearchFilter(e.target.value)}
                             autoCapitalize="off" autoCorrect="off" spellCheck={false}/>
+                        <ExactMatchToggle checked={spawnSearchExact} onChange={setSpawnSearchExact}/>
                         <button
                             onClick={() => setViewMode('list')}
                             className={`text-xs px-3 py-1 rounded border ${viewMode === 'list' ? 'border-yellow-400 text-yellow-400' : 'border-gray-600 text-gray-400 hover:border-gray-400'}`}>

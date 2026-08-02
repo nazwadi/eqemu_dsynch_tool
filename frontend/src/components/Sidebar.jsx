@@ -1,4 +1,6 @@
 import {PickMapsDirectory} from '../../wailsjs/go/main/App';
+import {fieldMatches} from '../lib/searchHelpers';
+import ExactMatchToggle from './ExactMatchToggle';
 
 // Status → dot color/animation/label, shared by both connection cards below. 'connecting' pulses
 // (the same animate-pulse Tailwind already ships) rather than sitting static green/red — the
@@ -83,8 +85,9 @@ function Sidebar({
     sourceStatus, sourceHost, dbSourceName, sourceSshEnabled, sourceAutoConnect, setSourceAutoConnect, sourceLastError,
     sinkStatus, sinkHost, dbSinkName, sinkSshEnabled, sinkAutoConnect, setSinkAutoConnect, sinkLastError,
     setActiveModal, setConnectError, onDisconnect,
-    searchFilter, setSearchFilter, showSyncPreview, showSpawnSyncPreview,
+    searchFilter, setSearchFilter, zoneSearchExact, setZoneSearchExact, showSyncPreview, showSpawnSyncPreview,
     zones, selectedZoneId, onSelectZone, width,
+    zoneListRelevant = true,
     mapsDirectory, setMapsDirectory
 }) {
     const locked = showSyncPreview || showSpawnSyncPreview
@@ -141,26 +144,34 @@ function Sidebar({
                     Browse…
                 </button>
             </div>
-            <div
-                className="px-3 py-2 text-xs font-medium text-gray-400 uppercase tracking-wider border-t border-b border-gray-700">
-                Zones
-            </div>
-            <div className="px-3 py-2">
-                <input className="w-full border border-gray-600 bg-gray-700 rounded px-2 py-1 text-sm disabled:opacity-40 disabled:cursor-not-allowed"
-                       placeholder="Filter zones..."
-                       value={searchFilter}
-                       onChange={e => setSearchFilter(e.target.value)}
-                       disabled={locked}
-                       autoCapitalize="off" autoCorrect="off" spellCheck={false}/>
-            </div>
-            <div className="overflow-y-auto flex-1 pl-2 pt-2">
-                <div className="overflow-y-auto">
+            {/* Dimmed (not disabled — see the header comment on zoneListRelevant) rather than
+                hidden while on a zone-independent tab (currently just Factions): selecting a zone
+                here is still harmless and even useful, since it's ready the moment you switch back
+                to a zone-scoped tab, but the visual weight should say "not what you're looking at
+                right now," the same signal App.jsx's persistent header gives by swapping its own
+                zone name out on that tab. */}
+            <div className={`flex-1 flex flex-col min-h-0 ${zoneListRelevant ? '' : 'opacity-40'}`}>
+                <div
+                    className="px-3 py-2 text-xs font-medium text-gray-400 uppercase tracking-wider border-t border-b border-gray-700">
+                    Zones{!zoneListRelevant && <span className="text-gray-600 normal-case tracking-normal"> (not used on this tab)</span>}
+                </div>
+                <div className="px-3 py-2 flex items-center gap-2">
+                    <input className="flex-1 min-w-0 border border-gray-600 bg-gray-700 rounded px-2 py-1 text-sm disabled:opacity-40 disabled:cursor-not-allowed"
+                           placeholder="Filter zones..."
+                           value={searchFilter}
+                           onChange={e => setSearchFilter(e.target.value)}
+                           disabled={locked}
+                           autoCapitalize="off" autoCorrect="off" spellCheck={false}/>
+                    <ExactMatchToggle checked={zoneSearchExact} onChange={setZoneSearchExact}/>
+                </div>
+                <div className="overflow-y-auto flex-1 pl-2 pt-2">
                     <ul>
                         {zones
-                            .filter(zone =>
-                                zone.ShortName.toLowerCase().includes(searchFilter.toLowerCase()) ||
-                                zone.LongName.toLowerCase().includes(searchFilter.toLowerCase())
-                            )
+                            .filter(zone => {
+                                const q = searchFilter.trim().toLowerCase()
+                                if (!q) return true
+                                return fieldMatches(zone.ShortName, q, zoneSearchExact) || fieldMatches(zone.LongName, q, zoneSearchExact)
+                            })
                             .map(zone => (
                                 <li
                                     onClick={() => {
