@@ -317,6 +317,24 @@ func runParallel(fns ...func() error) error {
 	for i, fn := range fns {
 		go func(i int, fn func() error) {
 			defer wg.Done()
+			// Real, shipped bug (found 2026-08-01): several Compare* methods (CompareZones,
+			// CompareSpawns, CompareSpawnGroups, CompareGrids) were missing the standard
+			// "if a.sourceDB/sinkDB == nil" guard every other Compare*/Sync* method has, so
+			// opening one of their tabs while that side was disconnected dereferenced a nil
+			// *sql.DB inside this goroutine — an unrecovered panic in ANY goroutine, not just
+			// the main one, terminates the entire Go process, taking the whole Wails app down
+			// with it (not just failing that one call). Fixed at the source for those four
+			// methods, but this recover is the systemic backstop: it converts a panic in any
+			// fetch pipeline run through runParallel — this bug or a future one — into an
+			// ordinary returned error the frontend's existing .catch() already handles, instead
+			// of a process crash. Every Compare* method fans its source/sink fetch out through
+			// this one function, so this is the one place that backstop covers all of them at
+			// once.
+			defer func() {
+				if r := recover(); r != nil {
+					errs[i] = fmt.Errorf("panic: %v", r)
+				}
+			}()
 			errs[i] = fn()
 		}(i, fn)
 	}

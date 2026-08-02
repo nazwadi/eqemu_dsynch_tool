@@ -147,6 +147,14 @@ func idOutOfZoneRange(id, zoneIdNumber int64) bool {
 // fetch — this view is just a different grouping of the same spawn2/spawngroup/spawnentry data
 // CompareSpawns already pulls, not a second dedicated query.
 func (a *App) CompareSpawnGroups(shortName string, version int8, zoneIdNumber int64) ([]SpawnGroupDiffRow, error) {
+	// See CompareSpawns' identical guard for why this was missing and what it fixes (2026-08-01).
+	if a.sourceDB == nil {
+		return nil, fmt.Errorf("source database not connected")
+	}
+	if a.sinkDB == nil {
+		return nil, fmt.Errorf("sink database not connected")
+	}
+
 	// Each side's fetch+orphan-name-resolve pipeline runs concurrently — same reasoning as
 	// CompareSpawns (which this reuses getSpawnPointsForZone with), see runParallel's own comment.
 	var sourcePoints, sinkPoints []SpawnPoint

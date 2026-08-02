@@ -80,6 +80,9 @@ function GridsTab({
                     </div>
                 </div>
                 {viewMode === 'map' ? (
+                    sourceStatus !== 'connected' || sinkStatus !== 'connected' ? (
+                        <ConnectionNotice sourceStatus={sourceStatus} sinkStatus={sinkStatus}/>
+                    ) : (
                     <div className="flex flex-1 min-h-0 overflow-hidden">
                         <div className="w-52 shrink-0 flex flex-col overflow-y-auto border-r border-gray-700">
                             {zoneMapLoading ? (
@@ -101,6 +104,7 @@ function GridsTab({
                         <ZoneMapView zoneMap={zoneMap} gridDiffRows={gridDiffRows} selectedGridRow={selectedGridRow}
                                      selectedWaypointNumber={selectedWaypointNumber} onSelectWaypoint={onSelectWaypoint}/>
                     </div>
+                    )
                 ) : (
                 <>
 

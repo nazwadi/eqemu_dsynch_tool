@@ -143,6 +143,9 @@ function SpawnsTab({
                     ))}
                 </div>
                 {viewMode === 'map' ? (
+                    sourceStatus !== 'connected' || sinkStatus !== 'connected' ? (
+                        <ConnectionNotice sourceStatus={sourceStatus} sinkStatus={sinkStatus}/>
+                    ) : (
                     <div className="flex flex-1 min-h-0 overflow-hidden">
                         <div className="w-52 shrink-0 flex flex-col overflow-y-auto border-r border-gray-700">
                             {zoneMapLoading ? (
@@ -175,6 +178,7 @@ function SpawnsTab({
                         <SpawnMapView zoneMap={zoneMap} spawnDiffRows={visibleRows} selectedSpawnRow={selectedSpawnRow}
                                       onSelectSpawnRow={setSelectedSpawnRow}/>
                     </div>
+                    )
                 ) : (
                 <>
                 <div className="px-3 py-1 text-xs text-gray-500 border-b border-gray-700 bg-gray-850">

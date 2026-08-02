@@ -89,6 +89,16 @@ func (a *App) GetNPCsForZone(shortName string, version int8, zoneIdNumber int64,
 	if !isSource {
 		db = a.sinkDB
 	}
+	// Not currently called directly from the frontend (only via CompareZones/Sync, both of which
+	// already guard before reaching here) — checked anyway since this is itself an exported,
+	// Wails-bound method, so a future direct call site shouldn't be able to reintroduce the same
+	// nil-*sql.DB panic CompareZones/CompareSpawns/CompareSpawnGroups/CompareGrids just had fixed.
+	if db == nil {
+		if isSource {
+			return nil, fmt.Errorf("source database not connected")
+		}
+		return nil, fmt.Errorf("sink database not connected")
+	}
 	idLow := zoneIdNumber * 1000
 	idHigh := idLow + 1000
 	// Two independently-cheap branches, combined with UNION ALL rather than one query with a
@@ -163,6 +173,14 @@ func (a *App) GetNPCsForZone(shortName string, version int8, zoneIdNumber int64,
 }
 
 func (a *App) CompareZones(shortName string, version int8, zoneIdNumber int64, excludedFields []string) ([]NPCDiffRow, error) {
+	// See CompareSpawns' identical guard for why this was missing and what it fixes (2026-08-01).
+	if a.sourceDB == nil {
+		return nil, fmt.Errorf("source database not connected")
+	}
+	if a.sinkDB == nil {
+		return nil, fmt.Errorf("sink database not connected")
+	}
+
 	// Source and sink are fetched+annotated concurrently — see runParallel's own comment for why.
 	var sourceNpcs, sinkNpcs []NPC
 	err := runParallel(

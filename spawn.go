@@ -124,6 +124,19 @@ func annotatePathgridMissing(points []SpawnPoint, gridIds map[int64]bool) {
 // database's own `grid` rows — grid is keyed by zoneid, not zone.short_name, so it can't be
 // derived from shortName/version the way everything else here is.
 func (a *App) CompareSpawns(shortName string, version int8, zoneIdNumber int64) ([]SpawnDiffRow, error) {
+	// Real, shipped bug (found 2026-08-01): this guard was missing entirely, unlike every other
+	// Compare*/Sync* method — opening the Spawn Points tab while source or sink was disconnected
+	// dereferenced a nil *sql.DB inside the runParallel goroutine below, panicking and crashing
+	// the whole app (see runParallel's own comment for why a goroutine panic is fatal, not just a
+	// failed call). Also fixed for CompareZones/CompareSpawnGroups/CompareGrids, the same age and
+	// shape of oversight in each.
+	if a.sourceDB == nil {
+		return nil, fmt.Errorf("source database not connected")
+	}
+	if a.sinkDB == nil {
+		return nil, fmt.Errorf("sink database not connected")
+	}
+
 	// Each side's full pipeline (fetch spawn2/spawngroup/spawnentry, resolve orphaned entry names
 	// against the OTHER database, fetch this zone's grid ids) runs in its own goroutine — the two
 	// sides never depend on each other's results, only on their own DB handle (always available)

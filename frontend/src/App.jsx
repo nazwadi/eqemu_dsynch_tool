@@ -37,6 +37,7 @@ import ConditionsTab from './components/ConditionsTab';
 import ConditionsHelpDrawer from './components/ConditionsHelpDrawer';
 import DetailPanel from './components/DetailPanel';
 import GlobalProgressBar from './components/GlobalProgressBar';
+import ErrorBoundary from './components/ErrorBoundary';
 import {spawnCoords, spawnRowSelectable, collidingSpawnGroupIds} from './lib/spawnHelpers';
 import {gridRowSelectable} from './lib/gridHelpers';
 import {npcAllFieldNames, npcRowSelectable} from './lib/npcHelpers';
@@ -909,6 +910,11 @@ function App() {
                         the detail panel is rendered inside this row. */}
                     <div className="flex flex-1 min-h-0">
                     <div id="input" className="w-1/2 flex flex-1 flex-col overflow-hidden">
+                    {/* Isolates a render crash in whichever tab is active from the sidebar, header,
+                        and the detail panel alongside it — see ErrorBoundary.jsx's own comment.
+                        resetKey re-mounts (clearing any caught error) whenever the active tab
+                        itself changes, so switching away and back is the recovery path. */}
+                    <ErrorBoundary resetKey={`${activeView}:${spawnsSubView}`}>
                     {/* Sliding content area (NPCs tab) */}
                     {activeView === 'npcs' && (
                         <NpcsTab
@@ -1045,6 +1051,7 @@ function App() {
                             setShowConditionsHelp={setShowConditionsHelp}
                         />
                     )}
+                    </ErrorBoundary>
                     </div>
                     {/* Drag handle + detail panel are omitted entirely on the TODO, Loot, and
                         Conditions sub-tab — none of the three has corresponding detail-panel content
@@ -1076,7 +1083,11 @@ function App() {
                                     window.addEventListener('mouseup', onMouseUp)
                                 }}
                             />
-                            {/* Detail panel (NPC / Spawn Point / Grid, depending on active tab) */}
+                            {/* Detail panel (NPC / Spawn Point / Grid, depending on active tab) —
+                                own ErrorBoundary, separate from the tab content's above, so a
+                                crash here doesn't also take out the (unrelated) diff list next
+                                to it, and vice versa. */}
+                            <ErrorBoundary resetKey={detailPanelView}>
                             <DetailPanel
                                 activeView={detailPanelView} setShowSpawnHelp={setShowSpawnHelp} detailWidth={uiPrefs.detailWidth}
                                 setShowNpcHelp={setShowNpcHelp} setShowSpawngroupHelp={setShowSpawngroupHelp}
@@ -1097,6 +1108,7 @@ function App() {
                                 onInspectLoot={jumpToLoot}
                                 expandedSections={expandedSections} setExpandedSections={setExpandedSections}
                             />
+                            </ErrorBoundary>
                         </>
                     )}
                     </div>
