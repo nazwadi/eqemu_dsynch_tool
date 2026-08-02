@@ -65,6 +65,10 @@ function SpawngroupsTab({
             </div>
             {sourceStatus !== 'connected' || sinkStatus !== 'connected' ? (
                 <ConnectionNotice sourceStatus={sourceStatus} sinkStatus={sinkStatus}/>
+            ) : !selectedZoneShortName ? (
+                <div className="flex-1 flex items-center justify-center text-gray-600 text-sm">
+                    Select a zone to view its spawngroups
+                </div>
             ) : spawnGroupDiffLoading ? (
                 <div className="flex-1 flex items-center justify-center text-gray-500 text-sm">
                     Loading spawngroups…

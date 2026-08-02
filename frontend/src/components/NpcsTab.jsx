@@ -232,6 +232,10 @@ function NpcsTab({
                 {/*Diff List of NPCs*/}
                 {sourceStatus !== 'connected' || sinkStatus !== 'connected' ? (
                     <ConnectionNotice sourceStatus={sourceStatus} sinkStatus={sinkStatus}/>
+                ) : !selectedZoneShortName ? (
+                    <div className="flex-1 flex items-center justify-center text-gray-600 text-sm">
+                        Select a zone to view its NPCs
+                    </div>
                 ) : diffLoading ? (
                     <div className="flex-1 flex items-center justify-center text-gray-500 text-sm">
                         Loading NPCs…

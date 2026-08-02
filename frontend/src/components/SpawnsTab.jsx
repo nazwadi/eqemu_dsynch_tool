@@ -148,7 +148,9 @@ function SpawnsTab({
                     ) : (
                     <div className="flex flex-1 min-h-0 overflow-hidden">
                         <div className="w-52 shrink-0 flex flex-col overflow-y-auto border-r border-gray-700">
-                            {zoneMapLoading ? (
+                            {!selectedZoneShortName ? (
+                                <div className="p-2 text-xs text-gray-600">Select a zone to view its spawn points.</div>
+                            ) : zoneMapLoading ? (
                                 <div className="p-2 text-xs text-gray-500">Loading map…</div>
                             ) : spawnDiffRows.length === 0 ? (
                                 <div className="p-2 text-xs text-gray-600">No spawn points in this zone to plot.</div>
@@ -208,6 +210,10 @@ function SpawnsTab({
                 {/*Diff List of Spawn Points*/}
                 {sourceStatus !== 'connected' || sinkStatus !== 'connected' ? (
                     <ConnectionNotice sourceStatus={sourceStatus} sinkStatus={sinkStatus}/>
+                ) : !selectedZoneShortName ? (
+                    <div className="flex-1 flex items-center justify-center text-gray-600 text-sm">
+                        Select a zone to view its spawn points
+                    </div>
                 ) : spawnDiffLoading ? (
                     <div className="flex-1 flex items-center justify-center text-gray-500 text-sm">
                         Loading spawn points…

@@ -85,7 +85,9 @@ function GridsTab({
                     ) : (
                     <div className="flex flex-1 min-h-0 overflow-hidden">
                         <div className="w-52 shrink-0 flex flex-col overflow-y-auto border-r border-gray-700">
-                            {zoneMapLoading ? (
+                            {!selectedZoneShortName ? (
+                                <div className="p-2 text-xs text-gray-600">Select a zone to view its grids.</div>
+                            ) : zoneMapLoading ? (
                                 <div className="p-2 text-xs text-gray-500">Loading map…</div>
                             ) : gridDiffRows.filter(row => row.Source).length === 0 ? (
                                 <div className="p-2 text-xs text-gray-600">No source grids in this zone to plot.</div>
@@ -135,6 +137,10 @@ function GridsTab({
                 {/*Diff List of Grids*/}
                 {sourceStatus !== 'connected' || sinkStatus !== 'connected' ? (
                     <ConnectionNotice sourceStatus={sourceStatus} sinkStatus={sinkStatus}/>
+                ) : !selectedZoneShortName ? (
+                    <div className="flex-1 flex items-center justify-center text-gray-600 text-sm">
+                        Select a zone to view its grids
+                    </div>
                 ) : gridDiffLoading ? (
                     <div className="flex-1 flex items-center justify-center text-gray-500 text-sm">
                         Loading grids…
