@@ -98,6 +98,10 @@ export function LoadConfig() {
   return window['go']['main']['App']['LoadConfig']();
 }
 
+export function LoadLootReviewMarks() {
+  return window['go']['main']['App']['LoadLootReviewMarks']();
+}
+
 export function LoadTODOItems() {
   return window['go']['main']['App']['LoadTODOItems']();
 }
@@ -120,6 +124,10 @@ export function RelocateSpawnGroups(arg1) {
 
 export function SaveConfig(arg1) {
   return window['go']['main']['App']['SaveConfig'](arg1);
+}
+
+export function SetLootReviewMark(arg1, arg2, arg3, arg4) {
+  return window['go']['main']['App']['SetLootReviewMark'](arg1, arg2, arg3, arg4);
 }
 
 export function SetTODOItemDismissed(arg1, arg2) {

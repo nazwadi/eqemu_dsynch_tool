@@ -441,6 +441,17 @@ function App() {
         .filter(npcRowSelectable)
     const zoneTodoItems = todo.todoItems.filter(t => t.ZoneName === selectedZoneShortName && t.ZoneVersion === selectedZoneVersion)
     const openZoneTodoCount = zoneTodoItems.filter(t => !t.Dismissed).length
+    // Loot tab's "mark complete" set, scoped to the current zone the same way zoneTodoItems is —
+    // see useLoot.js's lootReviewMarks for why this loads once across every zone and gets filtered
+    // here rather than being fetched per zone.
+    const zoneLootReviewedIds = new Set(
+        loot.lootReviewMarks
+            .filter(m => m.ZoneShortName === selectedZoneShortName && m.ZoneVersion === selectedZoneVersion)
+            .map(m => m.NPCID)
+    )
+    function toggleLootReviewedInZone(npcId, reviewed) {
+        loot.toggleLootReviewed(selectedZoneShortName, selectedZoneVersion, npcId, reviewed)
+    }
     const spawnNewCount = spawnSync.spawnDiffRows?.filter(r => r.Status === 'new').length
     const spawnModifiedCount = spawnSync.spawnDiffRows?.filter(r => r.Status === 'modified').length
     const spawnRemovedCount = spawnSync.spawnDiffRows?.filter(r => r.Status === 'removed').length
@@ -1006,9 +1017,13 @@ function App() {
                             diffRows={npcSync.diffRows}
                             lootSearchFilter={loot.lootSearchFilter} setLootSearchFilter={loot.setLootSearchFilter}
                             lootSearchExact={loot.lootSearchExact} setLootSearchExact={loot.setLootSearchExact}
+                            lootSortBy={loot.lootSortBy} setLootSortBy={loot.setLootSortBy}
+                            lootSortDir={loot.lootSortDir} setLootSortDir={loot.setLootSortDir}
                             lootRawSide={loot.lootRawSide} setLootRawSide={loot.setLootRawSide}
                             lootRawId={loot.lootRawId} setLootRawId={loot.setLootRawId}
                             lootComparison={loot.lootComparison} lootLoading={loot.lootLoading} lootError={loot.lootError}
+                            selectedNpcId={loot.selectedNpcId}
+                            reviewedNpcIds={zoneLootReviewedIds} onToggleReviewed={toggleLootReviewedInZone}
                             onSelectNpc={loot.lookupLootByNpc} onLookupRawId={loot.lookupLootByRawId} onRefresh={loot.refreshLoot}
                             dbSourceName={connections.dbSourceName} dbSinkName={connections.dbSinkName}
                             sourceStatus={connections.sourceStatus} sinkStatus={connections.sinkStatus}

@@ -636,6 +636,22 @@ export namespace main {
 		}
 	}
 	
+	export class LootReviewMark {
+	    ZoneShortName: string;
+	    ZoneVersion: number;
+	    NPCID: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new LootReviewMark(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.ZoneShortName = source["ZoneShortName"];
+	        this.ZoneVersion = source["ZoneVersion"];
+	        this.NPCID = source["NPCID"];
+	    }
+	}
 	export class LootTableEntry {
 	    LootDropId: number;
 	    Fields: Record<string, any>;

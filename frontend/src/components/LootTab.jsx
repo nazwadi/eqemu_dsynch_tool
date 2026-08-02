@@ -1,7 +1,18 @@
-import {useState} from 'react';
-import {lootDropEntryFieldNames, lootItemSetDiff, lootNpcMatchesSearch, lootTableFieldNames} from '../lib/lootHelpers';
+import {useEffect, useRef, useState} from 'react';
+import {lootDropEntryFieldNames, lootIdMatchStatus, lootItemSetDiff, lootNpcMatchesSearch, lootTableFieldNames} from '../lib/lootHelpers';
+import {statusOrder} from '../lib/constants';
 import ExactMatchToggle from './ExactMatchToggle';
 import ConnectionNotice from './ConnectionNotice';
+import IconLegend from './IconLegend';
+
+// Presentation for lootIdMatchStatus (lib/lootHelpers.js) — kept here rather than in the helper
+// itself, since icon/color choice is a rendering decision, not part of what the status means.
+const lootMatchStatusMeta = {
+    none: {icon: '·', color: 'text-gray-700', label: 'No loot table linked on either side'},
+    match: {icon: '●', color: 'text-green-500', label: 'Same loottable_id on both sides — id match only, not a guarantee the content itself is identical'},
+    mismatch: {icon: '●', color: 'text-amber-400', label: 'Different loottable_id on each side — needs alignment'},
+    'one-sided': {icon: '●', color: 'text-red-400', label: 'Loot table linked on only one side'}
+}
 
 // Small "align to source" link — cyan like the app's other inline action links ("Select all N →",
 // "Sync spawngroup from source →"), armed state shown as a filled dot so a mid-pairing click is
@@ -263,8 +274,10 @@ function LootTableColumn({label, dbName, table, lookedUp, armedDropId, onArmDrop
 function LootTab({
     diffRows,
     lootSearchFilter, setLootSearchFilter, lootSearchExact, setLootSearchExact,
+    lootSortBy, setLootSortBy, lootSortDir, setLootSortDir,
     lootRawSide, setLootRawSide, lootRawId, setLootRawId,
     lootComparison, lootLoading, lootError,
+    selectedNpcId, reviewedNpcIds, onToggleReviewed,
     onSelectNpc, onLookupRawId, onRefresh,
     dbSourceName, dbSinkName, selectedZoneShortName,
     sourceStatus, sinkStatus,
@@ -274,11 +287,47 @@ function LootTab({
     // Always browsable, not just once you start typing — a dev reviewing a zone they don't have
     // memorized shouldn't have to already know an NPC's name to find it. The search box narrows
     // the list; an empty box just shows everything, sorted, the same "full list + optional
-    // filter" shape the NPCs tab and the zone sidebar already use.
+    // filter" shape the NPCs tab and the zone sidebar already use. Sortable by Status/Name/ID —
+    // the exact same three keys and default ('status') the NPCs tab itself uses, over the same
+    // diffRows data, so a row's relative position here matches where it sat on the NPCs tab
+    // (assuming neither tab's sort has been changed from default) rather than a reshuffled order.
+    // "Hide completed" — a plain view filter over reviewedNpcIds (App.jsx, backed by
+    // lootreview.go), local to this component since it's a transient viewing preference, not
+    // something worth persisting the way the marks themselves are. The currently-selected NPC is
+    // exempted even if marked complete — hiding the row you're actually looking at (e.g. you just
+    // marked it, or jumpToLoot brought you to an already-completed one) would be more confusing
+    // than useful.
+    const [hideCompleted, setHideCompleted] = useState(false)
+    const completedCount = diffRows.filter(row => reviewedNpcIds.has(row.Source?.Id ?? row.Sink?.Id)).length
     const npcOptions = diffRows
         .filter(row => lootNpcMatchesSearch(row, lootSearchFilter, lootSearchExact))
-        .sort((a, b) => (a.Source?.Fields?.name ?? a.Sink?.Fields?.name ?? '')
-            .localeCompare(b.Source?.Fields?.name ?? b.Sink?.Fields?.name ?? ''))
+        .filter(row => {
+            if (!hideCompleted) return true
+            const npcId = row.Source?.Id ?? row.Sink?.Id
+            return npcId === selectedNpcId || !reviewedNpcIds.has(npcId)
+        })
+        .sort((a, b) => {
+            let result
+            if (lootSortBy === 'status') {
+                result = statusOrder[a.Status] - statusOrder[b.Status]
+            } else if (lootSortBy === 'id') {
+                result = (a.Source?.Id ?? a.Sink?.Id ?? 0) - (b.Source?.Id ?? b.Sink?.Id ?? 0)
+            } else {
+                result = (a.Source?.Fields?.name ?? a.Sink?.Fields?.name ?? '')
+                    .localeCompare(b.Source?.Fields?.name ?? b.Sink?.Fields?.name ?? '')
+            }
+            return lootSortDir === 'asc' ? result : result * -1
+        })
+    // Scrolls the currently-selected NPC into view whenever it changes — most importantly right
+    // when jumpToLoot (App.jsx) switches over from the NPCs tab detail panel's loottable_id click,
+    // so the same NPC you were just looking at is immediately visible here too, not something you
+    // have to hunt for by scrolling a long list. Only actually scrolls if it's outside the visible
+    // area (same scrollIntoView({block: 'nearest'}) used by useListArrowKeyNav.js elsewhere).
+    const npcListRef = useRef(null)
+    useEffect(() => {
+        if (selectedNpcId == null) return
+        npcListRef.current?.querySelector(`[data-row-key="${CSS.escape(String(selectedNpcId))}"]`)?.scrollIntoView({block: 'nearest'})
+    }, [selectedNpcId])
 
     // Lootdrop-level alignment pairing — unlike the loottable itself (anchored via the NPC, so
     // both ids are already known), lootdrop.id has no cross-database anchor (see LootTableColumn's
@@ -354,20 +403,75 @@ function LootTab({
             </div>
             {diffRows.length > 0 && (
                 <div className="flex flex-col border-b border-gray-700">
-                    <div className="px-3 py-1 text-xs text-gray-500 border-b border-gray-800">
-                        {npcOptions.length} of {diffRows.length} NPCs — click one to view its loot
+                    {/* Same Status/Name/ID sort row, same styling, as the NPCs tab — see
+                        lootSortBy's own comment for why matching it exactly (not Factions' Name/
+                        ID-only version) matters here specifically. */}
+                    <div className="flex gap-2 px-3 py-1 border-b border-gray-800 bg-gray-850">
+                        {[
+                            {label: 'Status', value: 'status'},
+                            {label: 'Name', value: 'name'},
+                            {label: 'ID', value: 'id'},
+                        ].map(sort => (
+                            <button
+                                key={sort.value}
+                                onClick={() => {
+                                    if (lootSortBy === sort.value) {
+                                        setLootSortDir(lootSortDir === 'asc' ? 'desc' : 'asc')
+                                    } else {
+                                        setLootSortBy(sort.value)
+                                        setLootSortDir('asc')
+                                    }
+                                }}
+                                className={`text-xs px-3 py-1 rounded border ${lootSortBy === sort.value ? 'border-yellow-400 text-yellow-400' : 'border-gray-600 text-gray-400 hover:border-gray-400'}`}>
+                                {sort.label} {lootSortBy === sort.value ? (lootSortDir === 'asc' ? '↑' : '↓') : ''}
+                            </button>
+                        ))}
                     </div>
-                    <div className="flex flex-col max-h-56 overflow-y-auto">
+                    <IconLegend items={[
+                        {icon: <span className={lootMatchStatusMeta.match.color}>●</span>, label: lootMatchStatusMeta.match.label},
+                        {icon: <span className={lootMatchStatusMeta.mismatch.color}>●</span>, label: lootMatchStatusMeta.mismatch.label},
+                        {icon: <span className={lootMatchStatusMeta['one-sided'].color}>●</span>, label: lootMatchStatusMeta['one-sided'].label},
+                        {icon: '☑', label: 'Marked complete — click the checkbox to toggle'}
+                    ]}/>
+                    <div className="flex items-center justify-between px-3 py-1 text-xs text-gray-500 border-b border-gray-800">
+                        <span>
+                            {npcOptions.length} of {diffRows.length} NPCs — click one to view its loot
+                            {completedCount > 0 && ` · ${completedCount} marked complete`}
+                        </span>
+                        {completedCount > 0 && (
+                            <label className="flex items-center gap-1 cursor-pointer shrink-0">
+                                <input type="checkbox" className="accent-yellow-400 cursor-pointer w-3 h-3"
+                                       checked={hideCompleted} onChange={e => setHideCompleted(e.target.checked)}/>
+                                Hide completed
+                            </label>
+                        )}
+                    </div>
+                    <div ref={npcListRef} className="flex flex-col max-h-56 overflow-y-auto">
                         {npcOptions.length === 0 ? (
                             <div className="px-3 py-2 text-xs text-gray-600">No NPCs match "{lootSearchFilter}"</div>
                         ) : npcOptions.map(row => {
                             const npcId = row.Source?.Id ?? row.Sink?.Id
                             const name = row.Source?.Fields?.name ?? row.Sink?.Fields?.name
+                            const selected = selectedNpcId != null && npcId === selectedNpcId
+                            const matchStatus = lootMatchStatusMeta[lootIdMatchStatus(row)]
+                            const reviewed = reviewedNpcIds.has(npcId)
                             return (
-                                <div key={npcId}
-                                     className="flex items-center gap-2 px-3 py-1 text-xs text-gray-300 hover:bg-gray-800 cursor-pointer"
+                                <div key={npcId} data-row-key={npcId}
+                                     className={`flex items-center gap-2 px-3 py-1 text-xs cursor-pointer border-l-2 ${
+                                         selected
+                                             ? 'bg-blue-900/40 border-l-yellow-400 text-yellow-400'
+                                             : 'border-l-transparent text-gray-300 hover:bg-gray-800'
+                                     } ${reviewed && !selected ? 'opacity-50' : ''}`}
                                      onClick={() => onSelectNpc(row)}>
-                                    {name} <span className="text-gray-600">({npcId})</span>
+                                    <input type="checkbox"
+                                           className="accent-green-500 cursor-pointer w-3 h-3 shrink-0"
+                                           checked={reviewed}
+                                           title={reviewed ? "Marked complete — click to unmark" : "Mark this NPC's loot as reviewed/complete"}
+                                           onClick={e => e.stopPropagation()}
+                                           onChange={e => onToggleReviewed(npcId, e.target.checked)}/>
+                                    <span className={`shrink-0 ${matchStatus.color}`} title={matchStatus.label}>{matchStatus.icon}</span>
+                                    <span className={reviewed ? 'line-through' : ''}>{name}</span>
+                                    <span className={selected ? 'text-yellow-600' : 'text-gray-600'}>({npcId})</span>
                                 </div>
                             )
                         })}

@@ -1,18 +1,34 @@
-import {useRef, useState} from 'react';
-import {CompareNPCLoot, GetLootTable} from "../../wailsjs/go/main/App";
+import {useEffect, useRef, useState} from 'react';
+import {CompareNPCLoot, GetLootTable, LoadLootReviewMarks, SetLootReviewMark} from "../../wailsjs/go/main/App";
 import {lootTableIdsForRow} from '../lib/lootHelpers';
 
-// Loot tab state — read-only (phase 1), no bulk selection/diff-list like the other tabs. Fully
-// self-contained: LootTab does its own NPC search off the diffRows prop it's already given (see
-// App.jsx), so lookupLootByNpc only ever needs the row it's handed, not diffRows itself.
+// Loot tab state — read-only (phase 1) for the comparison itself, no bulk selection/diff-list like
+// the other tabs. Fully self-contained: LootTab does its own NPC search off the diffRows prop it's
+// already given (see App.jsx), so lookupLootByNpc only ever needs the row it's handed, not
+// diffRows itself.
 export function useLoot() {
     const [lootSearchFilter, setLootSearchFilter] = useState('')
     const [lootSearchExact, setLootSearchExact] = useState(false) // exact vs substring match, see lib/searchHelpers.js
+    // 'status' | 'name' | 'id' — mirrors the NPCs tab's own Status/Name/ID sort control exactly
+    // (same default, 'status') rather than Factions' Name/ID-only version: the NPC picker here is
+    // the exact same diffRows the NPCs tab shows, so matching its default ordering means a row you
+    // were just looking at on the NPCs tab lands in the same relative position here too, not a
+    // reshuffled one — see LootTab's own comment on jumpToLoot/scroll-into-view for the rest of
+    // that "find the same NPC" story.
+    const [lootSortBy, setLootSortBy] = useState('status')
+    const [lootSortDir, setLootSortDir] = useState('asc')
     const [lootRawSide, setLootRawSide] = useState('source')
     const [lootRawId, setLootRawId] = useState('')
     const [lootComparison, setLootComparison] = useState(null)
     const [lootLoading, setLootLoading] = useState(false)
     const [lootError, setLootError] = useState(null)
+    // Which NPC (npc_types.id) is currently shown in the panes below, so the picker list can keep
+    // that row highlighted — otherwise, once you'd scrolled the list or the comparison finished
+    // loading, there was no way to tell which of the (possibly many, similarly-named) NPCs you'd
+    // actually clicked. Only ever set from the picker itself (lookupLootByNpc); a raw loot table
+    // ID lookup isn't picking a row from this list, so it clears the highlight rather than leaving
+    // a stale/misleading one showing.
+    const [selectedNpcId, setSelectedNpcId] = useState(null)
     // Describes whichever lookup last populated lootComparison — {type: 'npc', sourceId, sinkId}
     // or {type: 'raw', isSource, id} — so refreshLoot() can replay the exact same fetch without
     // needing to re-derive it from the NPC search UI or raw-ID form fields, either of which may
@@ -73,6 +89,7 @@ export function useLoot() {
         const {sourceId, sinkId} = lootTableIdsForRow(row)
         const lookup = {type: 'npc', sourceId, sinkId}
         setLastLookup(lookup)
+        setSelectedNpcId(row.Source?.Id ?? row.Sink?.Id ?? null)
         runLookup(lookup)
     }
 
@@ -81,6 +98,7 @@ export function useLoot() {
         if (!id) return
         const lookup = {type: 'raw', isSource: lootRawSide === 'source', id}
         setLastLookup(lookup)
+        setSelectedNpcId(null)
         runLookup(lookup)
     }
 
@@ -117,13 +135,43 @@ export function useLoot() {
         setLootComparison(null)
         setLootError(null)
         setLastLookup(null)
+        setSelectedNpcId(null)
     }
+
+    // "Mark complete" — the user's own review-tracking flag, independent of lootIdMatchStatus
+    // (lib/lootHelpers.js): a mismatched or one-sided loot table might still be deliberately left
+    // that way (reviewed and decided not to touch), and a matching id doesn't itself prove the
+    // content was actually looked at — this is a plain manual "I'm done with this one" marker, not
+    // derived from anything else. Persisted via LoadLootReviewMarks/SetLootReviewMark (lootreview.go)
+    // the same way TODO's dismiss state is, so marks survive an app restart — working through a
+    // zone's full NPC list realistically spans more than one sitting. Loaded once at mount (the
+    // whole small archive, across every zone), same "load once, filter client-side per zone" shape
+    // useTodo.js's todoItems already uses; App.jsx derives the current zone's marked set the same
+    // way it already derives zoneTodoItems.
+    const [lootReviewMarks, setLootReviewMarks] = useState([])
+
+    function refreshLootReviewMarks() {
+        LoadLootReviewMarks().then(marks => setLootReviewMarks(marks ?? [])).catch(err => console.error("load loot review marks failed:", err))
+    }
+
+    function toggleLootReviewed(zoneShortName, zoneVersion, npcId, reviewed) {
+        SetLootReviewMark(zoneShortName, zoneVersion, npcId, reviewed)
+            .then(refreshLootReviewMarks)
+            .catch(err => console.error("toggle loot review mark failed:", err))
+    }
+
+    useEffect(() => {
+        refreshLootReviewMarks()
+    }, [])
 
     return {
         lootSearchFilter, setLootSearchFilter, lootSearchExact, setLootSearchExact,
+        lootSortBy, setLootSortBy, lootSortDir, setLootSortDir,
         lootRawSide, setLootRawSide,
         lootRawId, setLootRawId,
         lootComparison, lootLoading, lootError,
+        selectedNpcId,
+        lootReviewMarks, toggleLootReviewed,
         lookupLootByNpc, lookupLootByRawId, refreshWithIds, refreshLoot,
         resetForZoneChange
     }

@@ -24,6 +24,24 @@ export function lootTableIdsForRow(row) {
     }
 }
 
+// A cheap, at-a-glance signal for the NPC picker list — computed entirely off the loottable_id
+// values already sitting in diffRows (no extra Go call per NPC, which fetching each one's real
+// loot tree just to render a list icon would require). Deliberately an ID-level check only, same
+// as loottableAlignable/loottableSyncable in LootTab.jsx already use for the single selected NPC —
+// "same loottable_id on both sides" is NOT a guarantee the content under that id is actually
+// identical (nothing stops two sides sharing an id while one has since drifted), just that there's
+// nothing here for Align/Sync content to fix. Four states:
+//   'none'      - neither side has a loot table at all — nothing to review
+//   'match'     - both sides have one, same id
+//   'mismatch'  - both sides have one, different ids — Align is the fix
+//   'one-sided' - only one side has a loot table linked at all
+export function lootIdMatchStatus(row) {
+    const {sourceId, sinkId} = lootTableIdsForRow(row)
+    if (sourceId === 0 && sinkId === 0) return 'none'
+    if (sourceId === 0 || sinkId === 0) return 'one-sided'
+    return sourceId === sinkId ? 'match' : 'mismatch'
+}
+
 // LootTable's own fields worth showing, in a soft priority order — mirrors spawnBehaviorFields'
 // drift-tolerant shape (a curated order for the common ones, anything else still shows,
 // alphabetically after) rather than a hardcoded allowlist that could go stale against schema

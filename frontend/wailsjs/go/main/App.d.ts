@@ -50,6 +50,8 @@ export function ListNPCFactions(arg1:boolean):Promise<Array<main.NPCFactionListE
 
 export function LoadConfig():Promise<main.Config>;
 
+export function LoadLootReviewMarks():Promise<Array<main.LootReviewMark>>;
+
 export function LoadTODOItems():Promise<Array<main.TODOItem>>;
 
 export function PickMapsDirectory():Promise<string>;
@@ -61,6 +63,8 @@ export function RelocateSpawnGroup(arg1:main.RelocateSpawnGroupOptions):Promise<
 export function RelocateSpawnGroups(arg1:main.BatchRelocateSpawnGroupsOptions):Promise<main.BatchRelocateSpawnGroupsResult>;
 
 export function SaveConfig(arg1:main.Config):Promise<void>;
+
+export function SetLootReviewMark(arg1:string,arg2:number,arg3:number,arg4:boolean):Promise<void>;
 
 export function SetTODOItemDismissed(arg1:number,arg2:boolean):Promise<void>;
 
